@@ -67,11 +67,24 @@ function HeldImportsContent() {
     queryFn: () => adminHeldImportApi.list({ page, size: PAGE_SIZE }),
   });
 
+  // The panel renders below the counts and the list, out of sight on a phone. Bring it into view
+  // once, after all three have loaded: scrolled on mount, the list then rendered above it and
+  // pushed it back off screen (seen at 375px wide, 2026-11-12).
+  const panelRef = useRef<HTMLDivElement>(null);
+  const scrolledFor = useRef<string | null>(null);
   const detail = useQuery({
     queryKey: ['held-imports-detail', selectedId],
     queryFn: () => adminHeldImportApi.get(selectedId as string),
     enabled: selectedId !== null,
   });
+
+  const everythingLoaded = !summary.isLoading && !list.isLoading && !detail.isLoading;
+  useEffect(() => {
+    if (!selectedId) { scrolledFor.current = null; return; }
+    if (!everythingLoaded || scrolledFor.current === selectedId) return;
+    scrolledFor.current = selectedId;
+    panelRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  }, [selectedId, everythingLoaded]);
 
   /** Both queries, because an action changes the counts as well as the page. */
   function invalidateQueue() {
@@ -233,6 +246,7 @@ function HeldImportsContent() {
       )}
 
       {selectedId && (
+        <div ref={panelRef}>
         <HeldImportDetailPanel
           // Keyed on selectedId, not just conditionally rendered: the table rows stay clickable
           // with the panel open (this isn't a modal), so clicking "Details" on a different row
@@ -248,6 +262,7 @@ function HeldImportsContent() {
           onResolve={(message) => resolve.mutate({ jobId: selectedId, message })}
           onClose={() => { setSelectedId(null); setActionError(null); }}
         />
+        </div>
       )}
     </div>
   );
@@ -288,14 +303,8 @@ function HeldImportDetailPanel({
   // Whether the server's blanked-copy switch is on. The copy is offered to anyone working this
   // queue, not only the admin roles the real document is pinned to: it is blanked.
   const blankedStatus = useQuery({ queryKey: ['blanked-copy-status'], queryFn: adminBlankedCopyApi.status });
-  // The panel renders below the list, out of sight on a phone: bring it into view when it opens.
-  const panelRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    panelRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
-  }, []);
-
   return (
-    <div ref={panelRef} data-testid="held-import-panel" className="bg-card border border-border rounded-xl2 p-4 sm:p-6 space-y-5">
+    <div data-testid="held-import-panel" className="bg-card border border-border rounded-xl2 p-4 sm:p-6 space-y-5">
       <div className="flex items-start justify-between">
         <h2 className="text-lg font-semibold text-ink">Held import</h2>
         <div className="flex items-start gap-3">

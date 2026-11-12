@@ -546,7 +546,10 @@ describe('HeldImports — opened from a hold email', () => {
   });
 
   it('opens that hold\'s details straight away, and brings them into view', async () => {
-    const scrollIntoView = vi.fn();
+    // Whether the list was already on screen when the scroll ran: scrolling before it renders is
+    // undone when the list then pushes the panel down.
+    const listShownAtScroll: boolean[] = [];
+    const scrollIntoView = vi.fn(() => { listShownAtScroll.push(screen.queryByRole('button', { name: 'Details' }) !== null); });
     const original = Element.prototype.scrollIntoView;
     Element.prototype.scrollIntoView = scrollIntoView;
     try {
@@ -555,7 +558,8 @@ describe('HeldImports — opened from a hold email', () => {
       const panel = await screen.findByTestId('held-import-panel');
       expect(adminHeldImportApi.get).toHaveBeenCalledWith(heldRow.id);
       expect(await within(panel).findByText('hdfc-june.pdf')).toBeInTheDocument();
-      expect(scrollIntoView).toHaveBeenCalled();
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledTimes(1));
+      expect(listShownAtScroll).toEqual([true]);
     } finally {
       Element.prototype.scrollIntoView = original;
     }

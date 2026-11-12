@@ -458,7 +458,7 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
             type="button"
             onClick={() => setConfirmingDecision('approve')}
             disabled={busy || resolved}
-            className="rounded-lg bg-primary px-4 py-2.5 sm:px-3 sm:py-1.5 text-sm sm:text-xs font-medium text-on-primary hover:bg-primary-dark disabled:opacity-50"
+            className="rounded-lg bg-primary px-4 py-3 sm:px-3 sm:py-1.5 text-sm sm:text-xs font-medium text-on-primary hover:bg-primary-dark disabled:opacity-50"
           >
             Approve
           </button>
@@ -484,7 +484,7 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
             type="button"
             onClick={() => setConfirmingDecision('reject')}
             disabled={busy || resolved}
-            className="rounded-lg border border-danger text-danger px-4 py-2.5 sm:px-3 sm:py-1.5 text-sm sm:text-xs font-medium disabled:opacity-50"
+            className="rounded-lg border border-danger text-danger px-4 py-3 sm:px-3 sm:py-1.5 text-sm sm:text-xs font-medium disabled:opacity-50"
           >
             Reject
           </button>

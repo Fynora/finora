@@ -15,6 +15,7 @@ import com.finora.repository.HeldStatementRepository;
 import com.finora.repository.ImportJobRepository;
 import com.finora.repository.StatementImportRepository;
 import com.finora.repository.TransactionRepository;
+import com.finora.repository.UserActivityDayRepository;
 import com.finora.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -54,6 +55,7 @@ class AdminOperationalDashboardServiceTest {
     private AdminHealthRegistryService healthRegistryService;
     private HeldStatementRepository heldStatementRepository;
     private ImportJobRepository importJobRepository;
+    private UserActivityDayRepository userActivityDayRepository;
     private AdminOperationalDashboardService service;
 
     @BeforeEach
@@ -67,13 +69,13 @@ class AdminOperationalDashboardServiceTest {
         healthRegistryService = mock(AdminHealthRegistryService.class);
         heldStatementRepository = mock(HeldStatementRepository.class);
         importJobRepository = mock(ImportJobRepository.class);
+        userActivityDayRepository = mock(UserActivityDayRepository.class);
         service = new AdminOperationalDashboardService(userRepository, transactionRepository,
                 statementImportRepository, budgetRepository, goalRepository, auditLogRepository, healthRegistryService,
-                heldStatementRepository, importJobRepository);
+                heldStatementRepository, importJobRepository, userActivityDayRepository);
 
         when(userRepository.countByEmailNot(BootstrapService.BOOTSTRAP_IDENTIFIER)).thenReturn(0L);
-        when(auditLogRepository.countDistinctUsersByActionSince(any(), any())).thenReturn(0L);
-        when(auditLogRepository.countDistinctUsersByActionBetween(any(), any(), any())).thenReturn(0L);
+        when(userActivityDayRepository.countByActivityDate(any())).thenReturn(0L);
         when(transactionRepository.countByCreatedAtAfter(any())).thenReturn(0L);
         when(transactionRepository.countByCreatedAtBetween(any(), any())).thenReturn(0L);
         when(statementImportRepository.countByImportedAtAfter(any())).thenReturn(0L);
@@ -85,7 +87,7 @@ class AdminOperationalDashboardServiceTest {
         when(goalRepository.countDistinctUsersEverActivated()).thenReturn(0L);
         when(userRepository.countByLockedUntilAfter(any())).thenReturn(0L);
         when(userRepository.countByEmailNotAndCreatedAtBetween(any(), any(), any())).thenReturn(0L);
-        when(userRepository.countWithNoAuditActionSince(any(), any(), any())).thenReturn(0L);
+        when(userRepository.countCustomersWithNoActivitySince(any(), any())).thenReturn(0L);
         when(transactionRepository.countByNeedsCategoryReviewTrue()).thenReturn(0L);
         when(transactionRepository.countByIsDuplicateOfIsNotNull()).thenReturn(0L);
         when(auditLogRepository.findAllByOrderByCreatedAtDesc(any(Pageable.class))).thenReturn(Page.empty());
@@ -172,13 +174,14 @@ class AdminOperationalDashboardServiceTest {
     @Test
     void overview_populatesPreviousDayFromTheBetweenVariantQueries_notTheSinceVariantQueries() {
         when(healthRegistryService.platformHealth()).thenReturn(new PlatformHealthDto("UP", List.of()));
-        when(auditLogRepository.countDistinctUsersByActionBetween(any(), any(), any())).thenReturn(7L);
+        LocalDate today = LocalDate.now(ZoneId.of("Asia/Kolkata"));
+        when(userActivityDayRepository.countByActivityDate(today.minusDays(1))).thenReturn(7L);
         when(transactionRepository.countByCreatedAtBetween(any(), any())).thenReturn(41L);
         when(statementImportRepository.countByImportedAtBetween(any(), any())).thenReturn(9L);
         when(statementImportRepository.countWithSkippedRowsBetween(any(), any())).thenReturn(2L);
         // Today's own ("since") counts differ from yesterday's, proving previousDay isn't
         // accidentally re-reporting today's figures under a new name.
-        when(auditLogRepository.countDistinctUsersByActionSince(any(), any())).thenReturn(99L);
+        when(userActivityDayRepository.countByActivityDate(today)).thenReturn(99L);
         when(transactionRepository.countByCreatedAtAfter(any())).thenReturn(99L);
         when(statementImportRepository.countByImportedAtAfter(any())).thenReturn(99L);
         when(statementImportRepository.countWithSkippedRowsAfter(any())).thenReturn(99L);
@@ -195,8 +198,8 @@ class AdminOperationalDashboardServiceTest {
     @Test
     void overview_populatesInactiveUsersLast7Days_fromTheInverseOfActiveUsersQuery() {
         when(healthRegistryService.platformHealth()).thenReturn(new PlatformHealthDto("UP", List.of()));
-        when(userRepository.countWithNoAuditActionSince(eq("USER_LOGIN"), any(), eq("BOOTSTRAP_ADMIN")))
-                .thenReturn(17L);
+        LocalDate cutoff = LocalDate.now(ZoneId.of("Asia/Kolkata")).minusDays(7);
+        when(userRepository.countCustomersWithNoActivitySince(eq(cutoff), any())).thenReturn(17L);
 
         OperationalDashboardDto dto = service.overview();
 
@@ -212,6 +215,16 @@ class AdminOperationalDashboardServiceTest {
         OperationalDashboardDto dto = service.overview();
 
         assertThat(dto.alerts()).isEmpty();
+    }
+
+    @Test
+    void overview_raisesNoAlertForAProviderSwitchedOffOnPurpose() {
+        when(healthRegistryService.platformHealth()).thenReturn(new PlatformHealthDto("UP", List.of(
+                new ProviderStatusDto("Database", "Platform", "UP", "all good"),
+                new ProviderStatusDto("Gmail Sync", "Integrations", "OFF", "Paused on purpose")
+        )));
+
+        assertThat(service.overview().alerts()).isEmpty();
     }
 
     @Test

@@ -68,7 +68,8 @@ export interface SignupSourceCountDto {
 export interface ProviderStatusDto {
   name: string;
   category: string;
-  status: 'UP' | 'DEGRADED' | 'DOWN';
+  /** OFF: switched off on purpose by configuration; never counted as a problem. */
+  status: 'UP' | 'DEGRADED' | 'DOWN' | 'OFF';
   detail: string;
 }
 
@@ -92,7 +93,7 @@ interface IntegrationDto {
   name: string;
   category: string;
   description: string;
-  status: 'UP' | 'DEGRADED' | 'DOWN';
+  status: 'UP' | 'DEGRADED' | 'DOWN' | 'OFF';
   detail: string;
 }
 

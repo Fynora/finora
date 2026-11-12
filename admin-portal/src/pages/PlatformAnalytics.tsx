@@ -31,7 +31,7 @@ function formatCurrency(amount: number) {
  * scoped to CurrentUser, by design -- this has no per-user counterpart to link out to.
  */
 function PlatformAnalyticsContent() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error: loadError } = useQuery({
     queryKey: ['admin-platform-analytics'],
     queryFn: () => adminPlatformAnalyticsApi.get(),
   });
@@ -100,6 +100,7 @@ function PlatformAnalyticsContent() {
           rows={tracking.data?.methods}
           keyFor={(m) => m.method}
           loading={tracking.isLoading}
+          error={tracking.error}
           emptyMessage="No answers yet."
         />
       </div>
@@ -111,6 +112,7 @@ function PlatformAnalyticsContent() {
           rows={data?.topCategories}
           keyFor={(c) => c.categoryName}
           loading={isLoading}
+          error={loadError}
           emptyMessage="No categorized spend recorded on the platform yet."
         />
       </div>
@@ -122,6 +124,7 @@ function PlatformAnalyticsContent() {
           rows={data?.topMerchants}
           keyFor={(m) => m.merchantName}
           loading={isLoading}
+          error={loadError}
           emptyMessage="No merchant spend recorded on the platform yet."
         />
       </div>

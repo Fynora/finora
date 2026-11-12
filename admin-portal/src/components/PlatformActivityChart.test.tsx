@@ -30,4 +30,18 @@ describe('PlatformActivityChart', () => {
     expect(screen.getByText('Aug 22')).toBeInTheDocument();
     expect(screen.queryByText('2026-08-22')).not.toBeInTheDocument();
   });
+
+  // Live bug (2026-11-10): with margin.left -16 and a 32px axis, the labels' right edge sat at
+  // x=8, so "30", "60", "120" were clipped by the SVG edge and every label read "0". Labels are
+  // end-anchored at their x, so x is the room each label has: 28px fits "1,000" at 11px.
+  it('leaves room for multi-digit y-axis labels inside the chart', () => {
+    const big = data.map((d) => ({ ...d, transactions: d.transactions * 100 }));
+    const { container } = render(<PlatformActivityChart data={big} />);
+
+    const ticks = [...container.querySelectorAll('.recharts-yAxis-tick-labels text')];
+    expect(ticks.length).toBeGreaterThan(1);
+    for (const tick of ticks) {
+      expect(Number(tick.getAttribute('x'))).toBeGreaterThanOrEqual(28);
+    }
+  });
 });

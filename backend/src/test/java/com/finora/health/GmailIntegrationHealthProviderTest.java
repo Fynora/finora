@@ -21,9 +21,11 @@ class GmailIntegrationHealthProviderTest {
     }
 
     /** Paused on purpose (GMAIL_SYNC_ENABLED=false) with the credentials still in place: the admin
-     *  card must say "paused", not "not configured", or someone will go hunting for missing keys. */
+     *  card must say "paused", not "not configured", or someone will go hunting for missing keys.
+     *  OFF, not DEGRADED: as DEGRADED it kept the dashboard on "Some systems are degraded" and the
+     *  bell lit for as long as the pause lasted (2026-11-10 audit). */
     @Test
-    void check_reportsDegradedAsPaused_whenSwitchedOffEvenThoughConfigured() {
+    void check_reportsOffAsPaused_whenSwitchedOffEvenThoughConfigured() {
         GoogleOAuthProperties properties = new GoogleOAuthProperties();
         properties.setClientId("client");
         properties.setClientSecret("secret");
@@ -32,7 +34,7 @@ class GmailIntegrationHealthProviderTest {
 
         HealthCheckResult result = new GmailIntegrationHealthProvider(properties).check();
 
-        assertThat(result.status()).isEqualTo(HealthStatus.DEGRADED);
+        assertThat(result.status()).isEqualTo(HealthStatus.OFF);
         assertThat(result.detail()).contains("Paused").contains("GMAIL_SYNC_ENABLED=false")
                 .doesNotContain("Not configured");
     }

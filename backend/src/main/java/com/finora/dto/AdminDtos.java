@@ -79,17 +79,16 @@ public class AdminDtos {
 
     /**
      * The Operational Dashboard's single source of truth -- see AdminOperationalDashboardService's
-     * class comment. activeUsersToday/transactionsToday/importsToday are real "since midnight
-     * UTC" counts, not estimates. importsWithSkippedRowsToday is the honest substitute for
+     * class comment. activeUsersToday/transactionsToday/importsToday are real counts since midnight
+     * in the platform reporting zone (IST by default), not estimates. activeUsersToday counts
+     * customer accounts that used the app that day (user_activity_days), not logins. importsWithSkippedRowsToday is the honest substitute for
      * "failed imports" -- see StatementImportRepository.countWithSkippedRowsAfter()'s doc
      * comment for why this pipeline has no real FAILED signal to report today. health/alerts
      * both come from AdminHealthRegistryService -- exactly one source of truth for "is something
      * wrong," not two that could disagree. inactiveUsersLast7Days is the inverse of
-     * activeUsersToday's own query -- a user who predates the 7-day window with no USER_LOGIN
-     * audit row in it, or none ever (see UserRepository.countWithNoAuditActionSince's own doc
-     * comment for why "predates the window" matters -- without it, a signup from an hour ago
-     * would count as inactive) -- an Insights & Alerts figure, not a daily-reset tile, so it has
-     * no previousDay sibling.
+     * activeUsersToday's source -- a customer account that predates the 7-day window and used the
+     * app on none of its days (see UserRepository.countCustomersWithNoActivitySince) -- an
+     * Insights & Alerts figure, not a daily-reset tile, so it has no previousDay sibling.
      */
     public record OperationalDashboardDto(
             long totalUsers,

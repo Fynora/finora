@@ -7,6 +7,7 @@ import { DataTable, type DataTableColumn } from '../components/DataTable';
 import { FormPanel } from '../components/FormPanel';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { adminBillingOffersApi } from '../api/endpoints';
+import { useAdminAuth } from '../context/AdminAuthContext';
 import type { BillingOfferAdmin, BillingOfferEndResult, BillingOfferPlanOption, BillingOfferState } from '../types';
 import { endOfIstDay, formatIst, formatIstDate, isoToIstInput, istInputToIso, lastIstDayBefore } from '../lib/istTime';
 
@@ -242,6 +243,9 @@ function BillingOffersContent() {
   const [creating, setCreating] = useState(false);
   const [ending, setEnding] = useState<BillingOfferAdmin | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Creating and ending are SUBSCRIPTION_MANAGEMENT_MANAGE on the backend; a view-only admin
+  // used to see both buttons and get a refusal.
+  const canManage = useAdminAuth().hasPermission('SUBSCRIPTION_MANAGEMENT_MANAGE');
 
   const offers = useQuery({ queryKey: ['billing-offers'], queryFn: () => adminBillingOffersApi.list() });
   const plans = useQuery({ queryKey: ['billing-offer-plans'], queryFn: () => adminBillingOffersApi.plans() });
@@ -326,7 +330,7 @@ function BillingOffersContent() {
     {
       header: '',
       render: (o) =>
-        o.state === 'ENDED' ? null : (
+        o.state === 'ENDED' || !canManage ? null : (
           <div className="flex justify-end text-sm">
             <button type="button" className="text-danger hover:underline" onClick={() => setEnding(o)}>
               End now
@@ -343,14 +347,16 @@ function BillingOffersContent() {
           A first-period price on a paid plan for a set time, shown on the pricing card and charged at web checkout.
           All times are India time. Offers are never deleted: ended ones stay here as the record of what was offered.
         </p>
-        <button
-          type="button"
-          onClick={() => { setNotice(null); setCreating(true); }}
-          disabled={!plans.data}
-          className="inline-flex items-center gap-1.5 bg-primary hover:bg-primary-dark text-on-primary text-sm font-semibold rounded-lg px-4 py-2.5 flex-shrink-0 disabled:opacity-50"
-        >
-          <Plus size={15} /> New offer
-        </button>
+        {canManage && (
+          <button
+            type="button"
+            onClick={() => { setNotice(null); setCreating(true); }}
+            disabled={!plans.data}
+            className="inline-flex items-center gap-1.5 bg-primary hover:bg-primary-dark text-on-primary text-sm font-semibold rounded-lg px-4 py-2.5 flex-shrink-0 disabled:opacity-50"
+          >
+            <Plus size={15} /> New offer
+          </button>
+        )}
       </div>
 
       {notice && <p className="text-sm text-ink" role="status">{notice}</p>}

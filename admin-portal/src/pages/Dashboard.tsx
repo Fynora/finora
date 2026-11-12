@@ -19,12 +19,14 @@ import type { AlertDto, ProviderStatusDto, NeedsAttentionDto, ActivationFunnelDt
 const STATUS_DOT: Record<string, string> = {
   UP: 'bg-success',
   DEGRADED: 'bg-warning',
+  OFF: 'bg-border',
   DOWN: 'bg-danger',
 };
 
 const STATUS_TEXT: Record<string, string> = {
   UP: 'text-success',
   DEGRADED: 'text-warning',
+  OFF: 'text-muted',
   DOWN: 'text-danger',
 };
 
@@ -247,7 +249,7 @@ function InactiveUsersCard({ count }: { count: number }) {
       <UserMinus size={18} className="text-muted flex-shrink-0" />
       <div className="min-w-0">
         <p className="text-xs text-muted uppercase tracking-wide">Inactive 7+ days</p>
-        <p className="text-sm font-mono font-semibold text-ink">{count.toLocaleString()} users</p>
+        <p className="text-sm font-mono font-semibold text-ink">{count.toLocaleString()} {count === 1 ? 'user' : 'users'}</p>
       </div>
     </div>
   );
@@ -276,7 +278,7 @@ function DashboardContent() {
   // Shared with AdminLayout's NotificationBell -- same cache entry, one fetch either surface can
   // trigger, both stay in sync. See useDashboardOverview's own doc comment for the permission
   // gating this relies on.
-  const { data, isLoading, dataUpdatedAt, refetch, isFetching } = useDashboardOverview();
+  const { data, isLoading, isError, dataUpdatedAt, refetch, isFetching } = useDashboardOverview();
   // Platform Activity chart -- its own query, not folded into useDashboardOverview, since the
   // 7-day trend costs materially more on the backend and only this page needs it (unlike overview
   // data, which NotificationBell also shares). See useActivityTrend's own doc comment.
@@ -313,8 +315,11 @@ function DashboardContent() {
   });
 
   const overallStatus = data?.health.overallStatus;
+  // No status at all (the overview request failed) is a warning, not the green default: the banner
+  // used to stay green while its text fell through to "A monitored system is down".
+  const statusUnknown = !isLoading && isError && !data;
   const tone: 'success' | 'warning' | 'danger' =
-    overallStatus === 'DOWN' ? 'danger' : overallStatus === 'DEGRADED' ? 'warning' : 'success';
+    overallStatus === 'DOWN' ? 'danger' : overallStatus === 'DEGRADED' || statusUnknown ? 'warning' : 'success';
   const bannerBg = tone === 'success' ? 'bg-success-bg' : tone === 'warning' ? 'bg-warning-bg' : 'bg-danger-bg';
   const bannerText = tone === 'success' ? 'text-success' : tone === 'warning' ? 'text-warning' : 'text-danger';
 
@@ -335,6 +340,7 @@ function DashboardContent() {
               <div className="min-w-0">
                 <p className={`text-sm font-bold ${bannerText}`}>
                   {isLoading ? 'Checking systems…'
+                    : statusUnknown ? "Couldn't check system status. Refresh to try again."
                     : overallStatus === 'UP' ? 'All systems operational'
                     : overallStatus === 'DEGRADED' ? 'Some systems are degraded'
                     : 'A monitored system is down'}
@@ -376,29 +382,29 @@ function DashboardContent() {
         )}
 
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
-          <StatCard icon={Users} label="Total users" value={isLoading ? '…' : data?.totalUsers ?? 0} />
+          <StatCard icon={Users} label="Total users" value={isLoading ? '…' : data?.totalUsers ?? '—'} />
           <StatCard
             icon={UserCheck}
             label="Active today"
-            value={isLoading ? '…' : data?.activeUsersToday ?? 0}
+            value={isLoading ? '…' : data?.activeUsersToday ?? '—'}
             delta={data && computeDelta(data.activeUsersToday, data.previousDay.activeUsers, 'up')}
           />
           <StatCard
             icon={ArrowLeftRight}
             label="Transactions today"
-            value={isLoading ? '…' : data?.transactionsToday ?? 0}
+            value={isLoading ? '…' : data?.transactionsToday ?? '—'}
             delta={data && computeDelta(data.transactionsToday, data.previousDay.transactions, 'up')}
           />
           <StatCard
             icon={FileStack}
             label="Imports today"
-            value={isLoading ? '…' : data?.importsToday ?? 0}
+            value={isLoading ? '…' : data?.importsToday ?? '—'}
             delta={data && computeDelta(data.importsToday, data.previousDay.imports, 'up')}
           />
           <StatCard
             icon={AlertTriangle}
             label="Imports w/ skipped rows"
-            value={isLoading ? '…' : data?.importsWithSkippedRowsToday ?? 0}
+            value={isLoading ? '…' : data?.importsWithSkippedRowsToday ?? '—'}
             tone={(data?.importsWithSkippedRowsToday ?? 0) > 0 ? 'warning' : 'default'}
             delta={data && computeDelta(data.importsWithSkippedRowsToday, data.previousDay.importsWithSkippedRows, 'down')}
           />

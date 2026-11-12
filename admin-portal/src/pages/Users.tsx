@@ -187,7 +187,7 @@ function UsersTable() {
   // shared component and adds a saved-views dropdown, it doesn't change what's filterable.
   const savedViews = useSavedViews<UserFilterValues>('finora-admin-views-users');
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error: loadError } = useQuery({
     queryKey: ['admin-users', q, status, page],
     queryFn: () => adminUsersApi.list({ q: q || undefined, status: status || undefined, page, size: PAGE_SIZE }),
   });
@@ -376,6 +376,7 @@ function UsersTable() {
         rows={data?.content}
         keyFor={(u) => u.id}
         loading={isLoading}
+        error={loadError}
         emptyMessage="No users match this search."
       />
 

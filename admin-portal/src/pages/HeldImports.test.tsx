@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -109,6 +109,20 @@ describe('HeldImports', () => {
 
     expect(screen.getByText(/don't have access to this section/i)).toBeInTheDocument();
     expect(adminHeldImportApi.list).not.toHaveBeenCalled();
+  });
+
+  // Audit 2026-11-10: one click used to re-run every held customer statement.
+  it('asks before reprocessing every held import', async () => {
+    mockAuth(['IMPORT_TRIAGE_MANAGE']);
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Reprocess all' }));
+    expect(adminHeldImportApi.reprocessAll).not.toHaveBeenCalled();
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveTextContent('Reprocess all 3 held imports?');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Reprocess all' }));
+
+    await waitFor(() => expect(adminHeldImportApi.reprocessAll).toHaveBeenCalledTimes(1));
   });
 
   it('lists held statements with the curated failure code', async () => {
@@ -252,6 +266,23 @@ describe('HeldImports', () => {
     await userEvent.click(await screen.findByRole('button', { name: /send and resolve/i }));
 
     expect(await screen.findByText(/only a held import can be resolved/i)).toBeInTheDocument();
+  });
+
+  // Review 2026-11-11: the refusal stayed on screen after the panel closed and another opened.
+  it('clears a refusal when the panel is closed and a held import is opened again', async () => {
+    vi.mocked(adminHeldImportApi.resolve).mockRejectedValue({
+      response: { data: { message: 'Only a held import can be resolved; this one is FAILED.' } },
+    });
+    await openDetail();
+    await userEvent.type(screen.getByLabelText(/message to the user/i), 'Something');
+    await userEvent.click(screen.getByRole('button', { name: /resolve and notify user/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /send and resolve/i }));
+    await screen.findByText(/only a held import can be resolved/i);
+
+    await userEvent.click(screen.getByRole('button', { name: /^close$/i }));
+    await userEvent.click(screen.getByRole('button', { name: /details/i }));
+
+    expect(screen.queryByText(/only a held import can be resolved/i)).not.toBeInTheDocument();
   });
 
   it('describes the queue as failures on our side, not damaged or wrong files', async () => {

@@ -10,6 +10,9 @@ public record HealthCheckResult(HealthStatus status, String detail) {
     public static HealthCheckResult degraded(String detail) {
         return new HealthCheckResult(HealthStatus.DEGRADED, detail);
     }
+    public static HealthCheckResult off(String detail) {
+        return new HealthCheckResult(HealthStatus.OFF, detail);
+    }
     public static HealthCheckResult down(String detail) {
         return new HealthCheckResult(HealthStatus.DOWN, detail);
     }

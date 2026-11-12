@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BadgeCheck, GitMerge, Pencil, Trash2 } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { RequirePermission } from '../components/ProtectedRoute';
 import { DataTable, type DataTableColumn } from '../components/DataTable';
 import { Pagination } from '../components/Pagination';
@@ -34,6 +35,8 @@ function MerchantReviewContent() {
   const [page, setPage] = useState(0);
   const [selected, setSelected] = useState<MerchantReviewItem | null>(null);
   const [renaming, setRenaming] = useState('');
+  const [actionError, setActionError] = useState<string | null>(null);
+  const onActionError = (err: unknown) => setActionError(refusal(err, 'That action could not be completed.'));
   const queryClient = useQueryClient();
 
   const queue = useQuery({
@@ -45,6 +48,7 @@ function MerchantReviewContent() {
   // admin stranded on a now-empty page -- back off to the previous one so the list they land on
   // actually has something in it, same as Pagination.tsx never rendering "Page 2 of 1".
   const refresh = (removedCount = 1) => {
+    setActionError(null);
     setPage((p) => (p > 0 && (queue.data?.content.length ?? 0) <= removedCount ? p - 1 : p));
     void queryClient.invalidateQueries({ queryKey: ['merchant-review'] });
     setSelected(null);
@@ -53,6 +57,7 @@ function MerchantReviewContent() {
   const approve = useMutation({
     mutationFn: (row: MerchantReviewItem) => adminMerchantReviewApi.approve(row.userId, row.id),
     onSuccess: () => refresh(),
+    onError: onActionError,
   });
 
   const approveAll = useMutation({
@@ -60,23 +65,27 @@ function MerchantReviewContent() {
     // approveAll can clear every row on the page belonging to this user, not just one.
     onSuccess: (_data, userId) =>
       refresh(queue.data?.content.filter((row) => row.userId === userId).length ?? 1),
+    onError: onActionError,
   });
 
   const rename = useMutation({
     mutationFn: (vars: { row: MerchantReviewItem; name: string }) =>
       adminMerchantReviewApi.rename(vars.row.userId, vars.row.id, vars.name),
     onSuccess: () => refresh(),
+    onError: onActionError,
   });
 
   const discard = useMutation({
     mutationFn: (row: MerchantReviewItem) => adminMerchantReviewApi.discard(row.userId, row.id),
     onSuccess: () => refresh(),
+    onError: onActionError,
   });
 
   const merge = useMutation({
     mutationFn: (vars: { row: MerchantReviewItem; into: string }) =>
       adminMerchantReviewApi.merge(vars.row.userId, vars.row.id, vars.into),
     onSuccess: () => refresh(),
+    onError: onActionError,
   });
 
   const columns: DataTableColumn<MerchantReviewItem>[] = [
@@ -124,6 +133,8 @@ function MerchantReviewContent() {
             className="text-xs text-primary hover:underline"
             onClick={() => {
               setSelected(row);
+              // An error from another merchant must not show above this one.
+              setActionError(null);
               setRenaming(row.canonicalName);
             }}
           >
@@ -134,8 +145,14 @@ function MerchantReviewContent() {
     },
   ];
 
+  // Shown next to whatever the admin just clicked: above the open panel, else above the list.
+  const alertEl = actionError && (
+    <p role="alert" className="rounded-lg bg-danger-bg px-3 py-2 text-sm text-danger">{actionError}</p>
+  );
+
   return (
     <div className="space-y-6">
+      {!selected && alertEl}
       <p className="text-muted text-sm">
         Merchants the import engine created from descriptions it had not seen before. Approving
         confirms the guess; renaming corrects it; merging folds it into a merchant this account
@@ -147,6 +164,7 @@ function MerchantReviewContent() {
         rows={queue.data?.content ?? []}
         keyFor={(row) => row.id}
         loading={queue.isLoading}
+        error={queue.error}
         emptyMessage="Nothing awaiting review. Every merchant has been confirmed."
       />
 
@@ -160,13 +178,14 @@ function MerchantReviewContent() {
         />
       )}
 
+      {selected && alertEl}
       {selected && (
         <ReviewPanel
           row={selected}
           renaming={renaming}
           setRenaming={setRenaming}
           busy={rename.isPending || discard.isPending || merge.isPending || approveAll.isPending}
-          onClose={() => setSelected(null)}
+          onClose={() => { setSelected(null); setActionError(null); }}
           onRename={() => rename.mutate({ row: selected, name: renaming })}
           onDiscard={() => discard.mutate(selected)}
           onMerge={(into) => merge.mutate({ row: selected, into })}
@@ -175,6 +194,11 @@ function MerchantReviewContent() {
       )}
     </div>
   );
+}
+
+/** The server's own message when it sent one; a refused action used to show nothing at all. */
+function refusal(err: unknown, fallback: string): string {
+  return (err as { response?: { data?: { message?: string } } } | null)?.response?.data?.message ?? fallback;
 }
 
 /**
@@ -210,6 +234,9 @@ function ReviewPanel({
   });
 
   const canDiscard = row.transactionCount === 0;
+  // Both act beyond the one row: discard deletes the merchant, approve-all clears every guess
+  // for this account. Each asks first.
+  const [confirming, setConfirming] = useState<'discard' | 'approveAll' | null>(null);
 
   return (
     <div className="bg-card border border-border rounded-xl2 p-6 space-y-5">
@@ -275,7 +302,7 @@ function ReviewPanel({
         <button
           className="rounded-lg border border-border px-3 py-2 text-sm text-ink disabled:opacity-50"
           disabled={busy}
-          onClick={onApproveAllForUser}
+          onClick={() => setConfirming('approveAll')}
         >
           <BadgeCheck className="inline h-4 w-4 mr-1" /> Approve all for this account
         </button>
@@ -288,7 +315,7 @@ function ReviewPanel({
           <button
             className="rounded-lg border border-danger text-danger px-3 py-2 text-sm disabled:opacity-50"
             disabled={busy}
-            onClick={onDiscard}
+            onClick={() => setConfirming('discard')}
           >
             <Trash2 className="inline h-4 w-4 mr-1" /> Discard
           </button>
@@ -300,6 +327,28 @@ function ReviewPanel({
           </p>
         )}
       </div>
+
+      {confirming === 'approveAll' && (
+        <ConfirmDialog
+          title="Approve every guess for this account?"
+          message={`Every merchant waiting for review for ${row.userEmail ?? 'this account'} is kept as it is, not only ${row.canonicalName}.`}
+          confirmLabel="Approve all"
+          busy={busy}
+          onConfirm={() => { setConfirming(null); onApproveAllForUser(); }}
+          onCancel={() => setConfirming(null)}
+        />
+      )}
+      {confirming === 'discard' && (
+        <ConfirmDialog
+          title={`Discard ${row.canonicalName}?`}
+          message="The merchant is deleted. No transactions point at it, so no ledger row changes."
+          confirmLabel="Discard"
+          danger
+          busy={busy}
+          onConfirm={() => { setConfirming(null); onDiscard(); }}
+          onCancel={() => setConfirming(null)}
+        />
+      )}
     </div>
   );
 }

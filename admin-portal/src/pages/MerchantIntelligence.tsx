@@ -29,7 +29,7 @@ function successRateClassName(rate: number): string {
  * own detail page for the actual rename/merge actions, which stay per-user by design).
  */
 function MerchantIntelligenceContent() {
-  const { data: merchants, isLoading } = useQuery({
+  const { data: merchants, isLoading, error: loadError } = useQuery({
     queryKey: ['admin-merchant-stats'],
     queryFn: () => adminMerchantsApi.platformStats(),
   });
@@ -62,6 +62,7 @@ function MerchantIntelligenceContent() {
         rows={merchants}
         keyFor={(m) => m.canonicalName}
         loading={isLoading}
+        error={loadError}
         emptyMessage="No merchants recorded on the platform yet."
       />
     </div>
@@ -84,7 +85,7 @@ function GmailParserStatsContent() {
     () => new Date(Date.now() - GMAIL_STATS_WINDOW_DAYS * 24 * 60 * 60 * 1000),
     [],
   );
-  const { data: stats, isLoading } = useQuery({
+  const { data: stats, isLoading, error: loadError } = useQuery({
     queryKey: ['admin-gmail-merchant-parser-stats', since.toISOString()],
     queryFn: () => adminMerchantsApi.gmailParserStats(since),
   });
@@ -130,6 +131,7 @@ function GmailParserStatsContent() {
         rows={stats}
         keyFor={(m) => m.domain}
         loading={isLoading}
+        error={loadError}
         emptyMessage={`No Gmail receipts processed in the last ${GMAIL_STATS_WINDOW_DAYS} days.`}
       />
     </div>

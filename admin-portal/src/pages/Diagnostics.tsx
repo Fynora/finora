@@ -22,6 +22,8 @@ function formatUptime(seconds: number) {
 function statusColor(status: string) {
   if (status === 'UP') return 'text-success bg-success-bg';
   if (status === 'DOWN') return 'text-danger bg-danger-bg';
+  // Switched off on purpose (e.g. Gmail sync paused): not a problem, so not amber.
+  if (status === 'OFF') return 'text-muted bg-bg';
   return 'text-warning bg-warning-bg';
 }
 

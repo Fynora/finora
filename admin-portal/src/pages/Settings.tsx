@@ -4,6 +4,7 @@ import { Settings as SettingsIcon, Save, Flag } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { RequirePermission } from '../components/ProtectedRoute';
 import { MfaSection } from '../components/MfaSection';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { platformSettingsApi, adminFeatureFlagsApi } from '../api/endpoints';
 import { useNotify } from '../context/NotificationContext';
 import type { FeatureFlagDto } from '../types';
@@ -14,6 +15,9 @@ import type { FeatureFlagDto } from '../types';
 function FlagRow({ flag }: { flag: FeatureFlagDto }) {
   const queryClient = useQueryClient();
   const notify = useNotify();
+  // A flag changes production for every user the moment it saves, so a stray click on the
+  // switch must not be enough on its own.
+  const [confirming, setConfirming] = useState(false);
 
   const toggleMutation = useMutation({
     mutationFn: (enabled: boolean) => adminFeatureFlagsApi.update(flag.id, { enabled }),
@@ -38,7 +42,7 @@ function FlagRow({ flag }: { flag: FeatureFlagDto }) {
         aria-checked={flag.enabled}
         aria-label={`Toggle ${flag.key}`}
         disabled={toggleMutation.isPending}
-        onClick={() => toggleMutation.mutate(!flag.enabled)}
+        onClick={() => setConfirming(true)}
         className={`w-11 h-6 rounded-full flex-shrink-0 transition-colors relative disabled:opacity-50 ${
           flag.enabled ? 'bg-primary' : 'bg-border'
         }`}
@@ -49,6 +53,17 @@ function FlagRow({ flag }: { flag: FeatureFlagDto }) {
           }`}
         />
       </button>
+      {confirming && (
+        <ConfirmDialog
+          title={`${flag.enabled ? 'Turn off' : 'Turn on'} ${flag.key}?`}
+          message="This changes the live app for every user as soon as it saves."
+          confirmLabel={flag.enabled ? 'Turn off' : 'Turn on'}
+          danger={flag.enabled}
+          busy={toggleMutation.isPending}
+          onConfirm={() => toggleMutation.mutate(!flag.enabled, { onSettled: () => setConfirming(false) })}
+          onCancel={() => setConfirming(false)}
+        />
+      )}
     </div>
   );
 }

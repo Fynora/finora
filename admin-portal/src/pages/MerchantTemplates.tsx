@@ -416,7 +416,7 @@ function MerchantTemplatesContent() {
   const [formError, setFormError] = useState<string | null>(null);
   const [page, setPage] = useState(0);
 
-  const { data: templates, isLoading } = useQuery({
+  const { data: templates, isLoading, error: loadError } = useQuery({
     queryKey: ['admin-merchant-templates', page],
     queryFn: () => adminMerchantTemplatesApi.list(page, PAGE_SIZE),
   });
@@ -593,6 +593,7 @@ function MerchantTemplatesContent() {
         rows={templates?.content ?? []}
         keyFor={(t) => t.id}
         loading={isLoading}
+        error={loadError}
         emptyMessage="No merchant templates yet."
       />
       {templates && (

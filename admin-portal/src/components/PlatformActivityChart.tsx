@@ -16,7 +16,9 @@ function formatDay(date: string) {
 export function PlatformActivityChart({ data }: { data: ActivityTrendPointDto[] }) {
   return (
     <ResponsiveContainer width="100%" height={240}>
-      <LineChart data={data} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
+      {/* left 0 and a 40px axis: a negative left margin pushed the end-anchored y labels past the
+          SVG edge, so "30", "60", "120" were clipped and every label read "0". */}
+      <LineChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
         <CartesianGrid stroke="var(--color-border)" vertical={false} />
         <XAxis
           dataKey="date"
@@ -30,7 +32,7 @@ export function PlatformActivityChart({ data }: { data: ActivityTrendPointDto[] 
           tick={{ fontSize: 11, fill: 'var(--color-muted)' }}
           axisLine={false}
           tickLine={false}
-          width={32}
+          width={40}
         />
         <Tooltip
           labelFormatter={(label) => formatDay(String(label))}

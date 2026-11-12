@@ -132,6 +132,10 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, UUID
      */
     boolean existsBySessionIdAndRevokedAtIsNullAndExpiresAtAfter(UUID sessionId, Instant now);
 
+    /** Whether another token was minted from the same parent: the reuse window answered that
+     *  parent twice. Backs the device list's leftover check (RefreshTokenService#listActiveSessions). */
+    boolean existsByParentTokenIdAndIdNot(UUID parentTokenId, UUID id);
+
     /** AccountPurgeSweepService -- every row already revoked by requestDeletion() by this point;
      *  this removes the residual device/IP labels too. Hard delete, no soft-delete concern. */
     void deleteByUserId(UUID userId);

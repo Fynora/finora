@@ -3,6 +3,7 @@ package com.finora.service;
 import com.finora.config.ClientIpResolver;
 import com.finora.config.JwtProperties;
 import com.finora.entity.RefreshToken;
+import com.finora.entity.SessionKind;
 import com.finora.exception.ApiException;
 import com.finora.observability.AuthMetrics;
 import com.finora.repository.RefreshTokenRepository;
@@ -11,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -41,14 +43,114 @@ class RefreshTokenServiceTest {
         return rt;
     }
 
-    @Test
-    void listActiveSessions_returnsWhatTheRepositoryReturns_forTheGivenUser() {
-        UUID userId = UUID.randomUUID();
-        List<RefreshToken> sessions = List.of(tokenWithId(UUID.randomUUID()), tokenWithId(UUID.randomUUID()));
-        when(refreshTokenRepository.findByUserIdAndRevokedAtIsNullAndExpiresAtAfterOrderByLastSeenAtDesc(eq(userId), any(Instant.class)))
-                .thenReturn(sessions);
+    /** The production limits: web 24 h idle and 30 days, phone 90 days idle and no cap. */
+    private RefreshTokenService serviceWithRealLimits() {
+        JwtProperties limits = new JwtProperties();
+        limits.setIdleTimeoutMs(86_400_000L);
+        limits.setAbsoluteSessionMs(2_592_000_000L);
+        limits.setMobileIdleTimeoutMs(7_776_000_000L);
+        limits.setMobileAbsoluteSessionMs(0);
+        return new RefreshTokenService(refreshTokenRepository, limits, mock(HttpServletRequest.class),
+                mock(ClientIpResolver.class), mock(AuthMetrics.class));
+    }
 
-        assertThat(service.listActiveSessions(userId)).isEqualTo(sessions);
+    /** A live row of {@code session}, created and last seen {@code idle} ago, signed in {@code age} ago. */
+    private RefreshToken row(UUID session, SessionKind kind, Duration idle, Duration age) {
+        RefreshToken rt = tokenWithId(UUID.randomUUID());
+        rt.setSessionId(session);
+        rt.setSessionKind(kind);
+        Instant now = Instant.now();
+        ReflectionTestUtils.setField(rt, "createdAt", now.minus(idle));
+        rt.setLastSeenAt(now.minus(idle));
+        rt.setSessionStartedAt(now.minus(age));
+        return rt;
+    }
+
+    private void repositoryReturns(UUID userId, RefreshToken... rows) {
+        when(refreshTokenRepository.findByUserIdAndRevokedAtIsNullAndExpiresAtAfterOrderByLastSeenAtDesc(eq(userId), any(Instant.class)))
+                .thenReturn(List.of(rows));
+    }
+
+    @Test
+    void listActiveSessions_leavesOutSessionsTheIdleLimitOrTheCapHasAlreadyEnded() {
+        UUID userId = UUID.randomUUID();
+        RefreshToken webToday = row(UUID.randomUUID(), SessionKind.WEB, Duration.ofHours(23), Duration.ofDays(2));
+        RefreshToken webIdle = row(UUID.randomUUID(), SessionKind.WEB, Duration.ofHours(25), Duration.ofDays(2));
+        RefreshToken webPastCap = row(UUID.randomUUID(), SessionKind.WEB, Duration.ofHours(1), Duration.ofDays(31));
+        RefreshToken phone89 = row(UUID.randomUUID(), SessionKind.MOBILE, Duration.ofDays(89), Duration.ofDays(400));
+        RefreshToken phone91 = row(UUID.randomUUID(), SessionKind.MOBILE, Duration.ofDays(91), Duration.ofDays(91));
+        repositoryReturns(userId, webToday, webIdle, webPastCap, phone89, phone91);
+
+        // Exactly the rows rotate() would still honour: 23 h web, and a phone unused 89 days even
+        // though it signed in 400 days ago (phone sessions have no cap).
+        assertThat(serviceWithRealLimits().listActiveSessions(userId)).containsExactly(webToday, phone89);
+    }
+
+    /** Two children of one parent token: what a refresh answered twice inside the reuse window leaves. */
+    private void siblings(RefreshToken... rows) {
+        UUID parent = UUID.randomUUID();
+        for (RefreshToken rt : rows) {
+            rt.setParentTokenId(parent);
+            when(refreshTokenRepository.existsByParentTokenIdAndIdNot(parent, rt.getId())).thenReturn(true);
+        }
+    }
+
+    @Test
+    void listActiveSessions_hidesARetryLeftover_andKeepsTheSessionsMostRecentlySeenRow() {
+        UUID userId = UUID.randomUUID();
+        UUID phone = UUID.randomUUID();
+        // The phone's refresh was answered twice; it kept the newer token and rotated on since.
+        RefreshToken leftover = row(phone, SessionKind.MOBILE, Duration.ofMinutes(30), Duration.ofDays(5));
+        RefreshToken kept = row(phone, SessionKind.MOBILE, Duration.ofMinutes(30).minusSeconds(2), Duration.ofDays(5));
+        siblings(leftover, kept);
+        RefreshToken current = row(phone, SessionKind.MOBILE, Duration.ofMinutes(2), Duration.ofDays(5));
+        current.setParentTokenId(kept.getId());
+        RefreshToken laptop = row(UUID.randomUUID(), SessionKind.WEB, Duration.ofMinutes(5), Duration.ofDays(1));
+        laptop.setParentTokenId(UUID.randomUUID());
+        repositoryReturns(userId, current, laptop, leftover);
+
+        assertThat(serviceWithRealLimits().listActiveSessions(userId)).containsExactly(current, laptop);
+    }
+
+    @Test
+    void listActiveSessions_showsASessionTwice_whenBothCopiesOfItsTokenAreInUse() {
+        UUID userId = UUID.randomUUID();
+        UUID phone = UUID.randomUUID();
+        // A copy replayed inside the reuse window, then BOTH chains rotated on: neither head has a
+        // sibling, so the owner sees the session twice -- the one sign of such a copy.
+        RefreshToken ownersHead = row(phone, SessionKind.MOBILE, Duration.ofMinutes(3), Duration.ofDays(5));
+        ownersHead.setParentTokenId(UUID.randomUUID());
+        RefreshToken copysHead = row(phone, SessionKind.MOBILE, Duration.ofMinutes(9), Duration.ofDays(5));
+        copysHead.setParentTokenId(UUID.randomUUID());
+        repositoryReturns(userId, ownersHead, copysHead);
+
+        assertThat(serviceWithRealLimits().listActiveSessions(userId)).containsExactly(ownersHead, copysHead);
+    }
+
+    @Test
+    void listActiveSessions_rowsWithNoRecordedParentAreNeverTreatedAsLeftovers() {
+        UUID userId = UUID.randomUUID();
+        UUID session = UUID.randomUUID();
+        // Minted before V314: nothing says how they relate, so both stay listed as before.
+        RefreshToken a = row(session, SessionKind.WEB, Duration.ofMinutes(1), Duration.ofDays(1));
+        RefreshToken b = row(session, SessionKind.WEB, Duration.ofMinutes(20), Duration.ofDays(1));
+        repositoryReturns(userId, a, b);
+
+        assertThat(serviceWithRealLimits().listActiveSessions(userId)).containsExactly(a, b);
+        verify(refreshTokenRepository, never()).existsByParentTokenIdAndIdNot(any(), any());
+    }
+
+    @Test
+    void listActiveSessions_ofTwoLeftoverSiblings_theOneWithNoLastSeenTimeIsTheOneHidden() {
+        UUID userId = UUID.randomUUID();
+        UUID session = UUID.randomUUID();
+        RefreshToken seen = row(session, SessionKind.WEB, Duration.ofMinutes(20), Duration.ofDays(1));
+        RefreshToken unseen = row(session, SessionKind.WEB, Duration.ofMinutes(1), Duration.ofDays(1));
+        unseen.setLastSeenAt(null);
+        siblings(seen, unseen);
+        repositoryReturns(userId, unseen, seen);
+
+        assertThat(serviceWithRealLimits().listActiveSessions(userId)).containsExactly(seen);
     }
 
     @Test

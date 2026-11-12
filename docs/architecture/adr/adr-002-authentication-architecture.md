@@ -322,8 +322,12 @@ and absolute limits, and the theft response itself leave `rotated_at` null. The 
 in `application.yml` and is real: a thief who replays inside the window gets a token pair of their
 own, and from then on the two chains rotate independently and never collide, so reuse detection
 never fires for that theft. What bounds it is the same set of controls that bound any live session:
-the session shows twice in the owner's device list, the idle and absolute caps end it on schedule,
-and "sign out everywhere" ends it now. A thief who replays after the window, or whose stolen token
+the session shows twice in the owner's device list once both copies are in use, the idle and
+absolute caps end it on schedule (a phone session has no absolute cap), and "sign out everywhere"
+ends it now. Since 2026-11-12 each token records the token it replaced (`parent_token_id`, V314), and
+the device list hides a retry leftover -- a live token with a sibling that is not its session's most
+recently seen row -- so an ordinary retried refresh no longer shows the same device twice and a
+second entry keeps its meaning. A thief who replays after the window, or whose stolen token
 the owner has not yet rotated, is caught exactly as before. `finora.auth.refresh_replayed_within_grace`
 counts the grace path, and a sustained rate on one account is worth a look.
 

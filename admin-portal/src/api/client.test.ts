@@ -195,6 +195,23 @@ describe('api response interceptor', () => {
     expect(getAdminToken()).toBeNull();
   });
 
+  it('sends the admin to sign in with the page they were on, so they come back to it', async () => {
+    refreshMock.mockReset();
+    const realLocation = window.location;
+    const fakeLocation = { pathname: '/held-statements/HLD-2026-100001', search: '?from=email', href: '' };
+    Object.defineProperty(window, 'location', { configurable: true, value: fakeLocation });
+    try {
+      await rejectedHandler()({
+        response: { status: 401, data: { message: 'Unauthorized', errorCode: null } },
+        config: { url: '/admin/held-statements/HLD-2026-100001', _retried: false, headers: {} },
+      }).catch(() => { /* no-op */ });
+
+      expect(fakeLocation.href).toBe('/login?next=%2Fheld-statements%2FHLD-2026-100001%3Ffrom%3Demail');
+    } finally {
+      Object.defineProperty(window, 'location', { configurable: true, value: realLocation });
+    }
+  });
+
   it('falls back to generic copy when there was no access token to attempt a refresh with', async () => {
     refreshMock.mockReset();
 

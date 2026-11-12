@@ -187,3 +187,83 @@ describe('Login', () => {
     });
   });
 });
+
+describe('Login — back to the page that was opened', () => {
+  function renderAt(entry: string) {
+    return render(
+      <MemoryRouter initialEntries={[entry]}>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/held-statements/:heldId" element={<div>Held statement page</div>} />
+          <Route path="/verify-phone" element={<div>Verify phone page</div>} />
+          <Route path="/" element={<div>Dashboard page</div>} />
+        </Routes>
+      </MemoryRouter>
+    );
+  }
+
+  async function signIn(user: ReturnType<typeof userEvent.setup>) {
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument());
+    await user.type(screen.getByLabelText('Email or phone'), 'admin@finora.test');
+    await user.type(screen.getByLabelText('Password'), 'correct-horse-battery-staple');
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+  }
+
+  beforeEach(() => {
+    vi.mocked(setupApi.status).mockResolvedValue({ setupRequired: false, installationKeyAvailable: true });
+  });
+
+  it('opens the linked page after signing in', async () => {
+    const user = userEvent.setup();
+    vi.mocked(useAdminAuth).mockReturnValue(mockAdminAuthState({ token: null, login: vi.fn().mockResolvedValue(true) }));
+
+    renderAt('/login?next=%2Fheld-statements%2FHLD-2026-100001');
+    await signIn(user);
+
+    expect(await screen.findByText('Held statement page')).toBeInTheDocument();
+  });
+
+  it('opens the linked page after the two-factor code too', async () => {
+    const user = userEvent.setup();
+    const login = vi.fn().mockRejectedValue(
+      new AdminAccessError('MFA required.', AUTH_MFA_REQUIRED, { mfaChallengeToken: 'chal-123' }));
+    vi.mocked(useAdminAuth).mockReturnValue(mockAdminAuthState({
+      token: null, login, completeMfaChallenge: vi.fn().mockResolvedValue(true),
+    }));
+
+    renderAt('/login?next=%2Fheld-statements%2FHLD-2026-100001');
+    await signIn(user);
+    await user.type(await screen.findByLabelText(/code/i), '123456');
+    await user.click(screen.getByRole('button', { name: 'Verify' }));
+
+    expect(await screen.findByText('Held statement page')).toBeInTheDocument();
+  });
+
+  it('goes to the linked page when already signed in', async () => {
+    vi.mocked(useAdminAuth).mockReturnValue(mockAdminAuthState({ token: 'existing-token', phoneVerified: true, login: vi.fn() }));
+
+    renderAt('/login?next=%2Fheld-statements%2FHLD-2026-100001');
+
+    expect(await screen.findByText('Held statement page')).toBeInTheDocument();
+  });
+
+  it('ignores a next that points off the site', async () => {
+    const user = userEvent.setup();
+    vi.mocked(useAdminAuth).mockReturnValue(mockAdminAuthState({ token: null, login: vi.fn().mockResolvedValue(true) }));
+
+    renderAt('/login?next=%2F%2Fevil.example%2Fsteal');
+    await signIn(user);
+
+    expect(await screen.findByText('Dashboard page')).toBeInTheDocument();
+  });
+
+  it('still sends an unverified admin to phone verification first', async () => {
+    const user = userEvent.setup();
+    vi.mocked(useAdminAuth).mockReturnValue(mockAdminAuthState({ token: null, login: vi.fn().mockResolvedValue(false) }));
+
+    renderAt('/login?next=%2Fheld-statements%2FHLD-2026-100001');
+    await signIn(user);
+
+    expect(await screen.findByText('Verify phone page')).toBeInTheDocument();
+  });
+});

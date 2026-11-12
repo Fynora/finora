@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { safeStorage } from '../lib/safeStorage';
+import { loginPathFor } from '../lib/returnTo';
 import { MFA_ENROLLMENT_REQUIRED } from './errorCodes';
 
 // Bug fix (production-readiness pass): same issue as the user frontend's client.ts (see that
@@ -133,7 +134,7 @@ function endSessionAndRedirect(reason?: string) {
   clearAdminSession();
   safeStorage.setItem(ADMIN_SESSION_ENDED_REASON_KEY,
     reason || 'Your session has ended. Please sign in again to continue.');
-  window.location.href = '/login';
+  window.location.href = loginPathFor(window.location.pathname + window.location.search);
 }
 
 export function persistAdminSession(token: string) {

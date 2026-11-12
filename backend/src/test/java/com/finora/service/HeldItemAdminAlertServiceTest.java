@@ -99,7 +99,24 @@ class HeldItemAdminAlertServiceTest {
         EmailMessage sent = captor.getValue();
         assertThat(sent.html()).contains("Paytm_Statement_January_2026.pdf");
         assertThat(sent.html()).contains("Finora could not find a transaction table anywhere in this statement.");
-        assertThat(sent.html()).contains("https://admin.example.com/held-imports");
+        // Straight to this hold's details, not the queue: the email is often opened on a phone.
+        assertThat(sent.html()).contains("https://admin.example.com/held-imports?job=" + job.getId());
+    }
+
+    @Test
+    void alertImportHeld_saysWhenTheCustomerWasPromisedAnAnswer_inIst() {
+        ImportJob job = new ImportJob(UUID.randomUUID(), "statement.pdf", "hash", "objects/key", "PDF");
+        // 04:30 UTC is 10:00 IST; the promise is 48 hours later.
+        job.holdForReview("IMPORT_NO_HEADER_DETECTED", Instant.parse("2026-11-12T04:30:00Z"));
+        when(importJobRepository.findById(job.getId())).thenReturn(Optional.of(job));
+        when(userRepository.findByPermissionNameAndAccountScope(any(), any()))
+                .thenReturn(List.of(adminUser("triage-admin@example.com")));
+
+        service.alertImportHeld(job.getId());
+
+        assertThat(onlyEmailSent().html())
+                .contains("<strong>Held at:</strong> 12 Nov 2026, 10:00 IST")
+                .contains("<strong>Customer told to expect an answer by:</strong> 14 Nov 2026, 10:00 IST");
     }
 
     /**
@@ -222,17 +239,21 @@ class HeldItemAdminAlertServiceTest {
     }
 
     @Test
-    void alertTrustReviewHeld_omitsTheBankLineWhenNoBankWasDetected() {
-        HeldStatement held = heldStatement("HELD-00003", null);
-        when(heldStatementRepository.findByHeldId("HELD-00003")).thenReturn(Optional.of(held));
+    void alertTrustReviewHeld_takesTheDeadlineFromTheReviewRecord_notTheJobsClock() {
+        HeldStatement held = heldStatement("HELD-00005", "HDFC Bank");
+        org.springframework.test.util.ReflectionTestUtils.setField(held, "createdAt", Instant.parse("2026-11-12T18:45:00Z"));
+        // The job's own clock is not started yet when this email goes (see the service's comment).
+        ImportJob job = new ImportJob(UUID.randomUUID(), "statement.pdf", "hash", "objects/key", "PDF");
+        when(heldStatementRepository.findByHeldId("HELD-00005")).thenReturn(Optional.of(held));
+        when(importJobRepository.findById(held.getImportJobId())).thenReturn(Optional.of(job));
         when(userRepository.findByPermissionNameAndAccountScope(any(), any()))
                 .thenReturn(List.of(adminUser("trust-review-admin@example.com")));
 
-        service.alertTrustReviewHeld("HELD-00003");
+        service.alertTrustReviewHeld("HELD-00005");
 
-        org.mockito.ArgumentCaptor<EmailMessage> captor = org.mockito.ArgumentCaptor.forClass(EmailMessage.class);
-        verify(emailProvider).send(captor.capture());
-        assertThat(captor.getValue().html()).doesNotContain("<strong>Bank:</strong>");
+        // 18:45 UTC on the 12th is 00:15 IST on the 13th; plus 48 hours.
+        assertThat(onlyEmailSent().html())
+                .contains("<strong>Customer told to expect an answer by:</strong> 15 Nov 2026, 00:15 IST");
     }
 
     @Test
@@ -266,7 +287,7 @@ class HeldItemAdminAlertServiceTest {
         assertThat(sent.to()).isEqualTo("triage-admin@example.com");
         assertThat(sent.subject()).startsWith("OVERDUE:").contains("48 hours");
         assertThat(sent.html()).contains("within 48 hours").contains("no decision")
-                .contains("https://admin.example.com/held-imports").contains("IMPORT_NO_HEADER_DETECTED");
+                .contains("https://admin.example.com/held-imports?job=" + job.getId()).contains("IMPORT_NO_HEADER_DETECTED");
     }
 
     @Test
@@ -384,7 +405,7 @@ class HeldItemAdminAlertServiceTest {
         assertThat(sent.getValue().subject()).isEqualTo("Account deletion stuck: 4 failed purge attempts");
         assertThat(sent.getValue().html())
                 .contains("4 consecutive purge attempts")
-                .contains("18 Sep 2026, 07:51 UTC")
+                .contains("18 Sep 2026, 13:21 IST")
                 .contains("https://admin.example.com/users/" + stuckUserId)
                 // No error text and nothing personal: the email is a pointer, the audit log has the rest.
                 .doesNotContain("@example.com");

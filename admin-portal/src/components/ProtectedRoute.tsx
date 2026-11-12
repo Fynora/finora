@@ -1,4 +1,5 @@
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
+import { loginPathFor } from '../lib/returnTo';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import type { ReactNode } from 'react';
 
@@ -22,6 +23,7 @@ interface ProtectedRouteProps {
  */
 export function ProtectedRoute({ children, allowUnverified = false, allowMfaSetup = false }: ProtectedRouteProps) {
   const { token, loading, phoneVerified, mfaEnrollmentRequired } = useAdminAuth();
+  const location = useLocation();
 
   if (loading) {
     return (
@@ -30,7 +32,8 @@ export function ProtectedRoute({ children, allowUnverified = false, allowMfaSetu
       </div>
     );
   }
-  if (!token) return <Navigate to="/login" replace />;
+  // The page being opened (a hold email's link, say) rides along, so signing in lands on it.
+  if (!token) return <Navigate to={loginPathFor(location.pathname + location.search)} replace />;
   // Phone verification used to be routed ONLY through Login.tsx, which redirects when
   // phoneVerified is false. Anyone who reached a protected route without passing through the
   // login screen -- a browser refresh on /users, a bookmark, a typed URL -- was admitted to the

@@ -164,7 +164,7 @@ class OriginalViewNoticesIT extends AbstractIntegrationTest {
         assertThat(email.subject()).isEqualTo("A held statement was opened — " + view.getItemRef());
         String html = lastHtmlTo(superAdmin.getEmail());
         assertThat(html).contains(otherAdmin.getEmail()).contains("Rows on page 2 are missing from the preview")
-                .contains(view.getJobId().toString()).contains("/held-imports");
+                .contains(view.getJobId().toString()).contains("/held-imports?job=" + view.getJobId());
         assertThat(html).doesNotContain(owner.getEmail()).doesNotContain(CUSTOMER_FILE_NAME)
                 .doesNotContain("Asha").doesNotContain(owner.getFullName());
     }

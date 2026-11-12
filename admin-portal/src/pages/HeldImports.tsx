@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Clock, Eye, PlayCircle, RefreshCw } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
@@ -6,6 +7,7 @@ import { RequirePermission } from '../components/ProtectedRoute';
 import { DataTable, type DataTableColumn } from '../components/DataTable';
 import { Pagination } from '../components/Pagination';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { LoadError } from '../components/LoadError';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { adminBlankedCopyApi, adminHeldImportApi } from '../api/endpoints';
 import BlankedCopyPanel from '../components/BlankedCopyPanel';
@@ -41,7 +43,17 @@ const MAX_MESSAGE_LENGTH = 500;
  */
 function HeldImportsContent() {
   const [page, setPage] = useState(0);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // The open hold lives in the URL (?job=), so a hold email's link opens that hold's details
+  // directly, and the page can be reloaded or shared without losing it.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedId = searchParams.get('job');
+  function setSelectedId(id: string | null) {
+    setSearchParams((params) => {
+      const nextParams = new URLSearchParams(params);
+      if (id) nextParams.set('job', id); else nextParams.delete('job');
+      return nextParams;
+    }, { replace: true });
+  }
   const [actionError, setActionError] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
@@ -55,11 +67,24 @@ function HeldImportsContent() {
     queryFn: () => adminHeldImportApi.list({ page, size: PAGE_SIZE }),
   });
 
+  // The panel renders below the counts and the list, out of sight on a phone. Bring it into view
+  // once, after all three have loaded: scrolled on mount, the list then rendered above it and
+  // pushed it back off screen (seen at 375px wide, 2026-11-12).
+  const panelRef = useRef<HTMLDivElement>(null);
+  const scrolledFor = useRef<string | null>(null);
   const detail = useQuery({
     queryKey: ['held-imports-detail', selectedId],
     queryFn: () => adminHeldImportApi.get(selectedId as string),
     enabled: selectedId !== null,
   });
+
+  const everythingLoaded = !summary.isLoading && !list.isLoading && !detail.isLoading;
+  useEffect(() => {
+    if (!selectedId) { scrolledFor.current = null; return; }
+    if (!everythingLoaded || scrolledFor.current === selectedId) return;
+    scrolledFor.current = selectedId;
+    panelRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  }, [selectedId, everythingLoaded]);
 
   /** Both queries, because an action changes the counts as well as the page. */
   function invalidateQueue() {
@@ -172,7 +197,9 @@ function HeldImportsContent() {
         </div>
       )}
 
-      {actionError && (
+      {/* With a hold open, its own action's error shows in its panel instead (below), where the
+          admin is: up here it is off screen on a phone. */}
+      {actionError && !selectedId && (
         <div className="rounded-lg bg-danger-bg p-3">
           <p className="text-sm text-danger">{actionError}</p>
         </div>
@@ -221,6 +248,7 @@ function HeldImportsContent() {
       )}
 
       {selectedId && (
+        <div ref={panelRef}>
         <HeldImportDetailPanel
           // Keyed on selectedId, not just conditionally rendered: the table rows stay clickable
           // with the panel open (this isn't a modal), so clicking "Details" on a different row
@@ -230,11 +258,14 @@ function HeldImportsContent() {
           key={selectedId}
           detail={detail.data}
           loading={detail.isLoading}
+          error={detail.error}
+          actionError={actionError}
           busy={reprocess.isPending || resolve.isPending}
           onReprocess={() => reprocess.mutate(selectedId)}
           onResolve={(message) => resolve.mutate({ jobId: selectedId, message })}
           onClose={() => { setSelectedId(null); setActionError(null); }}
         />
+        </div>
       )}
     </div>
   );
@@ -249,6 +280,8 @@ function HeldImportsContent() {
 function HeldImportDetailPanel({
   detail,
   loading,
+  error,
+  actionError,
   busy,
   onReprocess,
   onResolve,
@@ -256,6 +289,10 @@ function HeldImportDetailPanel({
 }: {
   detail: HeldImportDetail | undefined;
   loading: boolean;
+  /** A stale link (the hold was decided, or the id is wrong) says so instead of an empty panel. */
+  error: unknown;
+  /** A refused Reprocess or Resolve, shown here, where the admin is working. */
+  actionError: string | null;
   busy: boolean;
   onReprocess: () => void;
   onResolve: (message: string) => void;
@@ -272,9 +309,8 @@ function HeldImportDetailPanel({
   // Whether the server's blanked-copy switch is on. The copy is offered to anyone working this
   // queue, not only the admin roles the real document is pinned to: it is blanked.
   const blankedStatus = useQuery({ queryKey: ['blanked-copy-status'], queryFn: adminBlankedCopyApi.status });
-
   return (
-    <div className="bg-card border border-border rounded-xl2 p-6 space-y-5">
+    <div data-testid="held-import-panel" className="bg-card border border-border rounded-xl2 p-4 sm:p-6 space-y-5">
       <div className="flex items-start justify-between">
         <h2 className="text-lg font-semibold text-ink">Held import</h2>
         <div className="flex items-start gap-3">
@@ -309,6 +345,12 @@ function HeldImportDetailPanel({
       )}
 
       {loading && <p className="text-muted text-sm">Loading…</p>}
+      <LoadError error={error} what="this held import" />
+      {actionError && (
+        <div role="alert" className="rounded-lg bg-danger-bg p-3">
+          <p className="text-sm text-danger">{actionError}</p>
+        </div>
+      )}
 
       {detail && (
         <>

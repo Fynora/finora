@@ -26,6 +26,7 @@ import {
   withStructuredData,
 } from './prerenderTitle.mjs';
 import { SPA_SHELL_FILE, spaShellHtml } from './spaShell.mjs';
+import { qrSvg } from './playQr.mjs';
 
 const frontendRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const ssrOutDir = path.join(frontendRoot, '.prerender-ssr');
@@ -126,6 +127,38 @@ async function buildEarlyCapture() {
   return `/assets/${fileName}`;
 }
 
+/**
+ * Writes the Google Play QR code for one page to dist/qr/play-<page type>-<slug>.svg, encoding the
+ * link playQrLinkForFile reads back from that name (the same link GetTheApp's badge has, with
+ * utm_term "qr"). Two pages with one QR file would share one attribution, so that fails the build.
+ */
+async function writePlayQr(route, playQrPath, playQrLinkForFile, qrOwners) {
+  const qrPath = playQrPath(route);
+  const link = playQrLinkForFile(qrPath);
+  if (!link) throw new Error(`prerender: ${route} has a QR path ${qrPath} that playQrLinkForFile cannot read`);
+  if (qrOwners.has(qrPath)) {
+    throw new Error(`prerender: ${route} and ${qrOwners.get(qrPath)} would share the QR code ${qrPath}`);
+  }
+  qrOwners.set(qrPath, route);
+  const file = path.join(distDir, qrPath.slice(1));
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, await qrSvg(link));
+}
+
+/**
+ * Every /qr/... image a prerendered page names must be a file this build wrote, so a page never
+ * ships a broken QR code.
+ */
+function checkPlayQrReferences(fileNames, qrOwners) {
+  for (const fileName of fileNames) {
+    const html = fs.readFileSync(path.join(distDir, fileName), 'utf-8');
+    for (const [, src] of html.matchAll(/src="(\/qr\/[^"]*)"/g)) {
+      if (!qrOwners.has(src)) throw new Error(`prerender: dist/${fileName} shows ${src}, which this build did not write`);
+    }
+  }
+  console.log(`prerender: ${qrOwners.size} Google Play QR codes -> dist/qr/`);
+}
+
 async function main() {
   if (!fs.existsSync(path.join(distDir, 'index.html'))) {
     throw new Error('dist/index.html not found -- run `vite build` before this script.');
@@ -145,7 +178,7 @@ async function main() {
     logLevel: 'warn',
   });
 
-  const { routes, pageCollections, notFoundPage, structuredDataFor, jsonLdScripts, llmsTxt, llmsFullTxt } = await import(pathToFileURL(path.join(ssrOutDir, 'ssr-entry.mjs')));
+  const { routes, pageCollections, notFoundPage, structuredDataFor, jsonLdScripts, llmsTxt, llmsFullTxt, playQrPath, playQrLinkForFile } = await import(pathToFileURL(path.join(ssrOutDir, 'ssr-entry.mjs')));
 
   const template = fs.readFileSync(path.join(distDir, 'index.html'), 'utf-8');
   if (!template.includes(ROOT_DIV)) {
@@ -170,6 +203,9 @@ async function main() {
       Object.entries(collection.pages).map(([route, render]) => [route, collectionPageFile(route), render])),
   ];
 
+  // QR path -> the route it belongs to. Every page gets its own Google Play QR code (see
+  // writePlayQr), the homepage's included: the landing footer shows it.
+  const qrOwners = new Map();
   for (const [route, fileName, renderRoute] of pages) {
     fs.mkdirSync(path.dirname(path.join(distDir, fileName)), { recursive: true });
     const appHtml = renderRoute();
@@ -202,7 +238,9 @@ async function main() {
     const outHtml = pageTemplate.replace(ROOT_DIV, `<div id="root">${appHtml}</div>`);
     fs.writeFileSync(path.join(distDir, fileName), outHtml);
     console.log(`prerender: ${route} -> dist/${fileName} (${appHtml.length} chars of markup)`);
+    await writePlayQr(route, playQrPath, playQrLinkForFile, qrOwners);
   }
+  checkPlayQrReferences(pages.map(([, fileName]) => fileName), qrOwners);
 
   {
     const appHtml = notFoundPage();

@@ -12,11 +12,11 @@
  *    included, and its "Open" starts the app on its home screen. Those links already open the app
  *    directly when it is installed (universal links), and the page in Safari keeps working.
  *
- * Both are OFF until their build variable is set (VITE_OPEN_IN_APP_ANDROID, VITE_IOS_APP_STORE_ID).
- * The apps themselves are on the stores now -- Android's Google Play listing and iOS's App Store
- * listing (id {@link APP_STORE_ID}, India storefront) both resolve -- so what keeps the banners off
- * is a deployment choice, not store availability. Turning either on is a Cloudflare Pages build
- * variable and a redeploy, the same convention as lib/features.ts. The landing page's footer
+ * Android's banner is ON unless VITE_OPEN_IN_APP_ANDROID is "false" (the app is live on Google
+ * Play; it was off by default until 2026-11-10, and the production bundle still compiled it off
+ * that day). iPhone's tag is OFF until VITE_IOS_APP_STORE_ID is set: the iOS app is in App Store
+ * review, and no App Store prompt should go up before it is live. Either is a Cloudflare Pages
+ * build variable and a redeploy, the same convention as lib/features.ts. The landing page's footer
  * links both stores regardless of these switches.
  */
 
@@ -44,11 +44,11 @@ export const APP_STORE_URL = `https://apps.apple.com/in/app/fynora-personal-fina
 /** Remembers, on this device, that the visitor closed the banner. */
 export const DISMISSED_KEY = 'fynora.openInAppBannerDismissed';
 
-/** Whether the Android banner is switched on: only the exact string "true" in
- *  VITE_OPEN_IN_APP_ANDROID, at build time. Read on each call, not once at import, so a test can
+/** Whether the Android banner is switched on: yes, unless VITE_OPEN_IN_APP_ANDROID is exactly
+ *  "false" at build time (the off switch). Read on each call, not once at import, so a test can
  *  flip it with vi.stubEnv. */
 export function androidOpenInAppEnabled(): boolean {
-  return import.meta.env.VITE_OPEN_IN_APP_ANDROID === 'true';
+  return import.meta.env.VITE_OPEN_IN_APP_ANDROID !== 'false';
 }
 
 /**
@@ -71,14 +71,39 @@ export function isAndroidBrowser(userAgent: string): boolean {
 export const NO_PROMPT_PATHS = ['/reset-password', '/verify-email', '/email-change-verify', '/verify-phone'];
 
 /**
- * The Chrome intent link the banner's button follows: opens {@link ANDROID_PACKAGE} through its
- * {@link APP_SCHEME}, or, when the app is not installed, the Play Store listing. Naming the package
- * means no other app can answer it. No host or path: the app's navigation has no per-path routes,
- * so a path would be read as a screen name it does not have; the bare scheme opens it at home.
+ * The only pages the Android "get the app" bar appears on: the homepage, where shared links land,
+ * and the pages built for search (bank statement pages, Help answers, the statement code glossary,
+ * the converter), each with its hub. A list of what is allowed, not of what is not, because:
+ *
+ *  - The mobile app opens /privacy, /terms, /trust and /your-data in the phone's browser
+ *    (mobile/src/lib/webUrl.ts openWebUrl). On those, the bar would tell someone already using the
+ *    app to "get the app".
+ *  - The sign-in pages, and the one-time-token pages (NO_PROMPT_PATHS), are mid-task: a bar over
+ *    a sign-in form gets in the way of finishing it.
+ *  - Under /app the person is signed in to the web app.
+ *  - A page added later stays without the bar until it is put here on purpose.
  */
-export function androidOpenAppUrl(): string {
+const APP_PROMPT_SECTIONS = ['/banks', '/help', '/bank-statement-codes'];
+
+/** Whether the Android bar may show on `pathname` (trailing slashes ignored). */
+export function isAppPromptPage(pathname: string): boolean {
+  const path = pathname.replace(/\/+$/, '') || '/';
+  if (path === '/' || path === '/bank-statement-to-excel') return true;
+  return APP_PROMPT_SECTIONS.some((section) => path === section || path.startsWith(section + '/'));
+}
+
+/**
+ * The Chrome intent link the banner's button follows: opens {@link ANDROID_PACKAGE} through its
+ * {@link APP_SCHEME}, or, when the app is not installed, `fallbackUrl` (the Play Store listing,
+ * with the page's install referrer when the banner passes one: lib/playStoreLink.ts). Naming the
+ * package means no other app can answer it. No host or path: the app's navigation has no per-path
+ * routes, so a path would be read as a screen name it does not have; the bare scheme opens it at
+ * home. The fallback is URL-encoded whole, so its own encoded referrer is encoded once more and
+ * comes back intact when Chrome decodes the extra.
+ */
+export function androidOpenAppUrl(fallbackUrl: string = PLAY_STORE_URL): string {
   return `intent://#Intent;scheme=${APP_SCHEME};package=${ANDROID_PACKAGE};`
-    + `S.browser_fallback_url=${encodeURIComponent(PLAY_STORE_URL)};end`;
+    + `S.browser_fallback_url=${encodeURIComponent(fallbackUrl)};end`;
 }
 
 /**

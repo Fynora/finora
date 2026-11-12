@@ -5,7 +5,8 @@ import Landing from '../Landing';
 import { AVAILABILITY_LABEL, COMPARISON, PLANS, PRICING_CARDS } from './plans';
 import { SETTINGS_CATEGORIES } from '../settings/SettingsNav';
 import { askFyn, beforeAfter, capabilities, faq, footer, hero, importSection, security, trust } from './landing-config';
-import { APP_STORE_URL, PLAY_STORE_URL } from '../../lib/openInApp';
+import { APP_STORE_URL } from '../../lib/openInApp';
+import { playQrPath, playStoreLink } from '../../lib/playStoreLink';
 
 /**
  * Enforces the mechanically-checkable half of docs/project-management/standards/marketing-claims-checklist.md.
@@ -214,21 +215,24 @@ describe('landing page — marketing claims', () => {
   });
 
   it.each([
-    { store: 'Google Play', cta: footer.playStoreCta, url: PLAY_STORE_URL, qrAlt: footer.playQrAlt },
-    { store: 'App Store', cta: footer.appStoreCta, url: APP_STORE_URL, qrAlt: footer.appStoreQrAlt },
-  ])('links the app to its $store listing from the footer, with a scannable code beside it', ({ cta, url, qrAlt }) => {
+    // Google Play's link carries the homepage's install referrer (lib/playStoreLink.ts), and its QR
+    // code is the one the build writes for "/" (scripts/prerender.mjs), decoded in playQr.test.ts.
+    { store: 'Google Play', cta: footer.playStoreCta, url: playStoreLink('/', 'footer'), qrAlt: footer.playQrAlt, qrSrc: playQrPath('/') },
+    { store: 'App Store', cta: footer.appStoreCta, url: APP_STORE_URL, qrAlt: footer.appStoreQrAlt, qrSrc: undefined },
+  ])('links the app to its $store listing from the footer, with a scannable code beside it', ({ cta, url, qrAlt, qrSrc }) => {
     const { container } = renderLanding();
     const link = screen.getByRole('link', { name: new RegExp(cta, 'i') });
     expect(link.closest('footer'), 'The store link belongs in the footer').not.toBeNull();
     expect(link.getAttribute('href')).toBe(url);
     expect(link.getAttribute('target')).toBe('_blank');
 
-    // Each QR is a static SVG that cannot follow its URL constant (see SiteFooter.tsx), so the
-    // listing it points at is checked by decoding it at generation time, not here. This only
-    // guards that the image is present and described for screen readers.
+    // The App Store QR is a static SVG that cannot follow its URL constant (see SiteFooter.tsx), so
+    // the listing it points at is checked by decoding it at generation time, not here. This guards
+    // that the image is present and described for screen readers.
     const qr = container.querySelector(`img[alt="${qrAlt}"]`);
     expect(qr, 'The store QR code image should render with its alt text').not.toBeNull();
     expect(qr?.getAttribute('src')).toBeTruthy();
+    if (qrSrc) expect(qr?.getAttribute('src')).toBe(qrSrc);
   });
 
   it('opens external links safely', () => {

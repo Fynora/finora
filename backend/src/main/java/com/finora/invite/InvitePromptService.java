@@ -20,11 +20,11 @@ import java.util.UUID;
  *
  * <h2>When the card is shown</h2>
  * <ol>
- *   <li><b>The first time:</b> on the import that is the person's first successful one, meaning the
- *       imports just confirmed are every import of theirs that ever saved a transaction. A held
- *       statement saves nothing (its confirm is refused with IMPORT_016), and neither does a refused
- *       one, so neither counts. A re-import is not a first import: the statement it replays already
- *       saved transactions once. Someone who imported before this card existed is not shown it.</li>
+ *   <li><b>The first time:</b> on the person's next import that saves at least one transaction,
+ *       whenever that is. For someone new that is their first import. Someone who imported before
+ *       this card existed sees it on their next import after it ships (Sid, 2026-11-12: existing
+ *       users included). A held statement saves nothing (its confirm is refused with IMPORT_016), and
+ *       neither does a refused one, so neither shows it.</li>
  *   <li><b>Once more,</b> only after "Not now" (or after a showing that got no answer): on the first
  *       successful import at least {@link #QUIET_DAYS_AFTER_NOT_NOW} days later. 180 days is about
  *       six monthly statements -- long enough not to nag someone who said no, and by then they have
@@ -81,7 +81,7 @@ public class InvitePromptService {
 
         int timesShown = state.map(InvitePrompt::getTimesShown).orElse(0);
         if (state.map(InvitePrompt::getSharedOn).isPresent()) return false;
-        if (timesShown == 0) return given.containsAll(successful);
+        if (timesShown == 0) return true;
         if (timesShown >= MAX_SHOWINGS) return false;
         LocalDate lastShown = state.get().getLastShownOn();
         return lastShown != null && !lastShown.isAfter(today.minusDays(QUIET_DAYS_AFTER_NOT_NOW));

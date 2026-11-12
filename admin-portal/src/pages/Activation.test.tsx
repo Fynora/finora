@@ -533,12 +533,12 @@ describe('Activation', () => {
     expect(within(table).getByText('2')).toBeInTheDocument();
   });
 
-  // V315: the invite-a-friend card after a first import, in people.
+  // V315: the invite-a-friend card after an import, in people.
   it('shows how many people saw the invite card and what they tapped', async () => {
     vi.mocked(adminActivationApi.report).mockResolvedValue(report({ invitePrompt: { shown: 8, shareTapped: 2, notNow: 5 } }));
     renderPage();
 
-    const table = await screen.findByRole('table', { name: 'Invite card after a first import' });
+    const table = await screen.findByRole('table', { name: 'Invite card after an import' });
     expect(within(table).getByText('8')).toBeInTheDocument();
     expect(within(table).getByText('2 (25%)')).toBeInTheDocument();
     expect(within(table).getByText('5 (63%)')).toBeInTheDocument();
@@ -553,7 +553,7 @@ describe('Activation', () => {
     vi.mocked(adminActivationApi.report).mockResolvedValue(report());
     renderPage();
     await screen.findByRole('table', { name: 'Month-start nudges by month' });
-    expect(screen.queryByText('Invite card after a first import')).not.toBeInTheDocument();
+    expect(screen.queryByText('Invite card after an import')).not.toBeInTheDocument();
   });
 
   it('says when no month-start nudge has been sent', async () => {

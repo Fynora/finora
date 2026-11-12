@@ -93,7 +93,7 @@ class InvitePromptIT extends AbstractIntegrationTest {
         doReturn(NOW).when(reportingDay).now();
     }
 
-    // ---- the first import, end to end --------------------------------------------------------
+    // ---- when it shows, end to end -----------------------------------------------------------
 
     /** The id the confirm response hands the apps is the id the check accepts: the whole seam. */
     @Test
@@ -106,15 +106,25 @@ class InvitePromptIT extends AbstractIntegrationTest {
         assertThat(check.get("shownRecently").asBoolean()).isFalse();
     }
 
+    /** Existing users are included (Sid, 2026-11-12): never shown, so their next import shows it. */
     @Test
-    void notShownForASecondImport() throws Exception {
+    void someoneWhoImportedBeforeSeesItOnTheirNextImport() throws Exception {
         User user = user();
         UUID first = stageAndConfirm(user, STATEMENT);
         UUID second = stageAndConfirm(user, NEXT_STATEMENT);
         assertThat(first).isNotEqualTo(second);
 
-        assertThat(check(user, second).get("show").asBoolean())
-                .as("never shown, but this is not the first import").isFalse();
+        assertThat(check(user, second).get("show").asBoolean()).isTrue();
+    }
+
+    @Test
+    void notShownForTheImportAfterTheOneThatShowedIt() throws Exception {
+        User user = user();
+        stageAndConfirm(user, STATEMENT);
+        event(user, "SHOWN");
+        UUID second = stageAndConfirm(user, NEXT_STATEMENT);
+
+        assertThat(check(user, second).get("show").asBoolean()).isFalse();
     }
 
     @Test
@@ -136,12 +146,12 @@ class InvitePromptIT extends AbstractIntegrationTest {
     }
 
     @Test
-    void anEarlierDeletedImportStillMakesThisOneNotTheFirst() {
+    void anEarlierDeletedImportDoesNotStopIt() {
         User user = user();
         statementImport(user, 3, true);
         UUID now = statementImport(user, 3, false);
 
-        assertThat(check(user, now).get("show").asBoolean()).isFalse();
+        assertThat(check(user, now).get("show").asBoolean()).isTrue();
     }
 
     @Test
@@ -153,16 +163,16 @@ class InvitePromptIT extends AbstractIntegrationTest {
         assertThat(check(user, now).get("show").asBoolean()).isTrue();
     }
 
-    /** One multi-account statement confirms several imports at once; all of them are the first. */
+    /** One multi-account statement confirms several imports at once; one answer covers them all. */
     @Test
-    void allSectionsOfOneMultiAccountConfirmCountAsTheFirst() {
+    void aMultiAccountConfirmIsAskedAboutAsOne() {
         User user = user();
         UUID a = statementImport(user, 2, false);
         UUID b = statementImport(user, 5, false);
+        UUID empty = statementImport(user, 0, false);
 
         assertThat(check(user, a, b).get("show").asBoolean()).isTrue();
-        assertThat(check(user, a).get("show").asBoolean())
-                .as("only part of them: the other section is an earlier success").isFalse();
+        assertThat(check(user, empty).get("show").asBoolean()).as("a section that saved nothing alone").isFalse();
     }
 
     @Test

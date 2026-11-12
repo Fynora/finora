@@ -891,7 +891,7 @@ export interface ActivationReport {
   reached?: ActivationReached;
   /** V303: release markers, oldest first. Optional: absent from a backend deployed before it. */
   releaseMarkers?: ActivationReleaseMarker[];
-  /** V315: the invite-a-friend card after a first import, in people (counted users only). Optional:
+  /** V315: the invite-a-friend card after an import, in people (counted users only). Optional:
    *  absent from a backend deployed before it. */
   invitePrompt?: { shown: number; shareTapped: number; notNow: number };
 }

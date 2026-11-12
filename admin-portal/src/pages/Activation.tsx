@@ -705,7 +705,7 @@ function MonthStartNudges({ months }: { months: NonNullable<ActivationReport['mo
   );
 }
 
-/** V315: the invite-a-friend card after a first import -- people shown it, and what they tapped.
+/** V315: the invite-a-friend card after an import -- people shown it, and what they tapped.
  *  Not range-bound. People who signed up through a shared web link show under "By source" as
  *  friend_invite. */
 function InvitePrompt({ counts }: { counts: NonNullable<ActivationReport['invitePrompt']> }) {
@@ -713,7 +713,7 @@ function InvitePrompt({ counts }: { counts: NonNullable<ActivationReport['invite
   const share = (n: number) => `${Math.round((n / counts.shown) * 100)}%`;
   return (
     <div className="p-4 space-y-2">
-      <table aria-label="Invite card after a first import" className="w-full">
+      <table aria-label="Invite card after an import" className="w-full">
         <thead>
           <tr>
             <th className={th}>Shown</th>
@@ -872,7 +872,7 @@ function ActivationContent() {
           </Section>
 
           {data.invitePrompt && (
-            <Section title="Invite card after a first import">
+            <Section title="Invite card after an import">
               <InvitePrompt counts={data.invitePrompt} />
             </Section>
           )}

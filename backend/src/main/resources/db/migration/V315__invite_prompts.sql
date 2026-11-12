@@ -1,8 +1,8 @@
--- "Know someone who'd want this?": the invite-a-friend card shown after a person's first successful
--- statement import (web Import summary, mobile Import done screen). One row per user, so web and
+-- "Know someone who'd want this?": the invite-a-friend card shown after a successful statement import
+-- (web Import summary, mobile Import done screen), once per person. One row per user, so web and
 -- mobile agree on whether it has been shown:
 --
---   times_shown    how many times the card has been shown (at most 2: the first import, and one more
+--   times_shown    how many times the card has been shown (at most 2: the next import, and one more
 --                  import at least 180 days after a "Not now" -- InvitePromptService has the rules)
 --   last_shown_on  the day it was last shown
 --   shared_on      the day Share was first tapped; once set, the card is never shown again

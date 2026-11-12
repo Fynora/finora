@@ -41,11 +41,11 @@ public record ActivationReportDto(
         Reached reached,
         /** V303: release markers, oldest first, each with the signups either side of it compared. */
         List<ReleaseMarker> releaseMarkers,
-        /** V315: the invite-a-friend card after a first import, in people. */
+        /** V315: the invite-a-friend card after an import, in people. */
         InvitePrompt invitePrompt
 ) {
     /**
-     * The invite-a-friend card after a first import (V315), counted users only (USER scope, not
+     * The invite-a-friend card after an import (V315), counted users only (USER scope, not
      * internal, not deleted): how many people were shown it, how many tapped Share, and how many
      * tapped Not now (one person can be in both, over two showings). People, never who. Sign-ups
      * that came through a shared web link show in {@code bySource} as utm_source friend_invite.

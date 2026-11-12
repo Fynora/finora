@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { PublicLayout, PublicSection } from '../components/PublicLayout';
+import { INLINE_LINK, PublicLayout, PublicSection } from '../components/PublicLayout';
 import { SUPPORT_EMAIL, SUPPORT_MAILTO, GRIEVANCE_EMAIL, GRIEVANCE_MAILTO, GRIEVANCE_OFFICER_NAME, LEGAL_NAME, REGISTERED_OFFICE_TEXT } from '../lib/contact';
 
 export default function Contact() {
@@ -12,7 +12,7 @@ export default function Contact() {
       <PublicSection title="Support">
         <p>
           For account issues, import problems, or general questions, email{' '}
-          <a href={SUPPORT_MAILTO} className="text-primary hover:underline">
+          <a href={SUPPORT_MAILTO} className={INLINE_LINK}>
             {SUPPORT_EMAIL}
           </a>
           . We aim to respond to every inquiry as quickly as we can.
@@ -23,10 +23,10 @@ export default function Contact() {
         <p>
           For complaints about how Fynora handles your personal data under India's DPDP Act, contact our
           Grievance Officer, {GRIEVANCE_OFFICER_NAME}, at{' '}
-          <a href={GRIEVANCE_MAILTO} className="text-primary hover:underline">
+          <a href={GRIEVANCE_MAILTO} className={INLINE_LINK}>
             {GRIEVANCE_EMAIL}
           </a>
-          . See our <Link to="/privacy" className="text-primary hover:underline">Privacy Policy</Link> for the
+          . See our <Link to="/privacy" className={INLINE_LINK}>Privacy Policy</Link> for the
           full grievance redressal process.
         </p>
       </PublicSection>

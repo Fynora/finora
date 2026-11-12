@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { PublicLayout } from '../components/PublicLayout';
+import { INLINE_LINK, PublicLayout } from '../components/PublicLayout';
 import { HelpContactCard } from './HelpContactCard';
 import { GetTheApp } from '../components/GetTheApp';
 import { STATEMENT_CODES, STATEMENT_CODES_TITLE, statementCodePath } from './statementCodes';
@@ -25,7 +25,7 @@ export default function StatementCodeIndex() {
       <p className="text-sm text-muted mb-10">
         Banks print their own abbreviations, so the legend on your statement, or your bank, is the final word on what a code
         means for your account. Questions about Fynora itself are answered in the{' '}
-        <Link to="/help" className="text-primary hover:underline">Help Center</Link>.
+        <Link to="/help" className={INLINE_LINK}>Help Center</Link>.
       </p>
       <GetTheApp variant="full" placement="badge_bottom" className="mb-10" />
       <HelpContactCard />

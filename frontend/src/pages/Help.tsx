@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Search } from 'lucide-react';
-import { PublicLayout } from '../components/PublicLayout';
+import { INLINE_LINK, PublicLayout } from '../components/PublicLayout';
 import { HelpContactCard } from './HelpContactCard';
 import { GetTheApp } from '../components/GetTheApp';
 import { HELP_ARTICLES, HELP_CATEGORIES, helpArticlePath } from './helpArticles';
@@ -35,7 +35,7 @@ export default function Help() {
     >
       <p className="text-sm text-muted mb-6">
         Not sure what a code on your bank statement means, such as NACH, IMPS or INT PD? See{' '}
-        <Link to="/bank-statement-codes" className="text-primary hover:underline">bank statement codes explained</Link>.
+        <Link to="/bank-statement-codes" className={INLINE_LINK}>bank statement codes explained</Link>.
       </p>
 
       <div className="relative mb-6">

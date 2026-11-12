@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { PublicLayout, PublicSection } from '../components/PublicLayout';
+import { INLINE_LINK, PublicLayout, PublicSection } from '../components/PublicLayout';
 import { SUPPORT_EMAIL, SUPPORT_MAILTO } from '../lib/contact';
 
 export default function RefundPolicy() {
@@ -14,7 +14,7 @@ export default function RefundPolicy() {
           Fynora (operated by Fynora Technovation LLP) offers Free and Plus plans. Plus
           is paid, billed on a recurring monthly or yearly cycle — on the web through Razorpay, and on
           iOS/Android through the App Store or Google Play. See{' '}
-          <Link to="/terms" className="text-primary hover:underline">Terms & Conditions</Link> for the full
+          <Link to="/terms" className={INLINE_LINK}>Terms & Conditions</Link> for the full
           subscription clause.
         </p>
       </PublicSection>
@@ -71,7 +71,7 @@ export default function RefundPolicy() {
           On the web, cancel from the Billing page in your account. On iOS or Android, open Subscription from
           the app's More menu — it links directly to your Apple ID or Play Store subscription settings. You can
           also email{' '}
-          <a href={SUPPORT_MAILTO} className="text-primary hover:underline">
+          <a href={SUPPORT_MAILTO} className={INLINE_LINK}>
             {SUPPORT_EMAIL}
           </a>{' '}
           and we'll point you to the right place.
@@ -81,7 +81,7 @@ export default function RefundPolicy() {
       <PublicSection title="Contact">
         <p>
           Questions about a charge or this policy: see{' '}
-          <Link to="/contact" className="text-primary hover:underline">Contact Us</Link>.
+          <Link to="/contact" className={INLINE_LINK}>Contact Us</Link>.
         </p>
       </PublicSection>
     </PublicLayout>

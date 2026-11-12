@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { PublicLayout, PublicSection } from '../components/PublicLayout';
+import { INLINE_LINK, PublicLayout, PublicSection } from '../components/PublicLayout';
 
 export default function ShippingPolicy() {
   return (
@@ -19,7 +19,7 @@ export default function ShippingPolicy() {
         <p>
           Paid features are delivered digitally: access to a plan is granted to your account automatically as
           soon as payment succeeds, and removed at the end of your billing cycle if you cancel — see{' '}
-          <Link to="/refund-policy" className="text-primary hover:underline">Refund & Cancellation Policy</Link>.
+          <Link to="/refund-policy" className={INLINE_LINK}>Refund & Cancellation Policy</Link>.
         </p>
       </PublicSection>
 
@@ -34,7 +34,7 @@ export default function ShippingPolicy() {
       <PublicSection title="Questions">
         <p>
           If you have questions about accessing a feature you've paid for, see{' '}
-          <Link to="/contact" className="text-primary hover:underline">Contact Us</Link>.
+          <Link to="/contact" className={INLINE_LINK}>Contact Us</Link>.
         </p>
       </PublicSection>
     </PublicLayout>

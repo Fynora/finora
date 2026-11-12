@@ -106,17 +106,22 @@ export function PublicLayout({
         </div>
       </header>
 
-      <section className="border-b border-border" data-seo-description={description}>
-        <div className="max-w-4xl mx-auto px-6 pt-16 pb-10">
-          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-primary bg-primary-light rounded-full px-3 py-1 mb-4">
-            <Sparkles size={12} /> Fynora
-          </span>
-          <h1 className="text-3xl md:text-4xl font-extrabold text-ink mb-3">{title}</h1>
-          {subtitle && <p data-seo="description" className="text-muted text-base max-w-2xl">{subtitle}</p>}
-        </div>
-      </section>
+      {/* The title band is part of <main>. Between <header> and <main> it sat outside every
+          landmark, so a screen reader moving by landmark skipped the page's <h1> (axe `region`, on
+          every public page). PublicLayout.test.tsx fails if content leaves the landmarks again. */}
+      <main>
+        <section className="border-b border-border" data-seo-description={description}>
+          <div className="max-w-4xl mx-auto px-6 pt-16 pb-10">
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-primary bg-primary-light rounded-full px-3 py-1 mb-4">
+              <Sparkles size={12} /> Fynora
+            </span>
+            <h1 className="text-3xl md:text-4xl font-extrabold text-ink mb-3">{title}</h1>
+            {subtitle && <p data-seo="description" className="text-muted text-base max-w-2xl">{subtitle}</p>}
+          </div>
+        </section>
 
-      <main className="max-w-4xl mx-auto px-6 py-14">{children}</main>
+        <div className="max-w-4xl mx-auto px-6 py-14">{children}</div>
+      </main>
 
       <PublicFooter />
     </div>
@@ -154,6 +159,14 @@ export function PublicFooter() {
     </footer>
   );
 }
+
+/**
+ * The class for a link inside running text on a public page ("see our Privacy Policy for ...").
+ * Underlined, not told apart by colour alone: text-primary against the surrounding text-muted is
+ * under the 3:1 a colour-only difference needs, which is axe's `link-in-text-block`. Links that
+ * stand on their own (navigation lists, breadcrumbs, buttons, card headings) keep their own style.
+ */
+export const INLINE_LINK = 'text-primary underline underline-offset-2 hover:decoration-2';
 
 /** A titled prose section — consistent spacing/typography for every legal/info page built on
  *  PublicLayout, so Terms/Privacy/About don't each reinvent heading styles. */

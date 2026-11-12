@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { Brain, ShieldCheck, Target, TrendingUp } from 'lucide-react';
-import { PublicLayout, PublicSection } from '../components/PublicLayout';
+import { INLINE_LINK, PublicLayout, PublicSection } from '../components/PublicLayout';
 import {
   GRIEVANCE_EMAIL,
   GRIEVANCE_MAILTO,
@@ -78,14 +78,14 @@ export default function About() {
         </p>
         <p>
           {everywhere.nativeNote}{' '}
-          <a href={playStoreLink('/about', 'text')} className="text-primary hover:underline">Fynora on Google Play</a>.
+          <a href={playStoreLink('/about', 'text')} className={INLINE_LINK}>Fynora on Google Play</a>.
         </p>
         <p>
-          For help, see the <Link to="/help" className="text-primary hover:underline">Help Center</Link> or
-          email <a href={SUPPORT_MAILTO} className="text-primary hover:underline">{SUPPORT_EMAIL}</a>. For
+          For help, see the <Link to="/help" className={INLINE_LINK}>Help Center</Link> or
+          email <a href={SUPPORT_MAILTO} className={INLINE_LINK}>{SUPPORT_EMAIL}</a>. For
           complaints about how your personal data is handled, write to our Grievance Officer at{' '}
-          <a href={GRIEVANCE_MAILTO} className="text-primary hover:underline">{GRIEVANCE_EMAIL}</a>. More on
-          the <Link to="/contact" className="text-primary hover:underline">Contact</Link> page.
+          <a href={GRIEVANCE_MAILTO} className={INLINE_LINK}>{GRIEVANCE_EMAIL}</a>. More on
+          the <Link to="/contact" className={INLINE_LINK}>Contact</Link> page.
         </p>
       </PublicSection>
     </PublicLayout>

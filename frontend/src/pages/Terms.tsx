@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { PublicLayout, PublicSection } from '../components/PublicLayout';
+import { INLINE_LINK, PublicLayout, PublicSection } from '../components/PublicLayout';
 import { SUPPORT_EMAIL, SUPPORT_MAILTO, LEGAL_NAME, REGISTERED_OFFICE_TEXT } from '../lib/contact';
 
 export default function Terms() {
@@ -45,7 +45,7 @@ export default function Terms() {
         <p>
           Fynora is intended for users 18 years of age or older. By registering, you represent that you are at
           least 18. Fynora does not knowingly collect personal data from anyone under 18 — see our{' '}
-          <Link to="/privacy" className="text-primary hover:underline">Privacy Policy</Link> for how to report
+          <Link to="/privacy" className={INLINE_LINK}>Privacy Policy</Link> for how to report
           this if you believe it has happened.
         </p>
       </PublicSection>
@@ -77,7 +77,7 @@ export default function Terms() {
         <p>
           When you import a bank or credit card statement, Fynora processes that file to extract transactions,
           detect accounts, and generate categorization suggestions. This processing happens so the Service can
-          function — see our <Link to="/privacy" className="text-primary hover:underline">Privacy Policy</Link> for
+          function — see our <Link to="/privacy" className={INLINE_LINK}>Privacy Policy</Link> for
           full detail on what is collected, how it's stored, and your rights over it.
         </p>
       </PublicSection>
@@ -114,7 +114,7 @@ export default function Terms() {
           relevant app store) to charge your chosen payment method each billing cycle until you cancel. Prices shown
           for Plus include GST at the applicable rate; for a subscription bought on the web, your Fynora invoice
           shows the GST amount separately. See our{' '}
-          <Link to="/refund-policy" className="text-primary hover:underline">Refund & Cancellation Policy</Link>{' '}
+          <Link to="/refund-policy" className={INLINE_LINK}>Refund & Cancellation Policy</Link>{' '}
           for how to cancel and what happens to billing and access when you do.
         </p>
         <p>
@@ -169,8 +169,8 @@ export default function Terms() {
       <PublicSection title="17. Contact Information">
         <p>
           Questions about these terms can be sent to{' '}
-          <a href={SUPPORT_MAILTO} className="text-primary hover:underline">{SUPPORT_EMAIL}</a>,
-          or see <Link to="/contact" className="text-primary hover:underline">Contact Us</Link>.
+          <a href={SUPPORT_MAILTO} className={INLINE_LINK}>{SUPPORT_EMAIL}</a>,
+          or see <Link to="/contact" className={INLINE_LINK}>Contact Us</Link>.
         </p>
       </PublicSection>
     </PublicLayout>

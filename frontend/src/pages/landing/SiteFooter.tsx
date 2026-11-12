@@ -74,7 +74,7 @@ export function SiteFooter() {
               target="_blank"
               rel="noopener noreferrer"
               className="m-tap inline-flex items-center gap-2 mt-5 text-sm text-slate-400 hover:text-white transition-colors"
-              aria-label="Fynora on Instagram (opens in a new tab)"
+              aria-label={`${footer.instagramHandle}: Fynora on Instagram (opens in a new tab)`}
             >
               <InstagramIcon size={17} />
               {footer.instagramHandle}

@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { PublicLayout, PublicSection } from '../components/PublicLayout';
+import { INLINE_LINK, PublicLayout, PublicSection } from '../components/PublicLayout';
 
 export default function CookiePolicy() {
   return (
@@ -24,7 +24,7 @@ export default function CookiePolicy() {
           <code> SameSite=Lax</code>, and it's scoped only to our authentication endpoints rather
           than the whole site. It's deleted when you sign out, and expires automatically after a
           period of inactivity — see the "Data Encryption & Security" section of our{' '}
-          <Link to="/privacy" className="text-primary hover:underline">Privacy Policy</Link> for the
+          <Link to="/privacy" className={INLINE_LINK}>Privacy Policy</Link> for the
           exact session limits. Because this cookie is what keeps you signed in, blocking it in your
           browser will prevent Fynora from working — there's no separate "non-essential" cookie to
           opt out of instead.
@@ -92,7 +92,7 @@ export default function CookiePolicy() {
         <p>
           This page covers cookies and local storage specifically. For how Fynora handles your
           financial and personal data more broadly, see our{' '}
-          <Link to="/privacy" className="text-primary hover:underline">Privacy Policy</Link>.
+          <Link to="/privacy" className={INLINE_LINK}>Privacy Policy</Link>.
         </p>
       </PublicSection>
     </PublicLayout>

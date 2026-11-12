@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, ChevronRight } from 'lucide-react';
-import { PublicLayout } from '../components/PublicLayout';
+import { INLINE_LINK, PublicLayout } from '../components/PublicLayout';
 import { GetTheApp } from '../components/GetTheApp';
 import NotFound from './NotFound';
 import { hero } from './landing/landing-config';
@@ -76,7 +76,7 @@ export function BankPageView({ page }: { page: BankPageData }) {
               {page.sources.map((source, i) => (
                 <span key={source.url}>
                   {i > 0 && '; '}
-                  <a href={source.url} className="text-primary hover:underline" rel="noopener noreferrer" target="_blank">{source.label}</a>
+                  <a href={source.url} className={INLINE_LINK} rel="noopener noreferrer" target="_blank">{source.label}</a>
                   {' '}(read {longDate(source.checked)})
                 </span>
               ))}

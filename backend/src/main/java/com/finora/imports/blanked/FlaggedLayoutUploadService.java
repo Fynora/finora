@@ -120,8 +120,13 @@ public class FlaggedLayoutUploadService {
         }
         ImportJob job = jobOf(analysis);
         requireCustomerStillHere(job, reference);
+        // The copy is a PDF trace; BlankedCopyService refuses anything else, but only after this
+        // method has read the file and recorded the access. Refused here, nothing is read or recorded.
+        if (!"PDF".equalsIgnoreCase(job.getSourceFormat())) {
+            throw new ApiException(HttpStatus.CONFLICT, "Blanked copy not available for CSV yet.");
+        }
 
-        boolean savedPassword = "PDF".equalsIgnoreCase(job.getSourceFormat()) && passwords.hasJobPassword(job.getId());
+        boolean savedPassword = passwords.hasJobPassword(job.getId());
         Map<String, Object> details = details(actingAdminId, job, reference, fingerprint);
         details.put("reason", reason);
         details.put("savedPasswordOnFile", savedPassword);

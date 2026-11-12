@@ -322,6 +322,15 @@ describe('LayoutIntelligence — layout review queue and profiles', () => {
     expect(screen.queryByRole('button', { name: 'Download blanked copy' })).not.toBeInTheDocument();
   });
 
+  it('says a CSV layout has no blanked copy, in place of the button', async () => {
+    mockAuth(['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE'], ['ADMIN']);
+    vi.mocked(adminLayoutRegistryApi.reviewQueue).mockResolvedValue([entry({ sourceFormat: 'CSV' })]);
+    renderPage('/layout-intelligence?tab=review');
+
+    expect(await screen.findByText('Blanked copy not available for CSV yet.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Download blanked copy' })).not.toBeInTheDocument();
+  });
+
   it('offers no blanked copy for a layout with no latest upload', async () => {
     mockAuth(['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE'], ['ADMIN']);
     vi.mocked(adminLayoutRegistryApi.reviewQueue).mockResolvedValue([entry({ reviewAnalysisReference: null })]);

@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { LoadError } from '../../components/LoadError';
 import { Sparkles } from 'lucide-react';
 import { adminUserLearningApi } from '../../api/endpoints';
 import type { LearningSummaryDto, LearningTimelineEntry } from '../../types';
@@ -8,7 +9,7 @@ export function LearningSection({ userId }: { userId: string }) {
     queryKey: ['admin-user-learning-summary', userId],
     queryFn: () => adminUserLearningApi.summary(userId),
   });
-  const { data: timeline, isLoading: timelineLoading } = useQuery({
+  const { data: timeline, isLoading: timelineLoading, error: timelineError } = useQuery({
     queryKey: ['admin-user-learning-timeline', userId],
     queryFn: () => adminUserLearningApi.timeline(userId),
   });
@@ -42,7 +43,8 @@ export function LearningSection({ userId }: { userId: string }) {
       )}
 
       {timelineLoading && <p className="text-sm text-muted">Loading…</p>}
-      {!timelineLoading && (timeline ?? []).length === 0 && (
+      <LoadError error={timelineError} />
+      {!timelineLoading && !timelineError && (timeline ?? []).length === 0 && (
         <p className="text-sm text-muted">No learning activity recorded for this user yet.</p>
       )}
       <div>

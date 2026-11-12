@@ -55,6 +55,8 @@ class AuthServiceReactivateTest {
         when(requestMetadata.device()).thenReturn("Chrome on macOS");
         when(refreshTokenService.issue(any())).thenReturn(
                 new RefreshTokenService.IssuedToken("new-refresh-token", Instant.now().plusSeconds(3600), UUID.randomUUID()));
+        when(refreshTokenService.issue(any(), any())).thenReturn(
+                new RefreshTokenService.IssuedToken("new-refresh-token", Instant.now().plusSeconds(3600), UUID.randomUUID()));
         when(emailProvider.sendAccountReactivatedEmail(any()))
                 .thenReturn(EmailResult.success(ProviderType.RESEND, "test-message-id"));
 
@@ -142,6 +144,7 @@ class AuthServiceReactivateTest {
             assertThat(e.getMessage()).contains("expired");
             assertThat(u.getStatus()).isEqualTo(User.STATUS_DEACTIVATED);
             verify(refreshTokenService, never()).issue(any());
+            verify(refreshTokenService, never()).issue(any(), any());
             return;
         }
         throw new AssertionError("Expected reactivate() to throw for an expired token");
@@ -191,6 +194,7 @@ class AuthServiceReactivateTest {
         } catch (ApiException e) {
             assertThat(e.getMessage()).contains("no longer deactivated");
             verify(refreshTokenService, never()).issue(any());
+            verify(refreshTokenService, never()).issue(any(), any());
             return;
         }
         throw new AssertionError("Expected reactivate() to throw when the account is no longer deactivated");

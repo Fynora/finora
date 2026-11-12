@@ -77,7 +77,7 @@ describe('BillingOffers', () => {
   });
 
   it('lists past and live offers in India time, with the last day of an end on midnight', async () => {
-    mockAuth(['SUBSCRIPTION_MANAGEMENT_VIEW']);
+    mockAuth(['SUBSCRIPTION_MANAGEMENT_VIEW', 'SUBSCRIPTION_MANAGEMENT_MANAGE']);
     renderPage();
     const live = (await screen.findByText('Diwali offer')).closest('tr')!;
     expect(within(live).getByText('DIWALI2026')).toBeInTheDocument();
@@ -96,7 +96,7 @@ describe('BillingOffers', () => {
   });
 
   it('flags a live offer that checkout skips', async () => {
-    mockAuth(['SUBSCRIPTION_MANAGEMENT_VIEW']);
+    mockAuth(['SUBSCRIPTION_MANAGEMENT_VIEW', 'SUBSCRIPTION_MANAGEMENT_MANAGE']);
     api.list.mockResolvedValue([{ ...LIVE, appliedAtCheckout: false, regularPrice: 100 }]);
     renderPage();
     expect(await screen.findByText('Not charged: its price is not below the regular price.')).toBeInTheDocument();
@@ -135,7 +135,7 @@ describe('BillingOffers', () => {
 
   it('refuses a price at or above the regular price before calling the server', async () => {
     const user = userEvent.setup();
-    mockAuth(['SUBSCRIPTION_MANAGEMENT_VIEW']);
+    mockAuth(['SUBSCRIPTION_MANAGEMENT_VIEW', 'SUBSCRIPTION_MANAGEMENT_MANAGE']);
     renderPage();
     await user.click(await screen.findByRole('button', { name: /New offer/ }));
     await user.type(screen.getByLabelText(/^Code/), 'HOLI2027');
@@ -151,7 +151,7 @@ describe('BillingOffers', () => {
 
   it('refuses a last day before the start day', async () => {
     const user = userEvent.setup();
-    mockAuth(['SUBSCRIPTION_MANAGEMENT_VIEW']);
+    mockAuth(['SUBSCRIPTION_MANAGEMENT_VIEW', 'SUBSCRIPTION_MANAGEMENT_MANAGE']);
     renderPage();
     await user.click(await screen.findByRole('button', { name: /New offer/ }));
     await user.type(screen.getByLabelText(/^Code/), 'HOLI2027');
@@ -167,7 +167,7 @@ describe('BillingOffers', () => {
 
   it("shows the server's message when it refuses the offer", async () => {
     const user = userEvent.setup();
-    mockAuth(['SUBSCRIPTION_MANAGEMENT_VIEW']);
+    mockAuth(['SUBSCRIPTION_MANAGEMENT_VIEW', 'SUBSCRIPTION_MANAGEMENT_MANAGE']);
     api.create.mockRejectedValue({ response: { data: { message: 'This overlaps "Diwali offer" (DIWALI2026, ...).' } } });
     renderPage();
     await user.click(await screen.findByRole('button', { name: /New offer/ }));
@@ -219,7 +219,7 @@ describe('BillingOffers', () => {
 
   it("shows the server's message when ending is refused", async () => {
     const user = userEvent.setup();
-    mockAuth(['SUBSCRIPTION_MANAGEMENT_VIEW']);
+    mockAuth(['SUBSCRIPTION_MANAGEMENT_VIEW', 'SUBSCRIPTION_MANAGEMENT_MANAGE']);
     api.endNow.mockRejectedValue({ response: { data: { message: 'Access denied' } } });
     renderPage();
     const live = (await screen.findByText('Diwali offer')).closest('tr')!;
@@ -229,10 +229,21 @@ describe('BillingOffers', () => {
   });
 
   it('says so when the offers cannot be loaded', async () => {
-    mockAuth(['SUBSCRIPTION_MANAGEMENT_VIEW']);
+    mockAuth(['SUBSCRIPTION_MANAGEMENT_VIEW', 'SUBSCRIPTION_MANAGEMENT_MANAGE']);
     api.list.mockRejectedValue({ response: { data: { message: 'Server unavailable' } } });
     renderPage();
     expect(await screen.findByRole('alert')).toHaveTextContent('Server unavailable');
     expect(screen.getByText('The offers could not be loaded.')).toBeInTheDocument();
+  });
+
+  // Audit 2026-11-10: creating and ending need SUBSCRIPTION_MANAGEMENT_MANAGE on the backend.
+  it('lists offers without New offer or End now for a view-only admin', async () => {
+    mockAuth(['SUBSCRIPTION_MANAGEMENT_VIEW']);
+    vi.mocked(adminBillingOffersApi.list).mockResolvedValue([LIVE]);
+    renderPage();
+
+    expect(await screen.findByText('DIWALI2026')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /New offer/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'End now' })).not.toBeInTheDocument();
   });
 });

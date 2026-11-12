@@ -30,8 +30,9 @@ vi.mock('../context/ThemeContext', () => ({
   useTheme: () => ({ theme: 'system', resolvedTheme: 'light', setTheme: vi.fn() }),
 }));
 vi.mock('../context/AdminAuthContext', () => ({ useAdminAuth: vi.fn() }));
+const notify = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock('../context/NotificationContext', () => ({
-  useNotify: () => ({ success: vi.fn(), error: vi.fn() }),
+  useNotify: () => notify,
 }));
 
 // Every section fetches on mount. Only adminUsersApi.get needs real shape; the rest just have to
@@ -288,5 +289,60 @@ describe('UserDetail — internal account flag', () => {
     await screen.findByText('Target User');
 
     expect(screen.queryByRole('checkbox', { name: LABEL })).not.toBeInTheDocument();
+  });
+});
+
+// Audit 2026-11-10: a missing user and a refused action both used to look like nothing happened.
+describe('UserDetail — failures are visible', () => {
+  it('says the account could not be loaded instead of loading forever', async () => {
+    vi.mocked(adminUsersApi.get).mockRejectedValue({ response: { status: 404, data: { message: 'User not found' } } });
+    renderWith(['USER_VIEW']);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('User not found');
+    expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
+  });
+
+  // Review 2026-11-11: a failed background refresh (e.g. right after an action) must not replace a
+  // profile that is already on screen with an error.
+  it('keeps the loaded profile on screen when a later refresh fails', async () => {
+    vi.mocked(adminUsersApi.get)
+      .mockReset()
+      .mockResolvedValueOnce({ ...USER, status: 'SUSPENDED' })
+      .mockRejectedValue({ response: { data: { message: 'Service unavailable' } } });
+    vi.mocked(adminUsersApi.reactivate).mockResolvedValue({ ...USER } as never);
+    renderWith(['USER_VIEW', 'USER_DELETE']);
+
+    await screen.findByText('Target User');
+    fireEvent.click(screen.getByRole('button', { name: /reactivate account/i }));
+    await waitFor(() => expect(adminUsersApi.get).toHaveBeenCalledTimes(2));
+
+    expect(screen.getByText('Target User')).toBeInTheDocument();
+    expect(screen.queryByText('Service unavailable')).not.toBeInTheDocument();
+  });
+
+  it('reports a refused suspension', async () => {
+    vi.mocked(adminUsersApi.suspend).mockRejectedValue({ response: { data: { message: 'You cannot suspend this account' } } });
+    renderWith(['USER_VIEW', 'USER_DELETE']);
+    await screen.findByText('Target User');
+
+    fireEvent.click(screen.getByRole('button', { name: /suspend account/i }));
+    await screen.findByRole('dialog');
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'TERMS_VIOLATION' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Suspend' }));
+
+    await waitFor(() => expect(notify.error).toHaveBeenCalledWith('You cannot suspend this account'));
+  });
+
+  it('reports a refused role grant', async () => {
+    const { adminRolesApi } = await import('../api/endpoints');
+    vi.mocked(adminRolesApi.listRoles).mockResolvedValue([{ id: 'r-ops', name: 'OPS', description: 'Ops', permissions: [] }]);
+    vi.mocked(adminRolesApi.assignRole).mockRejectedValue({ response: { data: { message: 'Not allowed' } } });
+    renderWith(['USER_VIEW', 'ROLE_MANAGE']);
+    await screen.findByText('Target User');
+
+    fireEvent.change(await screen.findByLabelText('Grant a role'), { target: { value: 'OPS' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Grant' }));
+
+    await waitFor(() => expect(notify.error).toHaveBeenCalledWith('Not allowed'));
   });
 });

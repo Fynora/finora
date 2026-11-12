@@ -36,6 +36,19 @@ class AdminHealthRegistryServiceTest {
     }
 
     @Test
+    void platformHealth_staysUp_whenAProviderIsSwitchedOffOnPurpose() {
+        AdminHealthRegistryService service = new AdminHealthRegistryService(List.of(
+                providerReturning("Database", "Platform", HealthStatus.UP),
+                providerReturning("Gmail Sync", "Integrations", HealthStatus.OFF)
+        ));
+
+        PlatformHealthDto health = service.platformHealth();
+
+        assertThat(health.overallStatus()).isEqualTo("UP");
+        assertThat(health.providers()).anySatisfy(p -> assertThat(p.status()).isEqualTo("OFF"));
+    }
+
+    @Test
     void platformHealth_isDegraded_whenAnyProviderIsDegradedButNoneAreDown() {
         AdminHealthRegistryService service = new AdminHealthRegistryService(List.of(
                 providerReturning("Database", "Platform", HealthStatus.UP),

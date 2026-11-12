@@ -266,11 +266,13 @@ class PdfTraceRedactorBankSentenceTest {
 
     @Test
     void theFingerprintChangesWithTheList() {
-        // 1B94F23A: allowlistFingerprint() on origin/main at 184eb32e5, before this list existed.
-        assertThat(PdfTraceRedactor.allowlistFingerprint(Set.of())).isEqualTo("1B94F23A");
+        // DAA3AF34: the word list alone, after "tran" joined STRUCTURAL_WORDS (an Axis Bank savings
+        // statement's "Tran Date"). 1B94F23A, allowlistFingerprint() on origin/main at 184eb32e5
+        // before the sentence list existed, was the same words without it.
+        assertThat(PdfTraceRedactor.allowlistFingerprint(Set.of())).isEqualTo("DAA3AF34");
         assertThat(PdfTraceRedactor.allowlistFingerprint()).isEqualTo(
                 PdfTraceRedactor.allowlistFingerprint(BankSentences.listed()));
-        assertThat(PdfTraceRedactor.allowlistFingerprint(S)).isNotEqualTo("1B94F23A");
+        assertThat(PdfTraceRedactor.allowlistFingerprint(S)).isNotEqualTo("DAA3AF34");
         assertThat(PdfTraceRedactor.allowlistFingerprint(BankSentences.forTesting(SENTENCE, "please examine this statement upon receipt")))
                 .isNotEqualTo(PdfTraceRedactor.allowlistFingerprint(S));
         // Order of declaration does not matter, only content.

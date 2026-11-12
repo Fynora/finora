@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, ChevronRight } from 'lucide-react';
 import { PublicLayout } from '../components/PublicLayout';
+import { GetTheApp } from '../components/GetTheApp';
 import NotFound from './NotFound';
 import { hero } from './landing/landing-config';
 import {
@@ -47,83 +48,106 @@ export function BankPageView({ page }: { page: BankPageData }) {
   const faq = bankPageFaq(page);
   return (
     <PublicLayout title={page.title} description={page.description}>
-      <article className="mb-10 space-y-4 max-w-2xl">
-        <p className="text-base text-ink leading-relaxed">{page.answer}</p>
-        <p className="text-xs text-muted leading-relaxed" data-testid="not-affiliated">{notAffiliatedLine(page.bankName)}</p>
-      </article>
+      {/* Two columns from laptop width: the page, and a sticky "Get Fynora on Android" card with the
+          QR code beside it (the column the max-w-2xl text left empty). Narrower, the card is the
+          compact strip after the answer instead, and both shapes are in the HTML. */}
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_184px] lg:gap-8">
+        <div className="min-w-0">
+          <article className="mb-10 space-y-4 max-w-2xl">
+            <p className="text-base text-ink leading-relaxed">{page.answer}</p>
+            <p className="text-xs text-muted leading-relaxed" data-testid="not-affiliated">{notAffiliatedLine(page.bankName)}</p>
+          </article>
 
-      <section className="mb-10 max-w-2xl">
-        <h2 className="text-lg font-semibold text-ink mb-3">How to download your {page.bankName} {statementWord}</h2>
-        {page.noStepsNote && <p className="text-sm text-ink leading-relaxed mb-3">{page.noStepsNote}</p>}
-        {page.steps.map((group) => (
-          <div key={group.heading} className="mb-4">
-            <h3 className="text-sm font-semibold text-ink mb-2">{group.heading}</h3>
+          <GetTheApp variant="compact" placement="badge_top" className="mb-10 max-w-2xl lg:hidden" />
+
+          <section className="mb-10 max-w-2xl">
+            <h2 className="text-lg font-semibold text-ink mb-3">How to download your {page.bankName} {statementWord}</h2>
+            {page.noStepsNote && <p className="text-sm text-ink leading-relaxed mb-3">{page.noStepsNote}</p>}
+            {page.steps.map((group) => (
+              <div key={group.heading} className="mb-4">
+                <h3 className="text-sm font-semibold text-ink mb-2">{group.heading}</h3>
+                <ol className="list-decimal pl-5 space-y-1 text-sm text-ink leading-relaxed">
+                  {group.steps.map((step) => <li key={step}>{step}</li>)}
+                </ol>
+              </div>
+            ))}
+            <p className="text-xs text-muted leading-relaxed">
+              {page.sources.length === 1 ? 'Source' : 'Sources'}:{' '}
+              {page.sources.map((source, i) => (
+                <span key={source.url}>
+                  {i > 0 && '; '}
+                  <a href={source.url} className="text-primary hover:underline" rel="noopener noreferrer" target="_blank">{source.label}</a>
+                  {' '}(read {longDate(source.checked)})
+                </span>
+              ))}
+              . Steps can change; the bank's own page is the authority.
+            </p>
+          </section>
+
+          <section className="mb-10 max-w-2xl">
+            <h2 className="text-lg font-semibold text-ink mb-3">What Fynora reads from your {page.bankName} {statementWord}</h2>
+            <ul className="list-disc pl-5 space-y-1 text-sm text-ink leading-relaxed">
+              {page.reads.map((item) => <li key={item}>{item}</li>)}
+            </ul>
+            {(page.notes ?? []).map((note) => <p key={note} className="text-sm text-ink leading-relaxed mt-3">{note}</p>)}
+            <p className="text-xs text-muted mt-3">Last checked against a real {page.bankName} {statementWord} on {longDate(page.measuredOn)}.</p>
+          </section>
+
+          <section className="mb-10 max-w-2xl">
+            <h2 className="text-lg font-semibold text-ink mb-3">What happens after you upload</h2>
             <ol className="list-decimal pl-5 space-y-1 text-sm text-ink leading-relaxed">
-              {group.steps.map((step) => <li key={step}>{step}</li>)}
+              {AFTER_UPLOAD_STEPS.map((step) => <li key={step}>{step}</li>)}
             </ol>
-          </div>
-        ))}
-        <p className="text-xs text-muted leading-relaxed">
-          {page.sources.length === 1 ? 'Source' : 'Sources'}:{' '}
-          {page.sources.map((source, i) => (
-            <span key={source.url}>
-              {i > 0 && '; '}
-              <a href={source.url} className="text-primary hover:underline" rel="noopener noreferrer" target="_blank">{source.label}</a>
-              {' '}(read {longDate(source.checked)})
-            </span>
-          ))}
-          . Steps can change; the bank's own page is the authority.
-        </p>
-      </section>
+            <ul className="list-disc pl-5 space-y-1 text-sm text-ink leading-relaxed mt-4">
+              <li>Free plan: {FREE_PLAN_LIMIT!.charAt(0).toLowerCase()}{FREE_PLAN_LIMIT!.slice(1)}.</li>
+              <li>Fynora reads PDF and CSV files. Excel files can't be uploaded.</li>
+            </ul>
+            <p className="mt-5">
+              {/* The app's own primary button, not the landing page's m-btn-primary: that one reads
+                  --m-brand, which only exists inside the landing page's .marketing wrapper, so here
+                  it had no background and its white text vanished on the light theme. */}
+              <Link
+                to="/auth"
+                className="inline-flex items-center bg-primary hover:bg-primary-dark text-on-primary rounded-lg px-4 py-2.5 text-sm font-semibold"
+              >
+                {hero.primaryCta}
+              </Link>
+            </p>
+          </section>
 
-      <section className="mb-10 max-w-2xl">
-        <h2 className="text-lg font-semibold text-ink mb-3">What Fynora reads from your {page.bankName} {statementWord}</h2>
-        <ul className="list-disc pl-5 space-y-1 text-sm text-ink leading-relaxed">
-          {page.reads.map((item) => <li key={item}>{item}</li>)}
-        </ul>
-        {(page.notes ?? []).map((note) => <p key={note} className="text-sm text-ink leading-relaxed mt-3">{note}</p>)}
-        <p className="text-xs text-muted mt-3">Last checked against a real {page.bankName} {statementWord} on {longDate(page.measuredOn)}.</p>
-      </section>
+          {/* From laptop width the sidebar already shows this page's QR code, so this card does not. */}
+          <GetTheApp variant="full" placement="badge_bottom" className="mb-10 max-w-2xl" qrClassName="hidden md:block lg:hidden" />
 
-      <section className="mb-10 max-w-2xl">
-        <h2 className="text-lg font-semibold text-ink mb-3">What happens after you upload</h2>
-        <ol className="list-decimal pl-5 space-y-1 text-sm text-ink leading-relaxed">
-          {AFTER_UPLOAD_STEPS.map((step) => <li key={step}>{step}</li>)}
-        </ol>
-        <ul className="list-disc pl-5 space-y-1 text-sm text-ink leading-relaxed mt-4">
-          <li>Free plan: {FREE_PLAN_LIMIT!.charAt(0).toLowerCase()}{FREE_PLAN_LIMIT!.slice(1)}.</li>
-          <li>Fynora reads PDF and CSV files. Excel files can't be uploaded.</li>
-        </ul>
-        <p className="mt-5">
-          <Link to="/auth" className="m-btn m-btn-primary inline-flex">{hero.primaryCta}</Link>
-        </p>
-      </section>
+          <section className="mb-10 max-w-2xl">
+            <h2 className="text-lg font-semibold text-ink mb-3">Questions</h2>
+            <dl className="space-y-4">
+              {faq.map(([question, answer]) => (
+                <div key={question}>
+                  <dt className="text-sm font-semibold text-ink">{question}</dt>
+                  <dd className="text-sm text-ink leading-relaxed mt-1">{answer}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
 
-      <section className="mb-10 max-w-2xl">
-        <h2 className="text-lg font-semibold text-ink mb-3">Questions</h2>
-        <dl className="space-y-4">
-          {faq.map(([question, answer]) => (
-            <div key={question}>
-              <dt className="text-sm font-semibold text-ink">{question}</dt>
-              <dd className="text-sm text-ink leading-relaxed mt-1">{answer}</dd>
-            </div>
-          ))}
-        </dl>
-      </section>
+          <nav aria-label="Breadcrumb" className="mb-10 text-xs text-muted">
+            <ol className="flex flex-wrap items-center gap-1.5">
+              <li><Link to={BANKS_HUB_PATH} className="text-primary hover:underline font-medium">{BANKS_HUB_TITLE}</Link></li>
+              <li aria-hidden="true"><ChevronRight size={12} /></li>
+              <li>{page.title}</li>
+            </ol>
+          </nav>
 
-      <nav aria-label="Breadcrumb" className="mb-10 text-xs text-muted">
-        <ol className="flex flex-wrap items-center gap-1.5">
-          <li><Link to={BANKS_HUB_PATH} className="text-primary hover:underline font-medium">{BANKS_HUB_TITLE}</Link></li>
-          <li aria-hidden="true"><ChevronRight size={12} /></li>
-          <li>{page.title}</li>
-        </ol>
-      </nav>
-
-      <p className="mb-6">
-        <Link to={BANKS_HUB_PATH} className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-ink">
-          <ArrowLeft size={14} /> All bank statements
-        </Link>
-      </p>
+          <p className="mb-6">
+            <Link to={BANKS_HUB_PATH} className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-ink">
+              <ArrowLeft size={14} /> All bank statements
+            </Link>
+          </p>
+        </div>
+        <div className="hidden lg:block">
+          <GetTheApp variant="sidebar" placement="sidebar" className="sticky top-24" />
+        </div>
+      </div>
     </PublicLayout>
   );
 }

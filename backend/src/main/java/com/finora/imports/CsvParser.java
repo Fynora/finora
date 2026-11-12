@@ -228,7 +228,7 @@ public class CsvParser {
     // can't be assumed to be row 1. A row counts as "the header" once it has at least one cell
     // matching a date hint AND one matching an amount hint.
     private static final List<String> DATE_HEADER_HINTS = List.of(
-            "date", "txn date", "transaction date", "value date");
+            "date", "txn date", "tran date", "transaction date", "value date");
     private static final List<String> AMOUNT_HEADER_HINTS = List.of(
             "amount", "debit", "credit", "dr amount", "cr amount", "debit amount", "credit amount",
             "withdrawal amt", "withdrawal amount", "deposit amt", "deposit amount", "withdrawal", "deposit");

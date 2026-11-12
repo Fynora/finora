@@ -54,6 +54,8 @@ class AuthServiceLoginTest {
         // been caught until this suite actually got to run.
         when(refreshTokenService.issue(any())).thenReturn(
                 new RefreshTokenService.IssuedToken("test-refresh-token", java.time.Instant.now().plusSeconds(3600), java.util.UUID.randomUUID()));
+        when(refreshTokenService.issue(any(), any())).thenReturn(
+                new RefreshTokenService.IssuedToken("test-refresh-token", java.time.Instant.now().plusSeconds(3600), java.util.UUID.randomUUID()));
 
         // registerFailedLogin() (invoked from login()'s catch block whenever the user is known)
         // reads live lockout policy off this on every failed attempt -- a real entity with the
@@ -382,6 +384,7 @@ class AuthServiceLoginTest {
             verify(reactivationTokenRepository).save(any());
             // No session, and no login recorded -- no login actually happened.
             verify(refreshTokenService, never()).issue(any());
+            verify(refreshTokenService, never()).issue(any(), any());
             verify(auditService, never()).record(any(), eq("USER_LOGIN"), any(), any());
             return;
         }
@@ -410,6 +413,7 @@ class AuthServiceLoginTest {
             assertThat(e.getMessage()).contains("window has closed");
             verify(reactivationTokenRepository, never()).save(any());
             verify(refreshTokenService, never()).issue(any());
+            verify(refreshTokenService, never()).issue(any(), any());
             return;
         }
         throw new AssertionError("Expected login() to throw for a deactivated account past its reactivation window");
@@ -492,6 +496,7 @@ class AuthServiceLoginTest {
             assertThat(e.getMessage()).contains("scheduled for deletion");
             verify(reactivationTokenRepository, never()).save(any());
             verify(refreshTokenService, never()).issue(any());
+            verify(refreshTokenService, never()).issue(any(), any());
             return;
         }
         throw new AssertionError("Expected login() to throw for a pending-deletion account");
@@ -529,6 +534,7 @@ class AuthServiceLoginTest {
         } catch (Exception e) {
             assertThat(e.getMessage()).isEqualTo("This account no longer exists.");
             verify(refreshTokenService, never()).issue(any());
+            verify(refreshTokenService, never()).issue(any(), any());
             return;
         }
         throw new AssertionError("Expected login() to throw for a deleted account");

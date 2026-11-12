@@ -25,6 +25,14 @@ import org.springframework.web.context.request.ServletRequestAttributes;
  * is fine for what the fields are for — aggregation and support context — and would not be fine
  * for anything security-bearing. Nothing may authorise on these values.
  *
+ * <p>One deliberate, documented exception: {@code RefreshTokenService} reads the platform and
+ * {@link #APP_LOCK_HEADER} once, at sign-in, to choose between the phone and web session limits
+ * (design 2026-11-10, mobile PIN unlock). It is safe only because of where it is read: the request
+ * has just proved the account's password, OTP or Google/Apple identity, so a false claim buys a
+ * longer session only for someone who could sign in anyway, and rotation copies the stored kind
+ * rather than re-reading the headers, so an existing session can never be upgraded. Do not extend
+ * this to anything else.
+ *
  * <h2>Absent or unrecognised means {@link ClientPlatform#WEB}</h2>
  *
  * <p>So {@code WEB} really means "web, or a client that did not say". That is the honest reading
@@ -41,6 +49,13 @@ public class ClientIdentity {
 
     /** The client's own claim about which build it is. */
     public static final String VERSION_HEADER = "X-App-Version";
+
+    /** Sent by phone-app builds that require a PIN to open the app, with the value {@link #APP_LOCK_PIN}.
+     *  Read only at sign-in -- see this class's doc for the one place it is used. */
+    public static final String APP_LOCK_HEADER = "X-App-Lock";
+
+    /** The only value of {@link #APP_LOCK_HEADER} that means "this build has the PIN lock". */
+    public static final String APP_LOCK_PIN = "pin";
 
     /**
      * Matches {@code app_version VARCHAR(32)} in V145 and V148.

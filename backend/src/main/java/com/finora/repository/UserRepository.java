@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -116,33 +117,27 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     long countByEmailNotAndCreatedAtBetween(String email, Instant start, Instant end);
 
     /**
-     * Admin Portal, Operational Dashboard Insights row -- the inverse of AuditLogRepository
-     * .countDistinctUsersByActionSince: users who existed for the entire [since, now) window with
-     * NO USER_LOGIN audit row in it. A user who never logged in at all also satisfies the "no
-     * login row" half, so "inactive" naturally covers both "went quiet" and "never came back,"
-     * without a separate query for the never-logged-in case.
+     * Admin dashboard "Inactive 7+ days": customer (USER-scope) accounts that existed for the whole
+     * window and used the app on none of its days. Replaces counting USER_LOGIN audit rows, which
+     * missed everyone whose session simply stayed signed in -- most mobile users, whose sessions last
+     * weeks (2026-11-10 audit: "Active today 0" on a day with an import).
      *
-     * <p>{@code u.createdAt < :since} is not an optional refinement -- without it this query
-     * counts brand-new signups as "inactive," not just genuinely quiet ones. Registration
-     * (AuthService.register()) writes USER_REGISTERED, never USER_LOGIN, so a user who signed up
-     * minutes ago has zero USER_LOGIN rows exactly like someone who has been gone seven days, and
-     * satisfies "no login row since :since" immediately. Requiring the account to predate the
-     * cutoff means only users who had the full window to log in and didn't are counted.
-     *
-     * <p>Excludes the bootstrap account by email, same reason as countByEmailNot above -- the
-     * account never logs in again after setup, so a role-based filter here would have had it
-     * permanently misreported as an "inactive user."
+     * <p>Admin accounts are left out because UserActivityInterceptor never records them, so every
+     * admin would otherwise read as permanently inactive; deleted accounts are anonymized and can
+     * never come back. {@code createdAt < :createdBefore} keeps a brand-new signup from counting:
+     * an account created inside the window has not had the whole window to be active.
      */
     @Query("""
         SELECT COUNT(u) FROM User u
-         WHERE u.email <> :bootstrapEmail
-           AND u.createdAt < :since
-           AND u.id NOT IN (
-               SELECT DISTINCT a.userId FROM AuditLog a WHERE a.action = :action AND a.createdAt >= :since
+         WHERE u.accountScope = 'USER'
+           AND u.status <> 'DELETED'
+           AND u.createdAt < :createdBefore
+           AND NOT EXISTS (
+               SELECT 1 FROM UserActivityDay d WHERE d.userId = u.id AND d.activityDate >= :sinceDay
            )
         """)
-    long countWithNoAuditActionSince(@Param("action") String action, @Param("since") Instant since,
-                                      @Param("bootstrapEmail") String bootstrapEmail);
+    long countCustomersWithNoActivitySince(@Param("sinceDay") LocalDate sinceDay,
+                                           @Param("createdBefore") Instant createdBefore);
 
     // Paired with countByEmailNot above -- AdminStatsService's per-status breakdowns
     // (suspendedUsers/activeUsers) need the same bootstrap-account exclusion, scoped to one

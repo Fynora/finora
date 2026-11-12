@@ -26,13 +26,15 @@ afterEach(() => {
 });
 
 describe('openInApp', () => {
-  it('is off unless VITE_OPEN_IN_APP_ANDROID is exactly "true"', () => {
+  it('is on unless VITE_OPEN_IN_APP_ANDROID is exactly "false"', () => {
     vi.stubEnv('VITE_OPEN_IN_APP_ANDROID', '');
-    expect(androidOpenInAppEnabled()).toBe(false);
-    vi.stubEnv('VITE_OPEN_IN_APP_ANDROID', 'TRUE');
-    expect(androidOpenInAppEnabled()).toBe(false);
+    expect(androidOpenInAppEnabled()).toBe(true);
     vi.stubEnv('VITE_OPEN_IN_APP_ANDROID', 'true');
     expect(androidOpenInAppEnabled()).toBe(true);
+    vi.stubEnv('VITE_OPEN_IN_APP_ANDROID', 'FALSE');
+    expect(androidOpenInAppEnabled()).toBe(true);
+    vi.stubEnv('VITE_OPEN_IN_APP_ANDROID', 'false');
+    expect(androidOpenInAppEnabled()).toBe(false);
   });
 
   it('recognises a Chromium browser on Android, but not Firefox, an app WebView, an iPhone or a computer', () => {
@@ -51,6 +53,17 @@ describe('openInApp', () => {
         + `S.browser_fallback_url=${encodeURIComponent(PLAY_STORE_URL)};end`
     );
     expect(PLAY_STORE_URL).toBe('https://play.google.com/store/apps/details?id=com.fynora.android');
+  });
+
+  it('falls back to the given Play link, encoded once more so its own referrer survives', () => {
+    const fallback = `${PLAY_STORE_URL}&referrer=utm_source%3Dfynora_web%26utm_term%3Dbanner`;
+    const url = androidOpenAppUrl(fallback);
+    const extra = /S\.browser_fallback_url=([^;]*);end$/.exec(url)?.[1];
+    expect(extra).toBeDefined();
+    // Chrome URI-decodes an intent extra once (Intent.parseUri); that gives back the link exactly.
+    expect(decodeURIComponent(extra!)).toBe(fallback);
+    expect(extra).not.toContain('&');
+    expect(extra).not.toContain(';');
   });
 
   it("points the App Store link at the app's id, the same id the Smart App Banner takes", () => {

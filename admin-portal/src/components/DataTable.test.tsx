@@ -26,6 +26,24 @@ describe('DataTable', () => {
     expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
   });
 
+  // Audit 2026-11-10: a failed load used to fall through to the empty message, so Users said "No
+  // users match this search" and Audit Log "No activity recorded yet" when the server was down.
+  it('says the list could not be loaded instead of showing the empty message', () => {
+    const error = { response: { data: { message: 'Service unavailable' } } };
+    render(<DataTable columns={columns} rows={undefined} keyFor={(r) => r.id} loading={false} error={error} emptyMessage="Nothing here." />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent("Couldn't load this list: Service unavailable");
+    expect(screen.queryByText('Nothing here.')).not.toBeInTheDocument();
+  });
+
+  it('keeps rows it already has when a refresh fails, and says so', () => {
+    const rows: Row[] = [{ id: '1', name: 'Alpha' }];
+    render(<DataTable columns={columns} rows={rows} keyFor={(r) => r.id} loading={false} error={new Error('x')} emptyMessage="Nothing here." />);
+
+    expect(screen.getByText('Alpha')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent("Couldn't load this list. Please try again.");
+  });
+
   it('renders one row per item using each column\'s render function', () => {
     const rows: Row[] = [{ id: '1', name: 'Alpha' }, { id: '2', name: 'Beta' }];
     render(<DataTable columns={columns} rows={rows} keyFor={(r) => r.id} loading={false} emptyMessage="Nothing here." />);

@@ -1,18 +1,21 @@
 import { useState } from 'react';
+import { LoadError } from '../../components/LoadError';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAdminAuth } from '../../context/AdminAuthContext';
 import { Trash2 } from 'lucide-react';
 import { adminTransactionsApi } from '../../api/endpoints';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import type { TransactionDto } from '../../types';
+import { errorMessage } from './errorMessage';
 
 export function TransactionsSection({ userId }: { userId: string }) {
   const { hasPermission } = useAdminAuth();
   const queryClient = useQueryClient();
   const canDelete = hasPermission('TRANSACTION_DELETE');
   const [confirmDelete, setConfirmDelete] = useState<TransactionDto | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  const { data: transactions, isLoading } = useQuery({
+  const { data: transactions, isLoading, error: loadError } = useQuery({
     queryKey: ['admin-user-transactions', userId],
     queryFn: () => adminTransactionsApi.list(userId),
   });
@@ -20,18 +23,22 @@ export function TransactionsSection({ userId }: { userId: string }) {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => adminTransactionsApi.delete(userId, id),
     onSuccess: () => {
+      setDeleteError(null);
       void queryClient.invalidateQueries({ queryKey: ['admin-user-transactions', userId] });
       void queryClient.invalidateQueries({ queryKey: ['admin-user-accounts', userId] });
       void queryClient.invalidateQueries({ queryKey: ['admin-user', userId] });
     },
+    onError: (err: any) => setDeleteError(errorMessage(err, 'Failed to delete this transaction.')),
   });
 
   return (
     <div className="bg-card border border-border rounded-xl2 shadow-card p-6">
       <h3 className="text-sm font-semibold text-ink mb-3">Recent transactions</h3>
       <p className="text-xs text-muted mb-3">Most recent 50. For CSV import on a user's behalf, ask them to import it themselves.</p>
+      {deleteError && <p role="alert" className="text-xs text-danger mb-2">{deleteError}</p>}
       {isLoading && <p className="text-sm text-muted">Loading…</p>}
-      {!isLoading && (transactions ?? []).length === 0 && (
+      <LoadError error={loadError} />
+      {!isLoading && !loadError && (transactions ?? []).length === 0 && (
         <p className="text-sm text-muted">No transactions on file for this user.</p>
       )}
       <div className="space-y-1.5">

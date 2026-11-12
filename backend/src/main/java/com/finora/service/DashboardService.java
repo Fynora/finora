@@ -362,6 +362,8 @@ public class DashboardService {
             topOpportunity = computeTopOpportunity(health.breakdown());
         }
 
+        StatementReachService.CoveredDays covered = coveredDays(userId, currentMonth, active, zone);
+
         return new DashboardSummaryDto(
                 liquid, totalAssets, liabilities, netWorth,
                 incomeCur, expenseCur, netCur, savingsRate,
@@ -392,17 +394,36 @@ public class DashboardService {
                         : statementReach.behindFor(userId, YearMonth.parse(currentMonth),
                                 YearMonth.parse(months.get(months.size() - 1))).orElse(null),
                 unknownAmountOwed.size(),
-                // `active`, not `activeForTotals`: a day that holds only a transfer is still a day
-                // the statements cover.
-                currentMonth == null ? null : active.stream().map(Transaction::getTxnDate)
-                        .filter(d -> YearMonth.from(d).toString().equals(currentMonth))
-                        .max(Comparator.naturalOrder()).orElse(null),
-                currentMonth == null ? null : statementReach.firstCoveredDay(userId, YearMonth.parse(currentMonth),
-                        active.stream().filter(t -> t.getAccountId() != null
-                                        && YearMonth.from(t.getTxnDate()).toString().equals(currentMonth))
-                                .collect(java.util.stream.Collectors.toMap(Transaction::getAccountId, Transaction::getTxnDate,
-                                        (x, y) -> x.isBefore(y) ? x : y)))
+                covered == null ? null : covered.through(),
+                covered == null ? null : covered.from()
         );
+    }
+
+    /**
+     * The days of the reporting month the figures cover, for the cards' "1–8 Nov". From `active`, not
+     * `activeForTotals`: a day that holds only a transfer is still a day the statements cover. Null
+     * when there is no reporting month or it has no rows.
+     */
+    private StatementReachService.CoveredDays coveredDays(UUID userId, String reportingMonth,
+                                                          List<Transaction> active, ZoneId zone) {
+        if (reportingMonth == null) return null;
+        YearMonth month = YearMonth.parse(reportingMonth);
+        List<Transaction> monthRows = active.stream().filter(t -> YearMonth.from(t.getTxnDate()).equals(month)).toList();
+        LocalDate newestRow = monthRows.stream().map(Transaction::getTxnDate).max(Comparator.naturalOrder()).orElse(null);
+        if (newestRow == null) return null;
+        Map<UUID, LocalDate> earliestRow = new HashMap<>();
+        Map<UUID, LocalDate> latestRow = new HashMap<>();
+        for (Transaction t : monthRows) {
+            if (t.getAccountId() == null) continue;
+            earliestRow.merge(t.getAccountId(), t.getTxnDate(), (x, y) -> x.isBefore(y) ? x : y);
+            latestRow.merge(t.getAccountId(), t.getTxnDate(), (x, y) -> x.isAfter(y) ? x : y);
+        }
+        StatementReachService.CoveredDays byAccount =
+                statementReach.coveredDays(userId, month, earliestRow, latestRow, LocalDate.now(zone));
+        // A row with no account still counts, so the end day is never before it.
+        if (byAccount == null) return new StatementReachService.CoveredDays(month.atDay(1), newestRow);
+        LocalDate through = byAccount.through() == null || newestRow.isAfter(byAccount.through()) ? newestRow : byAccount.through();
+        return new StatementReachService.CoveredDays(byAccount.from(), through);
     }
 
     // 3 calendar months is the threshold most of this method's own thin-data guards already

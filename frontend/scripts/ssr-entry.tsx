@@ -29,6 +29,8 @@ import NotFound from '../src/pages/NotFound';
 export { jsonLdScripts, structuredDataFor } from '../src/lib/structuredData';
 // llms.txt and llms-full.txt, built from the site's own copy (see src/lib/llmsTxt.ts).
 export { llmsFullTxt, llmsTxt } from '../src/lib/llmsTxt';
+// The Google Play QR code for each page (src/lib/playStoreLink.ts), written by prerender.mjs.
+export { playQrLinkForFile, playQrPath } from '../src/lib/playStoreLink';
 
 /**
  * Bundled by scripts/prerender.mjs via Vite's SSR build, then imported from plain Node -- this is

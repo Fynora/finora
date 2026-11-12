@@ -451,9 +451,13 @@ export default function Privacy() {
           Passwords are hashed with bcrypt and never stored or logged in plain text. Password reset tokens and
           session refresh tokens are stored hashed, not in plain text, so a database compromise alone cannot be
           used to reset an account or hijack a session. Sessions are scoped per device, visible and individually
-          revocable from Settings, and bounded by several limits: the short-lived access token behind each
-          request expires every 15 minutes; a session signs itself out after 24 hours of inactivity, and in any
-          case after 30 days from when you signed in, even with continuous use; and each use of a session
+          revocable from Settings, and bounded by several limits. The short-lived access token behind each
+          request expires every 15 minutes. On the website, you are signed out after 15 minutes without
+          activity, and a session also ends after 24 hours of inactivity or 30 days after you signed in, even
+          with continuous use. In the Fynora app, you stay signed in on that phone until you sign out or the app
+          goes unused for 90 days, and opening the app needs a 4-digit PIN you set (or Face ID or a
+          fingerprint, if you turn that on); the PIN is stored only on your phone and never sent to us, and
+          five wrong PINs in a row sign you out on that phone. Each use of a session
           automatically rotates it to a new token, so a token used more than once is treated as a sign of
           compromise and every session on the account is signed out as a precaution. All traffic between your
           device and Fynora's servers is encrypted in transit (HTTPS/TLS), and our website enforces HTTP Strict

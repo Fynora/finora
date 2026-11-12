@@ -1,3 +1,4 @@
+import { loadErrorMessage } from '../lib/loadError';
 import type { ReactNode } from 'react';
 
 /**
@@ -23,13 +24,16 @@ export interface DataTableColumn<T> {
  * the tabular case, not a catch-all replacement for every list layout in the app.
  */
 export function DataTable<T>({
-  columns, rows, keyFor, loading, emptyMessage,
+  columns, rows, keyFor, loading, emptyMessage, error,
 }: {
   columns: DataTableColumn<T>[];
   rows: T[] | undefined;
   keyFor: (row: T) => string;
   loading: boolean;
   emptyMessage: string;
+  /** The query's error. Without it a failed load fell through to emptyMessage, which told the
+   *  admin there was nothing to show when the server had in fact refused or gone down. */
+  error?: unknown;
 }) {
   return (
     <div className="bg-card border border-border rounded-xl2 shadow-card overflow-x-auto">
@@ -49,7 +53,14 @@ export function DataTable<T>({
               <td colSpan={columns.length} className="px-4 py-8 text-center text-muted">Loading…</td>
             </tr>
           )}
-          {!loading && (rows ?? []).length === 0 && (
+          {!loading && error != null && (
+            <tr>
+              <td colSpan={columns.length} role="alert" className="px-4 py-4 text-center text-danger">
+                {loadErrorMessage(error)}
+              </td>
+            </tr>
+          )}
+          {!loading && error == null && (rows ?? []).length === 0 && (
             <tr>
               <td colSpan={columns.length} className="px-4 py-8 text-center text-muted">{emptyMessage}</td>
             </tr>

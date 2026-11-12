@@ -13,6 +13,7 @@ import { useSavedViews } from '../hooks/useSavedViews';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { adminAuditApi } from '../api/endpoints';
 import { formatIst } from '../lib/istTime';
+import { loadErrorMessage } from '../lib/loadError';
 import type { AdminAuditLogRow } from '../types';
 
 const PAGE_SIZE = 25;
@@ -304,7 +305,7 @@ function AuditLogContent() {
   const [drillLabels, setDrillLabels] = useState<Partial<Record<DrillKey, string>>>({});
   const savedViews = useSavedViews<AuditFilterValues>('finora-admin-views-audit-log');
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error: loadError } = useQuery({
     queryKey: ['admin-audit-global', page, filters],
     queryFn: () => adminAuditApi.global(page, PAGE_SIZE, {
       q: filters.q || undefined,
@@ -399,7 +400,10 @@ function AuditLogContent() {
 
       <div className="bg-card border border-border rounded-xl2 shadow-card overflow-hidden">
         {isLoading && <p className="px-4 py-8 text-center text-muted text-sm">Loading…</p>}
-        {!isLoading && groups.length === 0 && (
+        {!isLoading && loadError != null && (
+          <p role="alert" className="px-4 py-4 text-center text-danger text-sm">{loadErrorMessage(loadError)}</p>
+        )}
+        {!isLoading && loadError == null && groups.length === 0 && (
           <p className="px-4 py-8 text-center text-muted text-sm">
             {anyFilter ? 'No activity matches these filters.' : 'No activity recorded yet.'}
           </p>

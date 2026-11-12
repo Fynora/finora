@@ -19,6 +19,7 @@ import com.finora.repository.HeldStatementRepository;
 import com.finora.repository.ImportJobRepository;
 import com.finora.repository.StatementImportRepository;
 import com.finora.repository.TransactionRepository;
+import com.finora.repository.UserActivityDayRepository;
 import com.finora.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,6 +63,7 @@ public class AdminOperationalDashboardService {
     private final AdminHealthRegistryService healthRegistryService;
     private final HeldStatementRepository heldStatementRepository;
     private final ImportJobRepository importJobRepository;
+    private final UserActivityDayRepository userActivityDayRepository;
 
     public AdminOperationalDashboardService(UserRepository userRepository, TransactionRepository transactionRepository,
                                              StatementImportRepository statementImportRepository,
@@ -69,7 +71,8 @@ public class AdminOperationalDashboardService {
                                              AuditLogRepository auditLogRepository,
                                              AdminHealthRegistryService healthRegistryService,
                                              HeldStatementRepository heldStatementRepository,
-                                             ImportJobRepository importJobRepository) {
+                                             ImportJobRepository importJobRepository,
+                                             UserActivityDayRepository userActivityDayRepository) {
         this.userRepository = userRepository;
         this.transactionRepository = transactionRepository;
         this.statementImportRepository = statementImportRepository;
@@ -79,6 +82,7 @@ public class AdminOperationalDashboardService {
         this.healthRegistryService = healthRegistryService;
         this.heldStatementRepository = heldStatementRepository;
         this.importJobRepository = importJobRepository;
+        this.userActivityDayRepository = userActivityDayRepository;
     }
 
     /** The zone every platform-wide "today"/"this month" tile is bucketed by. Configurable rather
@@ -121,7 +125,11 @@ public class AdminOperationalDashboardService {
         Instant startOfYesterday = LocalDate.now(zone).minusDays(1).atStartOfDay(zone).toInstant();
 
         long totalUsers = userRepository.countByEmailNot(BootstrapService.BOOTSTRAP_IDENTIFIER);
-        long activeUsersToday = auditLogRepository.countDistinctUsersByActionSince("USER_LOGIN", startOfToday);
+        // Days the app was actually used (user_activity_days, V249), not USER_LOGIN audit rows: a
+        // session stays signed in for weeks, so counting logins showed "Active today 0" on days
+        // people were importing statements.
+        LocalDate today = LocalDate.now(zone);
+        long activeUsersToday = userActivityDayRepository.countByActivityDate(today);
         long transactionsToday = transactionRepository.countByCreatedAtAfter(startOfToday);
         long importsToday = statementImportRepository.countByImportedAtAfter(startOfToday);
         long importsWithSkippedRowsToday = statementImportRepository.countWithSkippedRowsAfter(startOfToday);
@@ -129,7 +137,7 @@ public class AdminOperationalDashboardService {
         // Same four "today" tiles, one calendar day earlier -- backs each tile's "vs yesterday"
         // delta. totalUsers deliberately has no sibling here; see PreviousDayDto's own doc comment.
         PreviousDayDto previousDay = new PreviousDayDto(
-                auditLogRepository.countDistinctUsersByActionBetween("USER_LOGIN", startOfYesterday, startOfToday),
+                userActivityDayRepository.countByActivityDate(today.minusDays(1)),
                 transactionRepository.countByCreatedAtBetween(startOfYesterday, startOfToday),
                 statementImportRepository.countByImportedAtBetween(startOfYesterday, startOfToday),
                 statementImportRepository.countWithSkippedRowsBetween(startOfYesterday, startOfToday));
@@ -153,13 +161,12 @@ public class AdminOperationalDashboardService {
                 overdue(ImportJob.Status.HELD_FOR_TRUST_REVIEW),
                 overdue(ImportJob.Status.HELD_FOR_REVIEW));
 
-        // Insights row -- inverse of activeUsersToday's own query, same window this class already
-        // uses for "today," just walked back INACTIVITY_WINDOW_DAYS instead of one. See
-        // countWithNoAuditActionSince's own doc comment for why this also requires the account to
-        // predate the cutoff -- otherwise a signup from an hour ago counts as "inactive."
-        Instant inactivityCutoff = LocalDate.now(zone).minusDays(INACTIVITY_WINDOW_DAYS).atStartOfDay(zone).toInstant();
-        long inactiveUsersLast7Days = userRepository.countWithNoAuditActionSince(
-                "USER_LOGIN", inactivityCutoff, BootstrapService.BOOTSTRAP_IDENTIFIER);
+        // Insights row -- inverse of activeUsersToday's own source, walked back INACTIVITY_WINDOW_DAYS.
+        // See UserRepository.countCustomersWithNoActivitySince for who is counted and why the account
+        // must predate the cutoff (otherwise a signup from an hour ago counts as "inactive").
+        LocalDate inactivityCutoffDay = today.minusDays(INACTIVITY_WINDOW_DAYS);
+        long inactiveUsersLast7Days = userRepository.countCustomersWithNoActivitySince(
+                inactivityCutoffDay, inactivityCutoffDay.atStartOfDay(zone).toInstant());
 
         List<AuditLogDto> recentActivity = auditLogRepository
                 .findAllByOrderByCreatedAtDesc(PageRequest.of(0, RECENT_ACTIVITY_LIMIT, Sort.unsorted()))
@@ -221,12 +228,14 @@ public class AdminOperationalDashboardService {
         return points;
     }
 
-    /** Every non-UP provider becomes exactly one alert -- deliberately not a separate alerting
-     *  engine with its own thresholds/rules, so there's one place (HealthProvider.check()) that
-     *  decides what counts as a problem, not two that could disagree. */
+    /** Every DEGRADED or DOWN provider becomes exactly one alert -- deliberately not a separate
+     *  alerting engine with its own thresholds/rules, so there's one place (HealthProvider.check())
+     *  that decides what counts as a problem, not two that could disagree. OFF (switched off on
+     *  purpose) is not a problem and raises none. */
     private List<AlertDto> alertsFrom(PlatformHealthDto health) {
         return health.providers().stream()
-                .filter(p -> !p.status().equals(HealthStatus.UP.name()))
+                .filter(p -> p.status().equals(HealthStatus.DOWN.name())
+                        || p.status().equals(HealthStatus.DEGRADED.name()))
                 .map(p -> new AlertDto(
                         p.status().equals(HealthStatus.DOWN.name()) ? "critical" : "warning",
                         p.name(),

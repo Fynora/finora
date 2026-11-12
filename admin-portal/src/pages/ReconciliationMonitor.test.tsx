@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import ReconciliationMonitor from './ReconciliationMonitor';
@@ -83,5 +83,32 @@ describe('ReconciliationMonitor', () => {
     expect(screen.getByText('5')).toBeInTheDocument();
     expect(screen.getByText('20')).toBeInTheDocument();
     expect(screen.getByText('6')).toBeInTheDocument();
+  });
+
+  // Audit 2026-11-10: Recurring is a separate flag on transactions of any status, so as a tenth
+  // card in the "broken down by status" grid the cards added up to more than the total.
+  it('keeps Recurring out of the status breakdown, which adds up to the total', async () => {
+    mockAuth(['RECONCILIATION_VIEW']);
+    vi.mocked(adminReconciliationApi.platformStats).mockResolvedValue({
+      okCount: 900, duplicateCount: 12, transferCount: 34, refundCount: 8, reversalCount: 5,
+      investmentTransferCount: 20, supersededCount: 6, recurringCount: 56, totalTransactions: 985,
+    });
+
+    renderPage();
+
+    const note = await screen.findByText(/of these are\s+also marked recurring/);
+    expect(note.closest('p')).toHaveTextContent('56 of these are also marked recurring');
+    const breakdown = screen.getByRole('list', { name: 'Transactions by reconciliation status' });
+    expect(within(breakdown).queryByText(/recurring/i)).not.toBeInTheDocument();
+  });
+
+  it('says the numbers could not be loaded instead of showing zeros', async () => {
+    mockAuth(['RECONCILIATION_VIEW']);
+    vi.mocked(adminReconciliationApi.platformStats).mockRejectedValue(new Error('Network Error'));
+
+    renderPage();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't load");
+    expect(screen.queryByText('Total transactions')).not.toBeInTheDocument();
   });
 });

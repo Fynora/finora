@@ -344,3 +344,323 @@ describe('a failed session refresh is recorded before signing out', () => {
     now.mockRestore();
   });
 });
+
+/**
+ * verifySession: one refresh before the app asks for the PIN or Face ID on a cold start, so a
+ * session the server has already ended goes straight to the sign-in screen instead of being
+ * unlocked first (design 2026-11-10, section 4). Only a definite answer from the server ends the
+ * session here; no answer at all, or a server error, keeps it, because the app also works offline.
+ */
+describe('verifySession', () => {
+  type Adapter = (config: { url?: string }) => Promise<unknown>;
+  let client: typeof import('./client');
+  let secureStore: { __store: Map<string, string> };
+  let expired: jest.Mock;
+  let netInfo: { fetch?: jest.Mock };
+
+  /** Answers each refresh attempt in turn; the last answer repeats. */
+  function refreshAnswers(...answers: Adapter[]) {
+    let attempt = 0;
+    client.rawApi.defaults.adapter = ((config: { url?: string }) => {
+      const answer = answers[Math.min(attempt, answers.length - 1)];
+      attempt += 1;
+      return answer(config);
+    }) as never;
+    return () => attempt;
+  }
+  const respondWith = (adapter: Adapter) => refreshAnswers(adapter);
+
+  const ok: Adapter = (config) => Promise.resolve({
+    config, status: 200, statusText: 'OK', headers: {},
+    data: { success: true, data: { token: 'new-access', refreshToken: 'new-refresh' } },
+  });
+  const networkError: Adapter = (config) => Promise.reject(Object.assign(new Error('Network Error'), { config }));
+  const timeout: Adapter = (config) => Promise.reject(Object.assign(new Error('timeout of 30000ms exceeded'), {
+    config, code: 'ECONNABORTED',
+  }));
+  function httpError(status: number, errorCode: string): Adapter {
+    return (config) =>
+      Promise.reject(Object.assign(new Error(`HTTP ${status}`), {
+        config,
+        response: { status, data: { message: 'x', errorCode } },
+      }));
+  }
+
+  function phoneIs(state: 'online' | 'offline' | 'no-internet') {
+    netInfo.fetch = jest.fn(async () => ({
+      isConnected: state !== 'offline',
+      isInternetReachable: state === 'online',
+    }));
+  }
+
+  beforeEach(() => {
+    jest.resetModules();
+    client = require('./client');
+    client.__setRenewRetryDelayForTests(0);
+    netInfo = require('@react-native-community/netinfo').default;
+    phoneIs('online');
+    secureStore = require('expo-secure-store');
+    secureStore.__store.clear();
+    secureStore.__store.set('finora_token', 'old-access');
+    secureStore.__store.set(REFRESH_TOKEN_KEY, 'old-refresh');
+    expired = jest.fn();
+    client.setSessionCallbacks({ onSessionExpired: expired });
+  });
+
+  afterEach(() => {
+    delete netInfo.fetch;
+  });
+
+  it('returns alive and stores the rotated pair', async () => {
+    respondWith(ok);
+
+    await expect(client.verifySession()).resolves.toBe('alive');
+
+    expect(secureStore.__store.get('finora_token')).toBe('new-access');
+    expect(secureStore.__store.get(REFRESH_TOKEN_KEY)).toBe('new-refresh');
+    expect(expired).not.toHaveBeenCalled();
+  });
+
+  it('returns ended and clears the session when the server refuses the refresh', async () => {
+    const attempts = respondWith(httpError(401, 'AUTH_005'));
+
+    await expect(client.verifySession()).resolves.toBe('ended');
+
+    expect(attempts()).toBe(1);
+    expect(secureStore.__store.has('finora_token')).toBe(false);
+    expect(secureStore.__store.has(REFRESH_TOKEN_KEY)).toBe(false);
+    expect(expired).toHaveBeenCalledTimes(1);
+  });
+
+  // #2513: a refresh refused because the account was suspended signs out WITH the reason, so the
+  // sign-in screen can say so. The cold-start check must carry it the same way the 401 path does.
+  it('returns ended and passes the suspended reason when the account was suspended', async () => {
+    respondWith(httpError(403, 'AUTH_018'));
+
+    await expect(client.verifySession()).resolves.toBe('ended');
+
+    expect(expired).toHaveBeenCalledWith({
+      endedDeliberately: false,
+      message: 'This account has been suspended. Sign in to see why and what you can do.',
+    });
+  });
+
+  it('returns ended when there is no stored refresh token', async () => {
+    secureStore.__store.delete(REFRESH_TOKEN_KEY);
+
+    await expect(client.verifySession()).resolves.toBe('ended');
+
+    expect(expired).toHaveBeenCalledTimes(1);
+  });
+
+  // The request never reached the server, so the stored token is still the current one: keep the
+  // session and do not retry.
+  it.each(['offline', 'no-internet'] as const)('keeps the session, with one attempt, when the phone is %s', async (state) => {
+    phoneIs(state);
+    const attempts = respondWith(networkError);
+
+    await expect(client.verifySession()).resolves.toBe('offline');
+
+    expect(attempts()).toBe(1);
+    expect(secureStore.__store.get(REFRESH_TOKEN_KEY)).toBe('old-refresh');
+    expect(expired).not.toHaveBeenCalled();
+  });
+
+  it('keeps the session on a 429: the rate limiter answers before the token is touched', async () => {
+    const attempts = respondWith(httpError(429, 'RATE_LIMITED'));
+
+    await expect(client.verifySession()).resolves.toBe('offline');
+
+    expect(attempts()).toBe(1);
+    expect(expired).not.toHaveBeenCalled();
+  });
+
+  // Online but no clear answer: the server may have rotated the token before the answer was lost.
+  // One retry inside the server's 30-second reuse window gets a fresh pair either way.
+  it.each([
+    ['a network error', networkError],
+    ['a timeout', timeout],
+    ['HTTP 502', httpError(502, 'BAD_GATEWAY')],
+    ['HTTP 500', httpError(500, 'SERVER')],
+  ] as const)('retries once after %s, and stays signed in when the retry works', async (_label, first) => {
+    const attempts = refreshAnswers(first, ok);
+
+    await expect(client.verifySession()).resolves.toBe('alive');
+
+    expect(attempts()).toBe(2);
+    expect(secureStore.__store.get(REFRESH_TOKEN_KEY)).toBe('new-refresh');
+    expect(expired).not.toHaveBeenCalled();
+  });
+
+  it('signs out when the retry is refused', async () => {
+    refreshAnswers(timeout, httpError(401, 'AUTH_005'));
+
+    await expect(client.verifySession()).resolves.toBe('ended');
+    expect(expired).toHaveBeenCalledTimes(1);
+  });
+
+  // Still no answer while online: keeping the old token would risk it being replayed after the
+  // server's reuse window, which reads as theft and signs out every device. Sign out this one.
+  it('signs out this phone when the retry also gets no answer while online', async () => {
+    const attempts = refreshAnswers(networkError, networkError);
+
+    await expect(client.verifySession()).resolves.toBe('ended');
+
+    expect(attempts()).toBe(2);
+    expect(expired).toHaveBeenCalledTimes(1);
+  });
+
+  // The server honours a just-rotated token again only within 30 s of rotating it. A first attempt
+  // that ran for most of its 30 s timeout may have been rotated early on; a retry after it would land
+  // outside that window, read as theft, and sign out every device. No retry then: this phone signs out.
+  it('does not retry when the first attempt took too long for a retry to land inside the reuse window', async () => {
+    let now = 1_000_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const attempts = refreshAnswers((config) => {
+      now += 29_000;
+      return timeout(config);
+    });
+
+    await expect(client.verifySession()).resolves.toBe('ended');
+
+    expect(attempts()).toBe(1);
+    expect(expired).toHaveBeenCalledTimes(1);
+    jest.restoreAllMocks();
+  });
+
+  it('still retries a quick failure', async () => {
+    let now = 1_000_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const attempts = refreshAnswers((config) => {
+      now += 3_000;
+      return networkError(config);
+    }, ok);
+
+    await expect(client.verifySession()).resolves.toBe('alive');
+
+    expect(attempts()).toBe(2);
+    jest.restoreAllMocks();
+  });
+
+  // A renewal left over from a session that ended while it waited to retry must not act for (or
+  // sign out) the next session.
+  it('stops a pending retry when the session ends meanwhile', async () => {
+    client.__setRenewRetryDelayForTests(30);
+    const attempts = refreshAnswers(networkError, ok);
+    const pending = client.verifySession();
+    await new Promise((r) => setTimeout(r, 5));
+    void client.markSessionEnded();
+    client.sessionStorageCleared();
+    secureStore.__store.set(REFRESH_TOKEN_KEY, 'next-session-refresh');
+
+    await expect(pending).resolves.toBe('ended');
+
+    expect(attempts()).toBe(1);
+    expect(expired).not.toHaveBeenCalled();
+    expect(secureStore.__store.get(REFRESH_TOKEN_KEY)).toBe('next-session-refresh');
+  });
+
+  it('keeps the session when the phone went offline before the retry', async () => {
+    const attempts = refreshAnswers((config) => {
+      phoneIs('offline');
+      return networkError(config);
+    });
+
+    await expect(client.verifySession()).resolves.toBe('offline');
+
+    expect(attempts()).toBe(1);
+    expect(expired).not.toHaveBeenCalled();
+  });
+});
+
+describe('a 401 whose refresh gets no clear answer', () => {
+  let client: typeof import('./client');
+  let secureStore: { __store: Map<string, string> };
+  let expired: jest.Mock;
+  let netInfo: { fetch?: jest.Mock };
+
+  function reject401(url: string) {
+    const handler = (client.api.interceptors.response as unknown as {
+      handlers: { rejected: (e: unknown) => Promise<unknown> }[];
+    }).handlers[0].rejected;
+    const original = { config: { url, headers: {} }, response: { status: 401, data: { message: 'x' } } };
+    return { original, result: handler(original) };
+  }
+
+  beforeEach(() => {
+    jest.resetModules();
+    client = require('./client');
+    client.__setRenewRetryDelayForTests(0);
+    netInfo = require('@react-native-community/netinfo').default;
+    secureStore = require('expo-secure-store');
+    secureStore.__store.clear();
+    secureStore.__store.set('finora_token', 'old-access');
+    secureStore.__store.set(REFRESH_TOKEN_KEY, 'old-refresh');
+    expired = jest.fn();
+    client.setSessionCallbacks({ onSessionExpired: expired });
+  });
+
+  afterEach(() => {
+    delete netInfo.fetch;
+  });
+
+  it('fails only that request, without signing out, when the phone is offline', async () => {
+    netInfo.fetch = jest.fn(async () => ({ isConnected: false, isInternetReachable: false }));
+    client.rawApi.defaults.adapter = ((config: unknown) =>
+      Promise.reject(Object.assign(new Error('Network Error'), { config }))) as never;
+
+    const { original, result } = reject401('/accounts');
+
+    await expect(result).rejects.toBe(original);
+    expect(expired).not.toHaveBeenCalled();
+    expect(secureStore.__store.get(REFRESH_TOKEN_KEY)).toBe('old-refresh');
+  });
+
+  it('retries the refresh once and replays the request when the retry works', async () => {
+    netInfo.fetch = jest.fn(async () => ({ isConnected: true, isInternetReachable: true }));
+    let attempt = 0;
+    client.rawApi.defaults.adapter = ((config: unknown) => {
+      attempt += 1;
+      if (attempt === 1) return Promise.reject(Object.assign(new Error('timeout'), { config, code: 'ECONNABORTED' }));
+      return Promise.resolve({
+        config, status: 200, statusText: 'OK', headers: {},
+        data: { success: true, data: { token: 'new-access', refreshToken: 'new-refresh' } },
+      });
+    }) as never;
+    client.api.defaults.adapter = ((config: unknown) => Promise.resolve({
+      config, status: 200, statusText: 'OK', headers: {}, data: { success: true, data: { ok: true } },
+    })) as never;
+
+    const { result } = reject401('/accounts');
+
+    await expect(result).resolves.toBeDefined();
+    expect(attempt).toBe(2);
+    expect(expired).not.toHaveBeenCalled();
+  });
+
+  it('still signs out when the server refuses the refresh', async () => {
+    netInfo.fetch = jest.fn(async () => ({ isConnected: true, isInternetReachable: true }));
+    client.rawApi.defaults.adapter = ((config: unknown) => Promise.reject(Object.assign(new Error('HTTP 401'), {
+      config, response: { status: 401, data: { message: 'x', errorCode: 'AUTH_005' } },
+    }))) as never;
+
+    const { original, result } = reject401('/accounts');
+
+    await expect(result).rejects.toBe(original);
+    expect(expired).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('X-App-Lock header', () => {
+  it('is sent as "pin" on every request, so a sign-in from this build gets a phone session', async () => {
+    jest.resetModules();
+    const { api } = require('./client') as typeof import('./client');
+    const handler = (api.interceptors.request as unknown as {
+      handlers: { fulfilled: (c: unknown) => Promise<{ headers: Record<string, string> }> }[];
+    }).handlers[0].fulfilled;
+
+    const config = await handler({ url: '/auth/login', headers: {} });
+
+    expect(config.headers['X-App-Lock']).toBe('pin');
+  });
+});

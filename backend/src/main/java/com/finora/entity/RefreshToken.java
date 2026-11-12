@@ -74,6 +74,11 @@ public class RefreshToken {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
+    /** Which limits this session lives by -- see {@link SessionKind}. Copied on every rotation. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "session_kind", nullable = false, updatable = false, length = 16)
+    private SessionKind sessionKind = SessionKind.WEB;
+
     // Device-session metadata -- best-effort labels captured from the request that issued/rotated
     // this token (see UserAgentParser), not a persistent cross-rotation device fingerprint (this
     // app has no client-side device ID to correlate rotations of the "same" device with). Each
@@ -101,6 +106,8 @@ public class RefreshToken {
     private Long version = 0L;
 
     public UUID getId() { return id; }
+    public SessionKind getSessionKind() { return sessionKind; }
+    public void setSessionKind(SessionKind sessionKind) { this.sessionKind = sessionKind; }
     public UUID getUserId() { return userId; }
     public void setUserId(UUID userId) { this.userId = userId; }
     public String getTokenHash() { return tokenHash; }

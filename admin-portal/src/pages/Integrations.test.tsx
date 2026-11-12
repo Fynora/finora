@@ -77,6 +77,21 @@ describe('Integrations', () => {
     expect(screen.getByText('Payment Provider (Stripe/Razorpay)')).toBeInTheDocument();
   });
 
+  // Audit 2026-11-10: a feature paused on purpose is grey, not the amber of a real problem.
+  it('shows a switched-off integration in grey, not as a warning', async () => {
+    mockAuth(['PLATFORM_DIAGNOSTICS_VIEW']);
+    vi.mocked(adminIntegrationsApi.overview).mockResolvedValue({
+      ...OVERVIEW,
+      integrations: [{ ...OVERVIEW.integrations[0], status: 'OFF', detail: 'Paused (GMAIL_SYNC_ENABLED=false)' }],
+    });
+
+    renderPage();
+
+    const badge = await screen.findByText('OFF');
+    expect(badge).toHaveClass('text-muted');
+    expect(badge).not.toHaveClass('text-warning');
+  });
+
   it('shows the empty-state message when there are no live integrations reporting', async () => {
     mockAuth(['PLATFORM_DIAGNOSTICS_VIEW']);
     vi.mocked(adminIntegrationsApi.overview).mockResolvedValue({ integrations: [], upcoming: [] });

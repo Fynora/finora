@@ -136,11 +136,13 @@ function RuleRow({ userId, rule }: { userId: string; rule: RuleDto }) {
   });
   const toggleEnabledMutation = useMutation({
     mutationFn: (enabled: boolean) => adminUserRulesApi.update(userId, rule.id, { enabled }),
-    onSuccess: invalidate,
+    onSuccess: () => { setError(null); invalidate(); },
+    onError: (err: any) => setError(errorMessage(err, 'Failed to change this rule.')),
   });
   const deleteMutation = useMutation({
     mutationFn: () => adminUserRulesApi.delete(userId, rule.id),
     onSuccess: invalidate,
+    onError: (err: any) => setError(errorMessage(err, 'Failed to delete this rule.')),
   });
 
   if (editing) {

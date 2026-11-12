@@ -67,6 +67,8 @@ class AuthServiceOtpLoginTest {
         RefreshTokenService refreshTokenService = mock(RefreshTokenService.class);
         when(refreshTokenService.issue(any()))
                 .thenReturn(new RefreshTokenService.IssuedToken("raw-refresh-token", Instant.now().plusSeconds(3600), UUID.randomUUID()));
+        when(refreshTokenService.issue(any(), any()))
+                .thenReturn(new RefreshTokenService.IssuedToken("raw-refresh-token", Instant.now().plusSeconds(3600), UUID.randomUUID()));
 
         accountRequestThrottle = mock(AccountRequestThrottle.class);
         authService = new AuthService(

@@ -49,7 +49,10 @@ public class EmailNotificationProvider implements NotificationChannelProvider {
                     // Our team applied a statement correction for the user; a reply should reach a person.
                     NotificationType.STATEMENT_CORRECTED_BY_SUPPORT,
                     // The customer's own ticket; a reply to this email is them adding to it.
-                    NotificationType.SUPPORT_TICKET_RECEIVED);
+                    NotificationType.SUPPORT_TICKET_RECEIVED,
+                    // Our team resolved or closed the customer's ticket; a reply should reach a person.
+                    NotificationType.SUPPORT_TICKET_RESOLVED,
+                    NotificationType.SUPPORT_TICKET_CLOSED);
 
     private final EmailProvider emailProvider;
     private final UserRepository userRepository;
@@ -128,6 +131,9 @@ public class EmailNotificationProvider implements NotificationChannelProvider {
                     to, waitingCount(params));
             case SUPPORT_TICKET_RECEIVED -> emailProvider.sendSupportTicketReceivedEmail(
                     to, params.get("ticketNumber"), params.get("ticketId"));
+            case SUPPORT_TICKET_RESOLVED, SUPPORT_TICKET_CLOSED -> emailProvider.sendSupportTicketFinishedEmail(
+                    to, params.get("ticketNumber"), params.get("ticketId"),
+                    notification.getType() == NotificationType.SUPPORT_TICKET_RESOLVED, params.get("message"));
             default -> emailProvider.send(buildMessage(to, notification.getType(),
                     notification.getCategory(), notification.getTitle(), notification.getMessage()));
         };

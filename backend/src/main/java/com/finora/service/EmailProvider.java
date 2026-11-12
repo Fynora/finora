@@ -123,4 +123,11 @@ public interface EmailProvider {
      *  @param ticketNumber the reference the customer quotes back, e.g. SUP-000123
      *  @param ticketId the ticket's id for the button's link; blank or null renders no button */
     EmailResult sendSupportTicketReceivedEmail(String toEmail, String ticketNumber, String ticketId);
+
+    /** An admin resolved or closed the customer's support ticket (SupportTicketService.updateStatus).
+     *
+     *  @param resolved true for resolved, false for closed -- the two say different things
+     *  @param message  the admin's note to the customer, plain text; null or blank for none */
+    EmailResult sendSupportTicketFinishedEmail(String toEmail, String ticketNumber, String ticketId,
+                                               boolean resolved, String message);
 }

@@ -317,9 +317,14 @@ public class SupportTicketService {
         return new AttachmentDownload(attachment.getFilename(), attachment.getContentType(), attachment.getContent());
     }
 
+    /**
+     * @param claim            MINE (tickets {@code callerId} holds), UNCLAIMED, or null for all
+     * @param mayNameCustomers whether the caller holds USER_VIEW -- see {@link SupportTicketDto.AdminSummary}
+     */
     @Transactional(readOnly = true)
-    public PagedResponse<SupportTicketDto.Summary> adminList(SupportTicket.Status status, SupportTicket.Category category,
-                                                              String q, int page, int size) {
+    public PagedResponse<SupportTicketDto.AdminSummary> adminList(SupportTicket.Status status, SupportTicket.Category category,
+                                                                   String q, SupportTicketDto.ClaimFilter claim, UUID callerId,
+                                                                   boolean mayNameCustomers, int page, int size) {
         Pageable pageable = PageRequest.of(PageBounds.safePage(page), PageBounds.safeSize(size));
         // Blank (not just null) reads as "no search" -- a caller sending q="" (an untouched
         // search box submitted along with a real filter change, say) must not silently exclude
@@ -328,16 +333,89 @@ public class SupportTicketService {
         // still the wrong contract to expose: "no search" should mean the WHERE clause is skipped
         // entirely, not "matched trivially."
         String query = (q == null || q.isBlank()) ? null : q.trim();
-        return PagedResponse.of(
-                ticketRepository.findForAdmin(status, category, query, pageable).map(SupportTicketDto.Summary::from));
+        UUID claimedBy = claim == SupportTicketDto.ClaimFilter.MINE ? callerId : null;
+        boolean unclaimedOnly = claim == SupportTicketDto.ClaimFilter.UNCLAIMED;
+        var tickets = ticketRepository.findForAdmin(status, category, query, claimedBy, unclaimedOnly, pageable);
+        Map<UUID, User> people = peopleNamedIn(tickets.getContent().stream()
+                .flatMap(t -> java.util.stream.Stream.of(t.getUserId(), t.getClaimedByAdminId())).toList());
+        return PagedResponse.of(tickets.map(t -> {
+            User customer = nameable(people.get(t.getUserId()), mayNameCustomers);
+            User claimer = t.getClaimedByAdminId() != null ? nameable(people.get(t.getClaimedByAdminId()), mayNameCustomers) : null;
+            return new SupportTicketDto.AdminSummary(t.getId(), t.getTicketNumber(), t.getUserId(),
+                    customer != null ? customer.getFullName() : null, customer != null ? customer.getEmail() : null,
+                    t.getCategory(), t.getSubject(), t.getStatus(), t.getClaimedByAdminId(),
+                    claimer != null ? claimer.getFullName() : null,
+                    t.getClaimedByAdminId() != null && t.getClaimedByAdminId().equals(callerId),
+                    t.getCreatedAt(), t.getUpdatedAt(),
+                    t.getDuplicateOfTicketId(), t.getDuplicateOfTicketNumber());
+        }));
     }
 
-    /** The single place a ticket's status changes. 409, naming both states, on any move {@link
-     *  SupportTicket.Status#canTransitionTo} rejects — mirrors {@code AdminHeldImportController}'s
-     *  own stated convention: an operator can tell "already moved" from "not a legal move". */
+    /** The admin's view of one ticket: {@link #getDetail} (which records the view in the audit log)
+     *  plus the customer and the claiming admin, named under {@link SupportTicketDto.AdminDetail}'s rules. */
     @Transactional
-    public SupportTicketDto.Summary updateStatus(UUID actingAdminId, UUID ticketId, SupportTicket.Status newStatus) {
-        SupportTicket ticket = requireTicket(ticketId);
+    public SupportTicketDto.AdminDetail adminDetail(UUID callerId, UUID ticketId, boolean mayNameCustomers) {
+        SupportTicketDto.Detail d = getDetail(callerId, true, ticketId);
+        Map<UUID, User> people = peopleNamedIn(java.util.Arrays.asList(d.userId(), d.claimedByAdminId()));
+        User customer = nameable(people.get(d.userId()), mayNameCustomers);
+        User claimer = d.claimedByAdminId() != null ? nameable(people.get(d.claimedByAdminId()), mayNameCustomers) : null;
+        return new SupportTicketDto.AdminDetail(d.id(), d.ticketNumber(), d.userId(),
+                customer != null ? customer.getFullName() : null, customer != null ? customer.getEmail() : null,
+                d.category(), d.subject(), d.description(), d.status(), d.source(), d.appVersion(),
+                d.claimedByAdminId(), claimer != null ? claimer.getFullName() : null,
+                d.claimedByAdminId() != null && d.claimedByAdminId().equals(callerId),
+                d.resolvedAt(), d.closedAt(), d.createdAt(), d.updatedAt(), d.attachments(),
+                d.duplicateOfTicketId(), d.duplicateOfTicketNumber());
+    }
+
+    /** Every account named in a page, in one query. Nulls (no claimer) are skipped. */
+    private Map<UUID, User> peopleNamedIn(java.util.Collection<UUID> ids) {
+        java.util.Set<UUID> wanted = new java.util.HashSet<>();
+        for (UUID id : ids) if (id != null) wanted.add(id);
+        if (wanted.isEmpty()) return Map.of();
+        Map<UUID, User> byId = new java.util.HashMap<>();
+        for (User u : userRepository.findAllById(wanted)) byId.put(u.getId(), u);
+        return byId;
+    }
+
+    /** Staff are always named; a customer only for a caller who may look customers up (USER_VIEW). */
+    private static User nameable(User user, boolean mayNameCustomers) {
+        if (user == null) return null;
+        return User.SCOPE_ADMIN.equals(user.getAccountScope()) || mayNameCustomers ? user : null;
+    }
+
+    /**
+     * Moves a ticket on, and when it is resolved or closed and the admin asks for it, emails the
+     * customer -- with the admin's message if one was written.
+     *
+     * <p>The ticket row is locked first, as {@code SupportTicketDuplicateService} does: two admins
+     * finishing the same ticket at once would otherwise both pass {@code canTransitionTo} and both
+     * email the customer. With the lock the second waits, sees the ticket already finished, and is
+     * refused with 409.
+     *
+     * <p>The email goes only to a verified address, for the reason {@link #acknowledge} gives (an
+     * unproven address may be a stranger's). When it does not go, the result says why, so the admin
+     * can reach the customer another way. The audit row records whether the customer was emailed
+     * and the message they were sent.
+     */
+    @Transactional
+    public SupportTicketDto.StatusChangeResult updateStatus(UUID actingAdminId, UUID ticketId, SupportTicket.Status newStatus,
+                                                            boolean notifyCustomer, String message) {
+        boolean finishing = newStatus == SupportTicket.Status.RESOLVED || newStatus == SupportTicket.Status.CLOSED;
+        String customerMessage = message == null || message.isBlank() ? null : message.strip();
+        if (!finishing && (notifyCustomer || customerMessage != null)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "The customer is told only when a ticket is resolved or closed.");
+        }
+        if (customerMessage != null && !notifyCustomer) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "A message is sent only when the customer is told.");
+        }
+        if (customerMessage != null && customerMessage.length() > SupportTicketDto.MAX_CUSTOMER_MESSAGE_LENGTH) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "The message to the customer must be at most " + SupportTicketDto.MAX_CUSTOMER_MESSAGE_LENGTH + " characters.");
+        }
+        SupportTicket ticket = ticketRepository.findByIdForUpdate(ticketId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Support ticket not found"));
         SupportTicket.Status previousStatus = ticket.getStatus();
         if (!previousStatus.canTransitionTo(newStatus)) {
             throw new ApiException(HttpStatus.CONFLICT,
@@ -351,17 +429,61 @@ public class SupportTicketService {
             ticket.setClosedAt(now);
         }
         SupportTicket saved = ticketRepository.save(ticket);
-        auditService.record(ticket.getUserId(), "SUPPORT_TICKET_STATUS_CHANGED", "SupportTicket", ticket.getId(),
-                Map.of("actorId", actingAdminId.toString(), "ticketNumber", ticket.getTicketNumber(),
-                        "previousStatus", previousStatus.name(), "newStatus", newStatus.name()));
-        return SupportTicketDto.Summary.from(saved);
+
+        String notEmailedReason = null;
+        if (notifyCustomer) {
+            notEmailedReason = tellCustomerTicketFinished(saved, customerMessage);
+        }
+        boolean customerEmailed = notifyCustomer && notEmailedReason == null;
+
+        Map<String, Object> metadata = new java.util.HashMap<>();
+        metadata.put("actorId", actingAdminId.toString());
+        metadata.put("ticketNumber", ticket.getTicketNumber());
+        metadata.put("previousStatus", previousStatus.name());
+        metadata.put("newStatus", newStatus.name());
+        if (finishing) metadata.put("customerEmailed", customerEmailed);
+        if (customerEmailed && customerMessage != null) metadata.put("messageToCustomer", customerMessage);
+        auditService.record(ticket.getUserId(), "SUPPORT_TICKET_STATUS_CHANGED", "SupportTicket", ticket.getId(), metadata);
+        return new SupportTicketDto.StatusChangeResult(SupportTicketDto.Summary.from(saved), customerEmailed, notEmailedReason);
+    }
+
+    /**
+     * Queues the resolved/closed email in the status change's own transaction (the outbox pattern
+     * {@link #acknowledge} uses). Returns null when queued, else why it was not.
+     *
+     * <p>SECURITY category and EMAIL only, as the acknowledgement: the customer asked us something
+     * and this is our answer, so a switched-off preference must not swallow it. Keyed per ticket and
+     * per outcome; a ticket can only be finished once (RESOLVED and CLOSED have no way out), so this
+     * sends at most once.
+     */
+    private String tellCustomerTicketFinished(SupportTicket ticket, String customerMessage) {
+        boolean emailVerified = userRepository.findById(ticket.getUserId())
+                .map(User::isEmailVerified).orElse(false);
+        if (!emailVerified) {
+            log.info("Not emailing the outcome of support ticket {}: the customer's email is not verified",
+                    ticket.getTicketNumber());
+            return "The customer's email address is not verified, so no email was sent.";
+        }
+        NotificationType type = ticket.getStatus() == SupportTicket.Status.RESOLVED
+                ? NotificationType.SUPPORT_TICKET_RESOLVED : NotificationType.SUPPORT_TICKET_CLOSED;
+        Map<String, String> params = new java.util.HashMap<>();
+        params.put("ticketNumber", ticket.getTicketNumber());
+        params.put("ticketId", ticket.getId().toString());
+        if (customerMessage != null) params.put("message", customerMessage);
+        notificationService.request(NotificationRequest.of(
+                ticket.getUserId(), type, NotificationCategory.SECURITY, NotificationPriority.NORMAL,
+                type.name() + "_" + ticket.getId(), Set.of(NotificationChannel.EMAIL), params));
+        return null;
     }
 
     @Transactional(readOnly = true)
     public List<SupportTicketDto.NoteDto> listNotes(UUID ticketId) {
         requireTicket(ticketId);
-        return noteRepository.findByTicketIdOrderByCreatedAtAsc(ticketId).stream()
-                .map(SupportTicketDto.NoteDto::from).toList();
+        List<SupportTicketInternalNote> notes = noteRepository.findByTicketIdOrderByCreatedAtAsc(ticketId);
+        // Note authors are admins (staff), so always named.
+        Map<UUID, User> authors = peopleNamedIn(notes.stream().map(SupportTicketInternalNote::getAdminId).toList());
+        return notes.stream().map(n -> SupportTicketDto.NoteDto.from(n,
+                authors.get(n.getAdminId()) != null ? authors.get(n.getAdminId()).getFullName() : null)).toList();
     }
 
     /** The note body is deliberately not copied into the audit metadata — the note table is already
@@ -377,7 +499,8 @@ public class SupportTicketService {
         SupportTicketInternalNote saved = noteRepository.save(entity);
         auditService.record(ticket.getUserId(), "SUPPORT_TICKET_NOTE_ADDED", "SupportTicket", ticketId,
                 Map.of("actorId", actingAdminId.toString(), "ticketNumber", ticket.getTicketNumber()));
-        return SupportTicketDto.NoteDto.from(saved);
+        String author = userRepository.findById(actingAdminId).map(User::getFullName).orElse(null);
+        return SupportTicketDto.NoteDto.from(saved, author);
     }
 
     /** Always succeeds, including on an already-claimed ticket — see {@link SupportTicket#getClaimedByAdminId()}'s

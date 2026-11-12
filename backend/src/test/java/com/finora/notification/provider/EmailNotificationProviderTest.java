@@ -2,6 +2,7 @@ package com.finora.notification.provider;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -271,6 +272,33 @@ class EmailNotificationProviderTest {
         verify(emailProvider).sendSupportTicketReceivedEmail("user@example.com", "SUP-000123",
                 "11111111-1111-1111-1111-111111111111");
         verify(emailProvider, never()).send(any());
+    }
+
+    @Test
+    void send_routesTheResolvedEmail_withTheAdminsMessage() {
+        when(userRepository.findById(any())).thenReturn(Optional.of(activeUser()));
+        when(emailProvider.sendSupportTicketFinishedEmail(any(), any(), any(), anyBoolean(), any()))
+                .thenReturn(EmailResult.success(ProviderType.RESEND, "id-1"));
+
+        provider.send(notification(NotificationType.SUPPORT_TICKET_RESOLVED, Map.of("ticketNumber", "SUP-000123",
+                "ticketId", "11111111-1111-1111-1111-111111111111", "message", "It is fixed.")));
+
+        verify(emailProvider).sendSupportTicketFinishedEmail("user@example.com", "SUP-000123",
+                "11111111-1111-1111-1111-111111111111", true, "It is fixed.");
+        verify(emailProvider, never()).send(any());
+    }
+
+    @Test
+    void send_routesTheClosedEmail_withoutAMessage() {
+        when(userRepository.findById(any())).thenReturn(Optional.of(activeUser()));
+        when(emailProvider.sendSupportTicketFinishedEmail(any(), any(), any(), anyBoolean(), any()))
+                .thenReturn(EmailResult.success(ProviderType.RESEND, "id-1"));
+
+        provider.send(notification(NotificationType.SUPPORT_TICKET_CLOSED,
+                Map.of("ticketNumber", "SUP-000123", "ticketId", "11111111-1111-1111-1111-111111111111")));
+
+        verify(emailProvider).sendSupportTicketFinishedEmail("user@example.com", "SUP-000123",
+                "11111111-1111-1111-1111-111111111111", false, null);
     }
 
     /** The notice that our team opened a statement is one a customer may well reply to. */

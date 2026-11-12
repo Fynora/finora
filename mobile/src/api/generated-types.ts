@@ -3515,7 +3515,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        get: operations["adminDetail"];
         put?: never;
         post?: never;
         delete?: never;
@@ -9192,6 +9192,7 @@ export interface components {
             id?: string;
             /** Format: uuid */
             adminId?: string;
+            adminName?: string;
             note?: string;
             /** Format: date-time */
             createdAt?: string;
@@ -10051,6 +10052,25 @@ export interface components {
         UpdateStatusRequest: {
             /** @enum {string} */
             status: "OPEN" | "IN_PROGRESS" | "RESOLVED" | "CLOSED";
+            notifyCustomer?: boolean;
+            message?: string;
+        };
+        ApiResponseStatusChangeResult: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["StatusChangeResult"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        StatusChangeResult: {
+            ticket?: components["schemas"]["SupportTicketSummary"];
+            customerEmailed?: boolean;
+            notEmailedReason?: string;
         };
         ApiResponseWorkspaceSummaryDto: {
             success?: boolean;
@@ -12567,6 +12587,100 @@ export interface components {
             uptimeSeconds?: number;
             /** Format: date-time */
             checkedAt?: string;
+        };
+        AdminSupportTicketSummary: {
+            /** Format: uuid */
+            id?: string;
+            ticketNumber?: string;
+            /** Format: uuid */
+            userId?: string;
+            customerName?: string;
+            customerEmail?: string;
+            /** @enum {string} */
+            category?: "STATEMENT_IMPORT" | "CATEGORIZATION" | "ACCOUNT_LINKING" | "DATA_ACCURACY" | "TECHNICAL_ISSUE" | "OTHER" | "SUSPENSION_APPEAL" | "SUSPENSION_DELETION_REQUEST";
+            subject?: string;
+            /** @enum {string} */
+            status?: "OPEN" | "IN_PROGRESS" | "RESOLVED" | "CLOSED";
+            /** Format: uuid */
+            claimedByAdminId?: string;
+            claimedByAdminName?: string;
+            claimedByYou?: boolean;
+            /** Format: date-time */
+            createdAt?: string;
+            /** Format: date-time */
+            updatedAt?: string;
+            /** Format: uuid */
+            duplicateOfTicketId?: string;
+            duplicateOfTicketNumber?: string;
+        };
+        ApiResponsePagedResponseAdminSupportTicketSummary: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["PagedResponseAdminSupportTicketSummary"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        PagedResponseAdminSupportTicketSummary: {
+            content?: components["schemas"]["AdminSupportTicketSummary"][];
+            /** Format: int32 */
+            page?: number;
+            /** Format: int32 */
+            size?: number;
+            /** Format: int64 */
+            totalElements?: number;
+            /** Format: int32 */
+            totalPages?: number;
+        };
+        AdminSupportTicketDetail: {
+            /** Format: uuid */
+            id?: string;
+            ticketNumber?: string;
+            /** Format: uuid */
+            userId?: string;
+            customerName?: string;
+            customerEmail?: string;
+            /** @enum {string} */
+            category?: "STATEMENT_IMPORT" | "CATEGORIZATION" | "ACCOUNT_LINKING" | "DATA_ACCURACY" | "TECHNICAL_ISSUE" | "OTHER" | "SUSPENSION_APPEAL" | "SUSPENSION_DELETION_REQUEST";
+            subject?: string;
+            description?: string;
+            /** @enum {string} */
+            status?: "OPEN" | "IN_PROGRESS" | "RESOLVED" | "CLOSED";
+            /** @enum {string} */
+            source?: "WEB" | "MOBILE_ANDROID" | "MOBILE_IOS";
+            appVersion?: string;
+            /** Format: uuid */
+            claimedByAdminId?: string;
+            claimedByAdminName?: string;
+            claimedByYou?: boolean;
+            /** Format: date-time */
+            resolvedAt?: string;
+            /** Format: date-time */
+            closedAt?: string;
+            /** Format: date-time */
+            createdAt?: string;
+            /** Format: date-time */
+            updatedAt?: string;
+            attachments?: components["schemas"]["AttachmentSummary"][];
+            /** Format: uuid */
+            duplicateOfTicketId?: string;
+            duplicateOfTicketNumber?: string;
+        };
+        ApiResponseAdminSupportTicketDetail: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["AdminSupportTicketDetail"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
         };
         ApiResponseListNoteDto: {
             success?: boolean;
@@ -21206,6 +21320,28 @@ export interface operations {
             };
         };
     };
+    adminDetail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseAdminSupportTicketDetail"];
+                };
+            };
+        };
+    };
     updateStatus: {
         parameters: {
             query?: never;
@@ -21227,7 +21363,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseSupportTicketSummary"];
+                    "*/*": components["schemas"]["ApiResponseStatusChangeResult"];
                 };
             };
         };
@@ -23563,6 +23699,7 @@ export interface operations {
                 status?: "OPEN" | "IN_PROGRESS" | "RESOLVED" | "CLOSED";
                 category?: "STATEMENT_IMPORT" | "CATEGORIZATION" | "ACCOUNT_LINKING" | "DATA_ACCURACY" | "TECHNICAL_ISSUE" | "OTHER" | "SUSPENSION_APPEAL" | "SUSPENSION_DELETION_REQUEST";
                 q?: string;
+                claim?: "MINE" | "UNCLAIMED";
                 page?: number;
                 size?: number;
             };
@@ -23578,7 +23715,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponsePagedResponseSupportTicketSummary"];
+                    "*/*": components["schemas"]["ApiResponsePagedResponseAdminSupportTicketSummary"];
                 };
             };
         };

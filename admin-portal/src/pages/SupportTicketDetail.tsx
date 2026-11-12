@@ -6,8 +6,10 @@ import { AdminLayout } from '../components/AdminLayout';
 import { RequirePermission } from '../components/ProtectedRoute';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { adminSupportTicketApi } from '../api/endpoints';
+import { useAdminAuth } from '../context/AdminAuthContext';
+import { useNotify } from '../context/NotificationContext';
 import { formatWhen } from '../lib/formatWhen';
-import type { SupportTicketCategory, SupportTicketStatus } from '../types';
+import type { ClientPlatform, SupportTicketCategory, SupportTicketStatus } from '../types';
 
 const CATEGORY_LABELS: Record<SupportTicketCategory, string> = {
   STATEMENT_IMPORT: 'Statement import',
@@ -23,12 +25,23 @@ const CATEGORY_LABELS: Record<SupportTicketCategory, string> = {
 /** Mirrors SupportTicket.Status.canTransitionTo on the backend -- shown here only so an admin is
  *  never offered an illegal move in the dropdown; the backend's own check is still what actually
  *  enforces it (D6: a resolved ticket cannot be reopened, D7: OPEN can close in one step). */
+// Must match SupportTicket.Status.canTransitionTo on the backend. RESOLVED -> CLOSED is allowed
+// there; this said RESOLVED: [] until 2026-11-12, so a resolved ticket could never be closed here.
 const LEGAL_NEXT_STATUSES: Record<SupportTicketStatus, SupportTicketStatus[]> = {
   OPEN: ['IN_PROGRESS', 'RESOLVED', 'CLOSED'],
   IN_PROGRESS: ['RESOLVED', 'CLOSED'],
-  RESOLVED: [],
+  RESOLVED: ['CLOSED'],
   CLOSED: [],
 };
+
+const PLATFORM_LABELS: Record<ClientPlatform, string> = {
+  WEB: 'the web app',
+  MOBILE_ANDROID: 'the Android app',
+  MOBILE_IOS: 'the iPhone app',
+};
+
+/** Longest message the customer email can carry -- SupportTicketDto.MAX_CUSTOMER_MESSAGE_LENGTH. */
+const MAX_CUSTOMER_MESSAGE = 2000;
 
 function onActionErrorMessage(error: unknown): string {
   const response = (error as { response?: { data?: { message?: string } } })?.response;
@@ -48,6 +61,12 @@ function SupportTicketDetailContent({ id }: { id: string }) {
   const [confirmingTakeover, setConfirmingTakeover] = useState(false);
   const [duplicateRef, setDuplicateRef] = useState('');
   const [confirmingDuplicate, setConfirmingDuplicate] = useState(false);
+  // Resolving or closing asks first, and offers to email the customer with an optional note.
+  const [finishing, setFinishing] = useState<'RESOLVED' | 'CLOSED' | null>(null);
+  const [tellCustomer, setTellCustomer] = useState(true);
+  const [customerMessage, setCustomerMessage] = useState('');
+  const canViewUsers = useAdminAuth().hasPermission('USER_VIEW');
+  const notify = useNotify();
 
   const detail = useQuery({
     queryKey: ['support-ticket-detail-admin', id],
@@ -68,10 +87,35 @@ function SupportTicketDetailContent({ id }: { id: string }) {
   }
 
   const updateStatus = useMutation({
-    mutationFn: (status: SupportTicketStatus) => adminSupportTicketApi.updateStatus(id, status),
-    onSuccess: () => { setActionError(null); invalidate(); },
-    onError,
+    mutationFn: ({ status, notifyCustomer, message }: { status: SupportTicketStatus; notifyCustomer: boolean; message?: string }) =>
+      adminSupportTicketApi.updateStatus(id, status, { notifyCustomer, message }),
+    onSuccess: (result, vars) => {
+      setActionError(null);
+      setFinishing(null);
+      setCustomerMessage('');
+      invalidate();
+      if (vars.notifyCustomer && !result.customerEmailed) {
+        // The status changed; only the email did not go. Say so, and why, so the admin can reach
+        // the customer another way.
+        setActionError(`Status changed, but the customer was not emailed. ${result.notEmailedReason ?? ''}`.trim());
+      } else if (result.customerEmailed) {
+        notify.success('Status changed. The customer will be emailed.');
+      }
+    },
+    onError: (error) => { setFinishing(null); onError(error); },
   });
+
+  function startStatusChange(next: SupportTicketStatus, current: SupportTicketStatus) {
+    if (next === 'RESOLVED' || next === 'CLOSED') {
+      // Closing a ticket already resolved is housekeeping: the customer was told when it was
+      // resolved, so emailing them again is off unless the admin turns it on.
+      setTellCustomer(!(next === 'CLOSED' && current === 'RESOLVED'));
+      setCustomerMessage('');
+      setFinishing(next);
+    } else {
+      updateStatus.mutate({ status: next, notifyCustomer: false });
+    }
+  }
   const markDuplicate = useMutation({
     mutationFn: (referenceTicketNumber: string) => adminSupportTicketApi.markDuplicate(id, referenceTicketNumber),
     onSuccess: () => { setActionError(null); setConfirmingDuplicate(false); setDuplicateRef(''); invalidate(); },
@@ -125,7 +169,25 @@ function SupportTicketDetailContent({ id }: { id: string }) {
           <h2 className="text-lg font-semibold text-ink font-mono">{ticket.ticketNumber}</h2>
           <p className="text-ink text-sm mt-1">{ticket.subject}</p>
           <p className="text-muted text-xs mt-1">
-            {CATEGORY_LABELS[ticket.category]} · Opened {formatWhen(ticket.createdAt)}
+            {CATEGORY_LABELS[ticket.category]} · Opened {formatWhen(ticket.createdAt)} · Sent from{' '}
+            {PLATFORM_LABELS[ticket.source] ?? ticket.source}{ticket.appVersion ? ` ${ticket.appVersion}` : ''}
+          </p>
+          <p className="text-sm text-ink mt-2" data-testid="ticket-customer">
+            {ticket.customerName || ticket.customerEmail ? (
+              <>
+                From{' '}
+                {canViewUsers ? (
+                  <Link to={`/users/${ticket.userId}`} className="font-medium text-primary hover:underline">
+                    {ticket.customerName ?? ticket.customerEmail}
+                  </Link>
+                ) : <span className="font-medium">{ticket.customerName ?? ticket.customerEmail}</span>}
+                {ticket.customerName && ticket.customerEmail && <span className="text-muted"> · {ticket.customerEmail}</span>}
+              </>
+            ) : (
+              <span className="text-muted">
+                {canViewUsers ? 'From an account that no longer exists' : 'Customer hidden: needs the USER_VIEW permission'}
+              </span>
+            )}
           </p>
         </div>
         <span className="text-xs font-medium text-ink rounded-lg border border-border px-2.5 py-1">
@@ -179,8 +241,7 @@ function SupportTicketDetailContent({ id }: { id: string }) {
         <h3 className="text-sm font-semibold text-ink">Status</h3>
         {nextStatuses.length === 0 ? (
           <p className="text-xs text-muted">
-            {ticket.status === 'RESOLVED' ? 'Resolved' : 'Closed'} tickets can&apos;t change status
-            again -- the customer would file a new ticket instead.
+            Closed tickets can&apos;t change status again -- the customer would file a new ticket instead.
           </p>
         ) : (
           <div className="flex flex-wrap gap-2">
@@ -188,7 +249,7 @@ function SupportTicketDetailContent({ id }: { id: string }) {
               <button
                 key={next}
                 type="button"
-                onClick={() => updateStatus.mutate(next)}
+                onClick={() => startStatusChange(next, ticket.status)}
                 disabled={updateStatus.isPending}
                 className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-ink disabled:opacity-50"
               >
@@ -233,7 +294,12 @@ function SupportTicketDetailContent({ id }: { id: string }) {
       <section className="bg-card border border-border rounded-xl2 p-6 space-y-3">
         <h3 className="text-sm font-semibold text-ink">Claim</h3>
         <p className="text-xs text-muted">
-          Claimed by: <span className="font-mono">{ticket.claimedByAdminId ?? '— unclaimed —'}</span>
+          Claimed by:{' '}
+          <span className="text-ink">
+            {!ticket.claimedByAdminId ? '— unclaimed —'
+              : ticket.claimedByYou ? 'You'
+              : ticket.claimedByAdminName ?? 'An admin account that no longer exists'}
+          </span>
         </p>
         <div className="flex flex-wrap gap-2">
           {!ticket.claimedByAdminId ? (
@@ -245,7 +311,7 @@ function SupportTicketDetailContent({ id }: { id: string }) {
             >
               Claim
             </button>
-          ) : (
+          ) : !ticket.claimedByYou && (
             <button
               type="button"
               onClick={() => setConfirmingTakeover(true)}
@@ -276,7 +342,7 @@ function SupportTicketDetailContent({ id }: { id: string }) {
         <ul className="space-y-2">
           {(notes.data ?? []).map((note) => (
             <li key={note.id} className="text-xs border-l-2 border-border pl-3">
-              <span className="text-ink font-mono">{note.adminId}</span>{' '}
+              <span className="text-ink font-medium">{note.adminName ?? 'Former admin'}</span>{' '}
               <span className="text-muted">{formatWhen(note.createdAt)}</span>
               <p className="text-ink mt-0.5 whitespace-pre-wrap">{note.note}</p>
             </li>
@@ -315,10 +381,51 @@ function SupportTicketDetailContent({ id }: { id: string }) {
         />
       )}
 
+      {finishing && (
+        <ConfirmDialog
+          title={finishing === 'RESOLVED' ? `Resolve ${ticket.ticketNumber}?` : `Close ${ticket.ticketNumber}?`}
+          message={finishing === 'RESOLVED'
+            ? 'Use this when the issue is fixed or answered.'
+            : 'Use this when the ticket ends without a fix: no reply, out of scope, or spam.'}
+          confirmLabel={finishing === 'RESOLVED' ? 'Resolve' : 'Close'}
+          busy={updateStatus.isPending}
+          confirmDisabled={customerMessage.length > MAX_CUSTOMER_MESSAGE}
+          onConfirm={() => updateStatus.mutate({
+            status: finishing,
+            notifyCustomer: tellCustomer,
+            message: tellCustomer && customerMessage.trim() ? customerMessage.trim() : undefined,
+          })}
+          onCancel={() => setFinishing(null)}
+        >
+          <label className="mt-3 flex items-center gap-2 text-sm text-ink">
+            <input type="checkbox" checked={tellCustomer} onChange={(e) => setTellCustomer(e.target.checked)} />
+            Email the customer that it is {finishing === 'RESOLVED' ? 'resolved' : 'closed'}
+          </label>
+          {tellCustomer && (
+            <div className="mt-3">
+              <label htmlFor="customer-message" className="text-xs font-medium text-muted mb-1 block">
+                Note to include in the email (optional)
+              </label>
+              <textarea
+                id="customer-message"
+                value={customerMessage}
+                onChange={(e) => setCustomerMessage(e.target.value)}
+                rows={4}
+                className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-ink"
+              />
+              <p className={`text-[11px] mt-1 ${customerMessage.length > MAX_CUSTOMER_MESSAGE ? 'text-danger' : 'text-muted'}`}>
+                {customerMessage.length} / {MAX_CUSTOMER_MESSAGE}. The customer sees exactly this text. Only
+                customers with a verified email address are emailed.
+              </p>
+            </div>
+          )}
+        </ConfirmDialog>
+      )}
+
       {confirmingTakeover && (
         <ConfirmDialog
           title="Take over this ticket?"
-          message={`This ticket is claimed by ${ticket.claimedByAdminId}. Taking it over reassigns it to you -- they won't be notified automatically.`}
+          message={`This ticket is claimed by ${ticket.claimedByAdminName ?? 'another admin'}. Taking it over reassigns it to you -- they won't be notified automatically.`}
           confirmLabel="Take over"
           busy={claim.isPending}
           onConfirm={() => claim.mutate()}

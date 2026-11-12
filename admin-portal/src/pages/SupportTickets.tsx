@@ -7,6 +7,7 @@ import { DataTable, type DataTableColumn } from '../components/DataTable';
 import { Pagination } from '../components/Pagination';
 import { FilterBar } from '../components/FilterBar';
 import { adminSupportTicketApi } from '../api/endpoints';
+import { useAdminAuth } from '../context/AdminAuthContext';
 import { formatWhen } from '../lib/formatWhen';
 import type { SupportTicketCategory, SupportTicketRow, SupportTicketStatus } from '../types';
 
@@ -44,9 +45,11 @@ const STATUS_TONE: Record<SupportTicketStatus, string> = {
 /**
  * Support, Help & Feedback v1, Phase 9. Same shape as HeldStatements.tsx -- a filtered,
  * server-paginated queue with each row linking into its own detail page. Primary columns per the
- * proposal: Ticket Number, Subject, Category, Status, Created At -- Claimed by is added as a
- * fifth, ahead of any row being opened, because the plan itself requires it: "since takeover is
- * permitted, this column is the safeguard, so it has to be visible before anyone opens a ticket."
+ * proposal: Ticket Number, Subject, Category, Status, Created At -- Claimed by is added ahead of
+ * any row being opened, because the plan itself requires it: "since takeover is permitted, this
+ * column is the safeguard, so it has to be visible before anyone opens a ticket." Since
+ * 2026-11-12 it names the admin ("You" for the signed-in one), a Customer column names who raised
+ * the ticket, and a Mine / Unclaimed filter narrows the queue.
  */
 function SupportTicketsContent() {
   const [page, setPage] = useState(0);
@@ -57,15 +60,19 @@ function SupportTicketsContent() {
   // immediately.
   const [q, setQ] = useState('');
   const [qInput, setQInput] = useState('');
+  // Mine / Unclaimed, applied immediately like the other selects.
+  const [claim, setClaim] = useState<'MINE' | 'UNCLAIMED' | ''>('');
+  const canViewUsers = useAdminAuth().hasPermission('USER_VIEW');
 
   const list = useQuery({
-    queryKey: ['support-tickets-list', page, status, category, q],
+    queryKey: ['support-tickets-list', page, status, category, q, claim],
     queryFn: () => adminSupportTicketApi.list({
       page,
       size: PAGE_SIZE,
       status: status || undefined,
       category: category || undefined,
       q: q || undefined,
+      claim: claim || undefined,
     }),
   });
 
@@ -88,6 +95,23 @@ function SupportTicketsContent() {
       render: (row) => <span className="text-ink text-sm">{row.subject}</span>,
     },
     {
+      header: 'Customer',
+      // Named only for an admin who could look the customer up anyway (USER_VIEW); the server
+      // sends no name otherwise.
+      render: (row) => {
+        const who = row.customerName ?? row.customerEmail;
+        if (!who) return <span className="text-muted text-xs">{canViewUsers ? 'Deleted account' : 'Hidden'}</span>;
+        return (
+          <div className="min-w-0">
+            {canViewUsers ? (
+              <Link to={`/users/${row.userId}`} className="text-sm text-ink hover:text-primary">{row.customerName ?? row.customerEmail}</Link>
+            ) : <span className="text-sm text-ink">{row.customerName ?? row.customerEmail}</span>}
+            {row.customerName && row.customerEmail && <p className="text-xs text-muted truncate">{row.customerEmail}</p>}
+          </div>
+        );
+      },
+    },
+    {
       header: 'Category',
       render: (row) => (
         <span className="text-muted text-xs">
@@ -108,10 +132,11 @@ function SupportTicketsContent() {
     },
     {
       header: 'Claimed by',
-      // Raw id, not a resolved name -- same convention HeldStatementDetail.tsx already uses for
-      // assignedEngineerId; there is no admin-name-lookup anywhere in this portal to resolve
-      // against.
-      render: (row) => <span className="text-muted text-xs font-mono">{row.claimedByAdminId ?? '—'}</span>,
+      render: (row) => {
+        if (!row.claimedByAdminId) return <span className="text-muted text-xs">—</span>;
+        if (row.claimedByYou) return <span className="text-xs font-semibold text-ink">You</span>;
+        return <span className="text-muted text-xs">{row.claimedByAdminName ?? 'Former admin'}</span>;
+      },
     },
     { header: 'Created At', render: (row) => formatWhen(row.createdAt) },
   ];
@@ -137,6 +162,13 @@ function SupportTicketsContent() {
             placeholder: 'All categories',
             label: 'Filter by category',
             options: CATEGORY_OPTIONS,
+          },
+          {
+            type: 'select', key: 'claim', value: claim,
+            onChange: (v) => { setClaim(v as 'MINE' | 'UNCLAIMED' | ''); setPage(0); },
+            placeholder: 'Anyone',
+            label: 'Filter by who holds it',
+            options: [{ label: 'Mine', value: 'MINE' }, { label: 'Unclaimed', value: 'UNCLAIMED' }],
           },
         ]}
         onApply={applyFilters}
@@ -167,7 +199,7 @@ function SupportTicketsContent() {
 
 export default function SupportTickets() {
   return (
-    <AdminLayout title="Support Tickets" subtitle="Requests users have filed, newest first.">
+    <AdminLayout title="Support Tickets" subtitle="Requests users have filed, oldest first, so the longest wait is at the top.">
       <RequirePermission permission="SUPPORT_MANAGE">
         <SupportTicketsContent />
       </RequirePermission>

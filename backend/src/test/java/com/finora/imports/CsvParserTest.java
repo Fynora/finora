@@ -644,4 +644,14 @@ class CsvParserTest {
         assertThat(TransactionNormalizer.dateCellOf(row)).isEqualTo("07/01/2026");
         assertThat(TransactionNormalizer.dateColumnOf(Map.of("Narration", "x"))).isNull();
     }
+
+    @Test
+    void parseNumeric_readsACurrencyCodePrintedAfterTheFigure() {
+        assertThat(CsvParser.parseNumeric("77.25 INR")).isEqualByComparingTo("77.25");
+        assertThat(CsvParser.parseNumeric("1,234.50INR")).isEqualByComparingTo("1234.50");
+        assertThat(CsvParser.parseNumeric("88.00 inr")).isEqualByComparingTo("88.00");
+        assertThat(CsvParser.parseNumeric("INR 66.00")).isEqualByComparingTo("66.00");
+        assertThat(CsvParser.parseNumeric("INR")).isNull();
+        assertThat(CsvParser.parseNumeric("UPI/INR")).isNull();
+    }
 }

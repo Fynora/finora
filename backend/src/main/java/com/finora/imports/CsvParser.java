@@ -848,6 +848,10 @@ public class CsvParser {
             negative = true;
             s = s.substring(1, s.length() - 1).trim();
         }
+        // A currency code printed AFTER the figure ("77.25 INR"), the mirror of the prefix form
+        // stripped just below. Left in place, the letters made the cell fail to parse and every row
+        // of such a statement was unparseable. Only "INR" directly after a digit.
+        s = s.replaceAll("(?i)(?<=\\d)\\s*inr\\s*$", "").trim();
         s = s.replaceAll("(?i)^\\s*(rs\\.?|inr)\\s*", "").replace("₹", "")
                 // Bug fix: verified against a real ICICI credit-card statement -- that PDF's
                 // embedded font maps the Rupee glyph to a bare backtick instead ("`7,362.70" for

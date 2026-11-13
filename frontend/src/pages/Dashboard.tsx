@@ -15,6 +15,7 @@ import {
   ChevronDown, X, Check,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { QuickSortCard } from '../components/QuickSortCard';
 import { BankLogo } from '../components/BankLogo';
 import { MerchantLogo } from '../components/MerchantLogo';
 import { AddTransactionModal } from '../components/AddTransactionModal';
@@ -276,7 +277,7 @@ function expectedLabel(dateStr: string): string {
 }
 
 export default function Dashboard() {
-  const { fullName } = useAuth();
+  const { fullName, email } = useAuth();
   const colors = useChartColors();
   const queryClient = useQueryClient();
   const [dashboardPeriod, setDashboardPeriod] = useState<DashboardPeriod>('THIS_MONTH');
@@ -741,6 +742,10 @@ export default function Dashboard() {
           this user's statements, and nothing while refreshing is switched off. Above the
           onboarding widgets, which can fill the first screen. */}
       <div className="mb-8 empty:hidden"><StatementRefreshBanner /></div>
+      {/* A few Quick sort questions per visit (spec 2026-11-13-dashboard-quick-sort-design.md):
+          people answer when the question is in front of them, and the Ledger's full Quick sort is
+          not where they land. Renders nothing when nothing waits or "Not now" was taken today. */}
+      <div className="mb-8 empty:hidden"><QuickSortCard variant="dashboard" accountEmail={email} /></div>
       {/* Gate 2a spec §4.1: "What stopped you?", only when the server has a question for this user. */}
       <ActivationQuestionCard />
       <ChecklistWidget />

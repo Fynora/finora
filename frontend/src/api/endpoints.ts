@@ -10,7 +10,7 @@ import type {
 
   Account, AccountStatementGroup, BankCorrectionHistoryEntry, BankInfo, Budget, CounterpartyGroup, DashboardRangeSummary, DashboardRangeType,
   DashboardSummary, DetectedAccountInfo, Goal,
-  ImportSummary, MerchantGroup, QuickSortBatch, QuickSortKind, ReimportResult, StagedAccountSection, StagedRow, StatementSummary, SupersedeResult, Transaction,
+  ImportSummary, MerchantGroup, QuickSortBatch, QuickSortKind, QuickSortSource, ReimportResult, StagedAccountSection, StagedRow, StatementSummary, SupersedeResult, Transaction,
   WorkspaceSettings, WorkspaceSummary, UnparseableRow, VerificationReport, TimelineEvent, GoalMomentum, Wrapped,
 } from '../types';
 
@@ -324,12 +324,14 @@ export const transactionsApi = {
     api.get<SimilarSummary>(`/transactions/${id}/similar`).then((r) => r.data),
   // Quick sort -- see QuickSortService. skip: how many payees the user skipped in earlier batches.
   // preview: only the question count is shown (the import summary), so the server does not count it
-  // as a batch shown.
-  quickSort: (skip = 0, preview = false) =>
-    api.get<QuickSortBatch>('/transactions/quick-sort', { params: preview ? { skip, preview } : { skip } })
-      .then((r) => r.data),
-  quickSortAnswer: (anchorTransactionId: string, category: string, kind: QuickSortKind) =>
-    api.post<{ filed: number }>('/transactions/quick-sort/answer', { anchorTransactionId, category, kind })
+  // as a batch shown. source: where it is asked (a counter tag only); sent only when given.
+  quickSort: (skip = 0, preview = false, source?: QuickSortSource) =>
+    api.get<QuickSortBatch>('/transactions/quick-sort', {
+      params: { skip, ...(preview ? { preview } : {}), ...(source ? { source } : {}) },
+    }).then((r) => r.data),
+  quickSortAnswer: (anchorTransactionId: string, category: string, kind: QuickSortKind, source?: QuickSortSource) =>
+    api.post<{ filed: number }>('/transactions/quick-sort/answer',
+      { anchorTransactionId, category, kind, ...(source ? { source } : {}) })
       .then((r) => r.data),
   quickSortMore: () => api.post('/transactions/quick-sort/more', {}),
   // The server takes at most 2,000 ids per request, so a large backlog goes in chunks.

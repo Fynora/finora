@@ -6,6 +6,8 @@ import { QuickSortCard } from './QuickSortCard';
 import { transactionsApi, categoriesApi } from '../api/endpoints';
 import type { QuickSortBatch, QuickSortQuestion } from '../types';
 import { formatDate } from '../utils/date';
+import { MemoryRouter } from 'react-router-dom';
+import { DASHBOARD_QUICK_SORT_KEY, notNowValue } from '../lib/dashboardQuickSort';
 
 vi.mock('../api/endpoints', () => ({
   transactionsApi: {
@@ -267,5 +269,128 @@ describe('QuickSortCard', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Groceries' }));
     expect(await screen.findByText("Couldn't save that answer — please try again.")).toBeInTheDocument();
     expect(screen.getByText('SAMPLE STORE')).toBeInTheDocument();
+  });
+});
+
+describe('QuickSortCard on the Dashboard', () => {
+  const EMAIL = 'a@example.com';
+
+  function shops(n: number): QuickSortQuestion[] {
+    return Array.from({ length: n }, (_, i) =>
+      question({ id: `vpa:shop${i + 1}|EXPENSE`, anchorTransactionId: `txn-${i + 1}`, payee: `SHOP ${i + 1}` }));
+  }
+
+  function renderDashboardCard() {
+    const queryClient = new QueryClient();
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <QuickSortCard variant="dashboard" accountEmail={EMAIL} />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+  }
+
+  beforeEach(() => {
+    localStorage.clear();
+    vi.restoreAllMocks();
+    vi.mocked(transactionsApi.quickSort).mockReset();
+    vi.mocked(transactionsApi.quickSortAnswer).mockReset().mockResolvedValue({ filed: 1 });
+    vi.mocked(transactionsApi.quickSortMore).mockReset().mockResolvedValue({} as any);
+    vi.mocked(transactionsApi.quickSortKeepRest).mockReset().mockResolvedValue({ cleared: 2 });
+    vi.mocked(categoriesApi.list).mockResolvedValue([] as any);
+    vi.mocked(categoriesApi.options).mockResolvedValue({ icons: [], colors: [] } as any);
+  });
+
+  it('asks at most three questions, then says how many payees are still waiting', async () => {
+    vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch(shops(5), {
+      rest: { questions: 4, payments: 9, amount: 900, transactionIds: [] },
+    }));
+    renderDashboardCard();
+    expect(await screen.findByText('Sort a few payments')).toBeInTheDocument();
+    for (const payee of ['SHOP 1', 'SHOP 2', 'SHOP 3']) {
+      expect(await screen.findByText(payee)).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: 'Groceries' }));
+    }
+    expect(await screen.findByText('6 payees still waiting')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open Quick sort' })).toHaveAttribute('href', '/app/transactions');
+    expect(screen.queryByText('SHOP 4')).not.toBeInTheDocument();
+    expect(transactionsApi.quickSortAnswer).toHaveBeenCalledTimes(3);
+  });
+
+  it('sends the Dashboard source with the batch and the answer', async () => {
+    vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch(shops(2)));
+    renderDashboardCard();
+    await userEvent.click(await screen.findByRole('button', { name: 'Groceries' }));
+    expect(transactionsApi.quickSort).toHaveBeenCalledWith(0, false, 'DASHBOARD');
+    expect(transactionsApi.quickSortAnswer).toHaveBeenCalledWith('txn-1', 'Groceries', 'SHOP', 'DASHBOARD');
+  });
+
+  it('never offers Stop asking about these or Sort 10 more', async () => {
+    vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch(shops(1), {
+      rest: { questions: 4, payments: 9, amount: 900, transactionIds: ['t9'] },
+    }));
+    renderDashboardCard();
+    await userEvent.click(await screen.findByRole('button', { name: 'Groceries' }));
+    expect(await screen.findByText('4 payees still waiting')).toBeInTheDocument();
+    expect(screen.queryByText('Stop asking about these')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Sort 10 more/)).not.toBeInTheDocument();
+  });
+
+  it('skip moves to the next question and counts toward the three', async () => {
+    vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch(shops(4)));
+    renderDashboardCard();
+    await userEvent.click(await screen.findByRole('button', { name: 'Skip' }));
+    expect(await screen.findByText('SHOP 2')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Skip' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Skip' }));
+    expect(await screen.findByText('4 payees still waiting')).toBeInTheDocument();
+    expect(transactionsApi.quickSortAnswer).not.toHaveBeenCalled();
+  });
+
+  it('Not now hides the card and remembers today for this account', async () => {
+    vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch(shops(2)));
+    const { container } = renderDashboardCard();
+    await userEvent.click(await screen.findByRole('button', { name: 'Not now' }));
+    expect(container).toBeEmptyDOMElement();
+    expect(localStorage.getItem(DASHBOARD_QUICK_SORT_KEY)).toBe(notNowValue(EMAIL, new Date()));
+  });
+
+  it('renders nothing and fetches nothing when hidden earlier today', async () => {
+    localStorage.setItem(DASHBOARD_QUICK_SORT_KEY, notNowValue(EMAIL, new Date()));
+    vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch(shops(2)));
+    const { container } = renderDashboardCard();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(container).toBeEmptyDOMElement();
+    expect(transactionsApi.quickSort).not.toHaveBeenCalled();
+  });
+
+  it('still shows the card when storage cannot be read', async () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('blocked'); });
+    vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch(shops(1)));
+    renderDashboardCard();
+    expect(await screen.findByText('SHOP 1')).toBeInTheDocument();
+  });
+
+  it('a one-question batch ends without a zero count', async () => {
+    vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch(shops(1)));
+    const { container } = renderDashboardCard();
+    await userEvent.click(await screen.findByRole('button', { name: 'Groceries' }));
+    await waitFor(() => expect(container).toBeEmptyDOMElement());
+    expect(screen.queryByText(/0 payees/)).not.toBeInTheDocument();
+  });
+
+  it('renders nothing for an empty batch', async () => {
+    vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch([], { waitingTotal: 0 }));
+    const { container } = renderDashboardCard();
+    await waitFor(() => expect(transactionsApi.quickSort).toHaveBeenCalled());
+    await waitFor(() => expect(container).toBeEmptyDOMElement());
+  });
+
+  it('renders nothing, and no error, when the batch fails to load', async () => {
+    vi.mocked(transactionsApi.quickSort).mockRejectedValue(new Error('down'));
+    const { container } = renderDashboardCard();
+    await waitFor(() => expect(transactionsApi.quickSort).toHaveBeenCalled());
+    await waitFor(() => expect(container).toBeEmptyDOMElement());
   });
 });

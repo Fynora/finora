@@ -2748,7 +2748,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponsePagedResponseSupportTicketSummary"
+                                    "$ref": "#/components/schemas/ApiResponsePagedResponseSupportTicketOwnSummary"
                                 }
                             }
                         }
@@ -18208,10 +18208,6 @@
                     "appVersion": {
                         "type": "string"
                     },
-                    "claimedByAdminId": {
-                        "type": "string",
-                        "format": "uuid"
-                    },
                     "resolvedAt": {
                         "type": "string",
                         "format": "date-time"
@@ -25779,7 +25775,7 @@
                     }
                 }
             },
-            "ApiResponsePagedResponseSupportTicketSummary": {
+            "ApiResponsePagedResponseSupportTicketOwnSummary": {
                 "type": "object",
                 "properties": {
                     "success": {
@@ -25789,7 +25785,7 @@
                         "type": "string"
                     },
                     "data": {
-                        "$ref": "#/components/schemas/PagedResponseSupportTicketSummary"
+                        "$ref": "#/components/schemas/PagedResponseSupportTicketOwnSummary"
                     },
                     "timestamp": {
                         "type": "string",
@@ -25807,13 +25803,13 @@
                     }
                 }
             },
-            "PagedResponseSupportTicketSummary": {
+            "PagedResponseSupportTicketOwnSummary": {
                 "type": "object",
                 "properties": {
                     "content": {
                         "type": "array",
                         "items": {
-                            "$ref": "#/components/schemas/SupportTicketSummary"
+                            "$ref": "#/components/schemas/SupportTicketOwnSummary"
                         }
                     },
                     "page": {
@@ -25831,6 +25827,62 @@
                     "totalPages": {
                         "type": "integer",
                         "format": "int32"
+                    }
+                }
+            },
+            "SupportTicketOwnSummary": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "ticketNumber": {
+                        "type": "string"
+                    },
+                    "userId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "category": {
+                        "type": "string",
+                        "enum": [
+                            "STATEMENT_IMPORT",
+                            "CATEGORIZATION",
+                            "ACCOUNT_LINKING",
+                            "DATA_ACCURACY",
+                            "TECHNICAL_ISSUE",
+                            "OTHER",
+                            "SUSPENSION_APPEAL",
+                            "SUSPENSION_DELETION_REQUEST"
+                        ]
+                    },
+                    "subject": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "OPEN",
+                            "IN_PROGRESS",
+                            "RESOLVED",
+                            "CLOSED"
+                        ]
+                    },
+                    "createdAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "updatedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "duplicateOfTicketId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "duplicateOfTicketNumber": {
+                        "type": "string"
                     }
                 }
             },

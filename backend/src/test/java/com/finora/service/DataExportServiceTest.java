@@ -1821,6 +1821,8 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
         ticket.setSource(ClientPlatform.WEB);
         ticket.setSubject("Import stuck");
         ticket.setDescription("Progress bar froze at 60%.");
+        UUID staffId = UUID.randomUUID();
+        ticket.setClaimedByAdminId(staffId);
         when(supportTicketRepository.findByUserIdOrderByCreatedAtDescIdDesc(eq(userId), any()))
                 .thenReturn(new PageImpl<>(List.of(ticket)));
 
@@ -1858,6 +1860,11 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
         assertThat(ticketDto.attachments()).hasSize(1);
         assertThat(ticketDto.attachments().get(0).filename()).isEqualTo("screenshot.png");
         assertThat(ticketDto.attachments().get(0).sizeBytes()).isEqualTo(2048);
+        // Which staff account held the ticket is Fynora's working detail, not the customer's data
+        // (break-test 2026-11-13): no claimer id in the export, under any field name.
+        assertThat(java.util.Arrays.stream(SupportTicketDto.Detail.class.getRecordComponents())
+                .map(java.lang.reflect.RecordComponent::getName)).doesNotContain("claimedByAdminId");
+        assertThat(ticketDto.toString()).doesNotContain(staffId.toString());
 
         assertThat(bundle.feedback()).hasSize(1);
         FeedbackDto.Summary feedbackDto = bundle.feedback().get(0);

@@ -274,10 +274,10 @@ public class SupportTicketService {
     }
 
     @Transactional(readOnly = true)
-    public PagedResponse<SupportTicketDto.Summary> listOwn(UUID userId, int page, int size) {
+    public PagedResponse<SupportTicketDto.OwnSummary> listOwn(UUID userId, int page, int size) {
         Pageable pageable = PageRequest.of(PageBounds.safePage(page), PageBounds.safeSize(size));
         return PagedResponse.of(
-                ticketRepository.findByUserIdOrderByCreatedAtDescIdDesc(userId, pageable).map(SupportTicketDto.Summary::from));
+                ticketRepository.findByUserIdOrderByCreatedAtDescIdDesc(userId, pageable).map(SupportTicketDto.OwnSummary::from));
     }
 
     /**
@@ -363,14 +363,16 @@ public class SupportTicketService {
         auditService.record(ticket.getUserId(), "SUPPORT_TICKET_VIEWED", "SupportTicket", ticket.getId(),
                 Map.of("actorId", actingAdminId.toString(), "ticketNumber", ticket.getTicketNumber()));
         SupportTicketDto.Detail d = SupportTicketDto.Detail.from(ticket, attachments);
-        Map<UUID, User> people = peopleNamedIn(java.util.Arrays.asList(d.userId(), d.claimedByAdminId()));
+        // The customer's Detail carries no claimer; who holds the ticket is read from the ticket.
+        UUID claimedBy = ticket.getClaimedByAdminId();
+        Map<UUID, User> people = peopleNamedIn(java.util.Arrays.asList(d.userId(), claimedBy));
         User customer = nameable(people.get(d.userId()), mayNameCustomers);
-        User claimer = d.claimedByAdminId() != null ? nameable(people.get(d.claimedByAdminId()), mayNameCustomers) : null;
+        User claimer = claimedBy != null ? nameable(people.get(claimedBy), mayNameCustomers) : null;
         return new SupportTicketDto.AdminDetail(d.id(), d.ticketNumber(), d.userId(),
                 customer != null ? customer.getFullName() : null, customer != null ? customer.getEmail() : null,
                 d.category(), d.subject(), d.description(), d.status(), d.source(), d.appVersion(),
-                d.claimedByAdminId(), claimer != null ? claimer.getFullName() : null,
-                d.claimedByAdminId() != null && d.claimedByAdminId().equals(actingAdminId),
+                claimedBy, claimer != null ? claimer.getFullName() : null,
+                claimedBy != null && claimedBy.equals(actingAdminId),
                 d.resolvedAt(), d.closedAt(), d.createdAt(), d.updatedAt(), d.attachments(),
                 d.duplicateOfTicketId(), d.duplicateOfTicketNumber());
     }

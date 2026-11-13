@@ -36,7 +36,6 @@ function summary(overrides: Partial<SupportTicketSummary> = {}): SupportTicketSu
     category: 'STATEMENT_IMPORT',
     subject: 'Import stuck',
     status: 'OPEN',
-    claimedByAdminId: null,
     createdAt: '2026-09-04T10:00:00Z',
     updatedAt: '2026-09-04T10:00:00Z',
     duplicateOfTicketId: null,

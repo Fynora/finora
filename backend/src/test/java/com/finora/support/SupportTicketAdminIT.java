@@ -219,6 +219,18 @@ class SupportTicketAdminIT extends AbstractIntegrationTest {
 
         assertThat(own.has("claimedByAdminName")).isFalse();
         assertThat(own.has("customerEmail")).isFalse();
+        // Not the staff account's id either (break-test 2026-11-13): it reached the customer on the
+        // detail and the "My Tickets" list, though the admin who held the ticket is not theirs to know.
+        assertThat(own.has("claimedByAdminId")).isFalse();
+        assertThat(own.toString()).doesNotContain(admin.getId().toString());
+        JsonNode list = data(get(customer, "/api/v1/support/tickets"));
+        assertThat(list.get("content")).isNotEmpty().allSatisfy(row -> {
+            assertThat(row.has("claimedByAdminId")).isFalse();
+            assertThat(row.toString()).doesNotContain(admin.getId().toString());
+        });
+        // The admin side still says who holds it.
+        assertThat(data(get(admin, "/api/v1/admin/support/tickets/" + id)).get("claimedByAdminId").asText())
+                .isEqualTo(admin.getId().toString());
     }
 
     @Test

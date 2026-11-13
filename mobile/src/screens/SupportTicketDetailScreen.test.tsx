@@ -28,7 +28,7 @@ function renderScreen(ticketId: string | undefined) {
 function ticket(overrides: Partial<SupportTicketDetail> = {}): SupportTicketDetail {
   return {
     id: 'ticket-1', ticketNumber: 'SUP-000001', userId: 'user-1', category: 'TECHNICAL_ISSUE',
-    subject: 'Import stuck', status: 'OPEN', claimedByAdminId: null,
+    subject: 'Import stuck', status: 'OPEN',
     createdAt: '2026-09-04T10:00:00Z', updatedAt: '2026-09-04T10:00:00Z',
     description: 'Progress bar froze at 60%.', source: 'MOBILE_ANDROID', appVersion: '1.0.0',
     resolvedAt: null, closedAt: null, attachments: [],

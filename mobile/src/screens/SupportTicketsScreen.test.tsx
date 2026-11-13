@@ -44,7 +44,7 @@ function renderScreen() {
 function summary(overrides: Partial<SupportTicketSummary> = {}): SupportTicketSummary {
   return {
     id: 'ticket-1', ticketNumber: 'SUP-000001', userId: 'user-1', category: 'STATEMENT_IMPORT',
-    subject: 'Import stuck', status: 'OPEN', claimedByAdminId: null,
+    subject: 'Import stuck', status: 'OPEN',
     duplicateOfTicketId: null, duplicateOfTicketNumber: null,
     createdAt: '2026-09-04T10:00:00Z', updatedAt: '2026-09-04T10:00:00Z',
     ...overrides,

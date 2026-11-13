@@ -62,7 +62,7 @@ public class SupportTicketController {
     }
 
     @GetMapping
-    public ApiResponse<PagedResponse<SupportTicketDto.Summary>> list(
+    public ApiResponse<PagedResponse<SupportTicketDto.OwnSummary>> list(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "25") int size) {
         return ApiResponse.ok(supportTicketService.listOwn(currentUser.id(), page, size));

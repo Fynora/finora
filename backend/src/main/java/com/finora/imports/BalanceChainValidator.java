@@ -574,7 +574,7 @@ public class BalanceChainValidator {
         boolean complete = true;
         for (int c = first; c <= last; c++) {
             StagedRow row = chain.get(c);
-            if (!sameDay || !day.equals(row.date())) sameDay = false;
+            if (day == null || !day.equals(row.date())) sameDay = false;
             if (row.amount() == null || row.balanceAfter() == null) complete = false;
         }
         if (!sameDay) return notTested(window, "NOT_TESTED_DIFFERENT_DAYS");

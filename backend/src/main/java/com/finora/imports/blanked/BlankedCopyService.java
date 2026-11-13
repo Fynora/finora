@@ -12,6 +12,7 @@ import com.finora.imports.pdf.trace.TraceFormat;
 import com.finora.imports.pdf.trace.TraceMetadata;
 import com.finora.imports.pdf.trace.TraceValidator;
 import com.finora.observability.BlankedCopyMetrics;
+import com.finora.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -79,7 +80,8 @@ public class BlankedCopyService {
         try {
             real = generator.acquire(content.content(), null);
         } catch (Exception e) {
-            log.warn("Blanked copy for {}: text acquisition failed ({})", content.reference(), typeName(e));
+            log.warn("Blanked copy for {}: text acquisition failed ({})",
+                    LogSanitizer.sanitize(content.reference()), typeName(e));
             throw new ApiException(HttpStatus.CONFLICT, "The statement's text could not be read.");
         }
 
@@ -151,7 +153,8 @@ public class BlankedCopyService {
                                           List<UnusualRows.Flag> unusualRows, String logWhat,
                                           String reason, Exception e) {
         String type = typeName(e);
-        log.warn("Blanked copy for {}: the check could not run, {} ({})", reference, logWhat, type);
+        log.warn("Blanked copy for {}: the check could not run, {} ({})", LogSanitizer.sanitize(reference), logWhat,
+                type);
         return new BlankedCopy(fileName, trace, BlankedCopy.Check.NOT_CHECKED, reason + " (" + type + ").", List.of(),
                 unusualRows);
     }

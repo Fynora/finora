@@ -18,6 +18,7 @@ import com.finora.repository.UserRepository;
 import com.finora.entity.User;
 import com.finora.service.AuditService;
 import com.finora.imports.passwords.StatementPasswordService;
+import com.finora.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
@@ -138,7 +139,8 @@ public class FlaggedLayoutUploadService {
         try {
             content = statementContent.read(job);
         } catch (StatementStorageException e) {
-            log.warn("Stored statement behind upload {} could not be read for a blanked copy", reference, e);
+            log.warn("Stored statement behind upload {} could not be read for a blanked copy",
+                    LogSanitizer.sanitize(reference), e);
             throw new ApiException(HttpStatus.CONFLICT,
                     "The stored file behind upload " + reference + " could not be read.");
         }

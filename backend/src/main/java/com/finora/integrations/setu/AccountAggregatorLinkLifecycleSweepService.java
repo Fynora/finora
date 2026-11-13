@@ -1,5 +1,6 @@
 package com.finora.integrations.setu;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import com.finora.entity.Account;
 import com.finora.entity.FeatureEntitlement;
 import com.finora.repository.AccountRepository;
@@ -52,7 +53,10 @@ public class AccountAggregatorLinkLifecycleSweepService {
 
     @Scheduled(fixedDelayString = "${app.integrations.setu.lifecycle-sweep.interval-ms:3600000}")
     public void scheduledSweep() {
-        if (!sweepEnabled) return;
+        if (!sweepEnabled) {
+            BackgroundJobReport.switchedOff();
+            return;
+        }
         int changed = sweep();
         if (changed > 0) {
             log.info("Account Aggregator lifecycle sweep: {} link(s) transitioned.", changed);

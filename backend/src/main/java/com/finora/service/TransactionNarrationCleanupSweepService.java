@@ -1,5 +1,6 @@
 package com.finora.service;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import com.finora.entity.Transaction;
 import com.finora.util.CategoryRules;
 import org.slf4j.Logger;
@@ -103,6 +104,10 @@ public class TransactionNarrationCleanupSweepService {
     @Scheduled(fixedDelayString = "${app.transaction-narration-cleanup.sweep.interval-ms:300000}",
             initialDelayString = "${app.transaction-narration-cleanup.sweep.initial-delay-ms:240000}")
     public void scheduledSweep() {
+        if (!"apply".equals(mode) && !"dry-run".equals(mode)) {
+            BackgroundJobReport.switchedOff();
+            return;
+        }
         if ("apply".equals(mode)) {
             if (passComplete) return;
             Result result = apply();
@@ -211,6 +216,7 @@ public class TransactionNarrationCleanupSweepService {
         try {
             return planFor(c.description(), c.type(), c.merchant(), c.editedFields());
         } catch (RuntimeException e) {
+            BackgroundJobReport.itemFailed(e);
             log.warn("Transaction narration cleanup could not read row {}: {}", c.id(), e.toString());
             return new Plan(c.description(), c.merchant());
         }

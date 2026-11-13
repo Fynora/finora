@@ -1,5 +1,6 @@
 package com.finora.service;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import com.finora.config.ClientIpResolver;
 import com.finora.config.JwtProperties;
 import com.finora.entity.ClientPlatform;
@@ -439,7 +440,10 @@ public class RefreshTokenService {
             fixedDelayString = "${app.security.refresh-token-cleanup.interval-ms:3600000}",
             initialDelayString = "${app.security.refresh-token-cleanup.initial-delay-ms:120000}")
     public void scheduledCleanup() {
-        if (!cleanupEnabled) return;
+        if (!cleanupEnabled) {
+            BackgroundJobReport.switchedOff();
+            return;
+        }
         int removed = sweepExpiredTokens();
         if (removed > 0) {
             log.info("Removed {} expired refresh token row(s).", removed);

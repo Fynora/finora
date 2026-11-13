@@ -1,5 +1,6 @@
 package com.finora.config;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -57,7 +58,11 @@ public class CacheLockExpiry {
     @Scheduled(fixedDelayString = "${app.cache.lock-repair.interval-ms:60000}",
             initialDelayString = "${app.cache.lock-repair.interval-ms:60000}")
     public void scheduledRepair() {
-        if (scheduledRepairEnabled) expireLocksLeftWithoutOne();
+        if (!scheduledRepairEnabled) {
+            BackgroundJobReport.switchedOff();
+            return;
+        }
+        expireLocksLeftWithoutOne();
     }
 
     /** @return how many locks were given an expiry. Never throws: Redis being down must not stop
@@ -75,6 +80,7 @@ public class CacheLockExpiry {
                             key, CacheConfig.CACHE_LOCK_TTL.toSeconds());
                 }
             } catch (RuntimeException e) {
+                BackgroundJobReport.itemFailed(e);
                 failureLog.warn("Could not check cache lock {}: {}", key, e.toString());
                 return fixed;
             }

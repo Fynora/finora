@@ -1,5 +1,6 @@
 package com.finora.integrations.setu;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import com.finora.service.AuditService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,7 +54,10 @@ public class AccountAggregatorReconciliationSweepService {
 
     @Scheduled(fixedDelayString = "${app.integrations.setu.reconciliation-sweep.interval-ms:3600000}")
     public void scheduledSweep() {
-        if (!sweepEnabled) return;
+        if (!sweepEnabled) {
+            BackgroundJobReport.switchedOff();
+            return;
+        }
         int forced = sweep();
         if (forced > 0) {
             log.info("Account Aggregator reconciliation sweep: force-fetched {} stale link(s).", forced);
@@ -96,6 +100,7 @@ public class AccountAggregatorReconciliationSweepService {
                     forced++;
                 }
             } catch (RuntimeException e) {
+                BackgroundJobReport.itemFailed(e);
                 log.error("Account Aggregator reconciliation sweep: force-fetch failed for link {}.",
                         link.getId(), e);
             }

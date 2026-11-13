@@ -1,5 +1,6 @@
 package com.finora.imports.jobs;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import com.finora.entity.ImportJob;
 import com.finora.exception.ApiException;
 import com.finora.exception.ErrorCode;
@@ -181,7 +182,10 @@ public class ImportJobWorker {
     @Scheduled(fixedDelayString = "${app.import.queue.poll-interval-ms:15000}",
                initialDelayString = "${app.import.queue.initial-delay-ms:20000}")
     public void poll() {
-        if (!enabled) return;
+        if (!enabled) {
+            BackgroundJobReport.switchedOff();
+            return;
+        }
         recoverAbandoned();
         drainOnce();
     }
@@ -642,6 +646,7 @@ public class ImportJobWorker {
         try {
             verificationRecorder.recordForJob(jobId, staged.verificationReports());
         } catch (RuntimeException e) {
+            BackgroundJobReport.itemFailed(e);
             log.warn("Could not record verification findings for import job {}; the import itself "
                     + "is unaffected", jobId, e);
         }

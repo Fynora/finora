@@ -1,5 +1,6 @@
 package com.finora.service;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import com.finora.repository.TransactionRepository;
 import com.finora.repository.TransactionRepository.CounterpartyBackfillRow;
 import com.finora.util.CounterpartyClassifier;
@@ -106,7 +107,10 @@ public class CounterpartyBackfillSweepService {
     @Scheduled(fixedDelayString = "${app.counterparty-backfill.sweep.interval-ms:300000}",
             initialDelayString = "${app.counterparty-backfill.sweep.initial-delay-ms:120000}")
     public void scheduledSweep() {
-        if (!sweepEnabled) return;
+        if (!sweepEnabled) {
+            BackgroundJobReport.switchedOff();
+            return;
+        }
         Result result = sweep();
         if (result.typed() > 0 || result.failed() > 0) {
             // Only when a pass did something -- a drained backfill is the steady state and must not
@@ -165,6 +169,7 @@ public class CounterpartyBackfillSweepService {
                         }
                     }
                 } catch (RuntimeException e) {
+                    BackgroundJobReport.itemFailed(e);
                     // Left unstamped on purpose -- see this class's own doc on why a false stamp is
                     // worse than a repeated error. The transaction id is enough to reproduce:
                     // the input is that row's narration and nothing else. The narration itself is
@@ -192,6 +197,7 @@ public class CounterpartyBackfillSweepService {
             try {
                 transactionTemplate.executeWithoutResult(tx -> reconciliationService.reconcileForUser(userId));
             } catch (RuntimeException e) {
+                BackgroundJobReport.itemFailed(e);
                 log.error("Reconciliation after counterparty re-typing failed for user {}: {}", userId, e.toString());
             }
         }

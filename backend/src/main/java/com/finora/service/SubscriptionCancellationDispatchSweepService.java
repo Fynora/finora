@@ -1,5 +1,6 @@
 package com.finora.service;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import com.finora.entity.Subscription;
 import com.finora.entity.SubscriptionEvent;
 import com.finora.integrations.razorpay.RazorpaySubscriptionGateway;
@@ -88,7 +89,10 @@ public class SubscriptionCancellationDispatchSweepService {
     @Scheduled(fixedDelayString = "${app.subscription-cancellation-dispatch.sweep.interval-ms:3600000}",
             initialDelayString = "${app.subscription-cancellation-dispatch.sweep.initial-delay-ms:300000}")
     public void scheduledSweep() {
-        if (!sweepEnabled) return;
+        if (!sweepEnabled) {
+            BackgroundJobReport.switchedOff();
+            return;
+        }
         int dispatched = sweep();
         if (dispatched > 0) {
             log.info("Cancellation dispatch sweep: {} subscription(s) sent to Razorpay for cycle-end cancellation.",
@@ -107,6 +111,7 @@ public class SubscriptionCancellationDispatchSweepService {
                     dispatched++;
                 }
             } catch (RuntimeException e) {
+                BackgroundJobReport.itemFailed(e);
                 // One subscription's Razorpay call failing (network blip, rate limit) must not
                 // stop the rest of this batch from being dispatched -- matches
                 // StatementStorageSweepService.sweep()'s own per-row try/catch for the same

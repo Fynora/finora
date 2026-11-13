@@ -1,5 +1,6 @@
 package com.finora.service;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import com.finora.entity.MerchantLearningEvent;
 import com.finora.observability.WorkerExecution;
 import com.finora.observability.WorkerObservability;
@@ -148,7 +149,10 @@ public class MerchantLearningEventWorker {
     @Scheduled(fixedDelayString = "${app.learning.queue.poll-interval-ms:30000}",
                initialDelayString = "${app.learning.queue.initial-delay-ms:15000}")
     public void poll() {
-        if (!enabled) return;
+        if (!enabled) {
+            BackgroundJobReport.switchedOff();
+            return;
+        }
         recoverAbandoned();
         drainOnce();
     }

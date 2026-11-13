@@ -20,6 +20,7 @@ import type {
   PlatformDiagnosticsDto, PlatformSettingsDto, PlatformStatsDto, ReconciliationStatsDto, RecentImportDto,
   RelationshipDto, RelationshipMergeRequest, RoleDto, RuleDto,
   SearchResultDto, TrustedSenderDto, SubscriptionHealthDto, SubscriptionSummaryDto, SystemHealthDto,
+  BackgroundJobDto, BackgroundJobFailureDto,
   TestMerchantTemplateRequest, TestMerchantTemplateResult, TestRuleRequest, TestRuleResult,
   TopCategoryPoint, TopMerchantPoint, TransactionDto, TrendPoint,
   UpdateBankRequest, UpdateFeatureFlagRequest, UpdateMerchantTemplateRequest,
@@ -419,6 +420,13 @@ export const adminReferralsApi = {
     api.get<PagedResponse<AdminReferralSummaryDto>>('/admin/referrals', { params: { page, size } }).then((r) => r.data),
   creditReward: (referralId: string, amount: number, reason: string) =>
     api.post(`/admin/referrals/${referralId}/credit`, { amount, reason }),
+};
+
+// Background jobs page -- every scheduled job's state, and one job's failures in the last 30 days.
+export const adminBackgroundJobsApi = {
+  list: () => api.get<BackgroundJobDto[]>('/admin/background-jobs').then((r) => r.data),
+  failures: (key: string) =>
+    api.get<BackgroundJobFailureDto[]>(`/admin/background-jobs/${encodeURIComponent(key)}/failures`).then((r) => r.data),
 };
 
 export const adminSystemApi = {

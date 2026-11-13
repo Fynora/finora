@@ -1,5 +1,6 @@
 package com.finora.service;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import com.finora.entity.Plan;
 import com.finora.entity.Subscription;
 import com.finora.entity.SubscriptionEvent;
@@ -68,7 +69,10 @@ public class SubscriptionReconciliationSweepService {
     @Scheduled(fixedDelayString = "${app.subscription-reconciliation.sweep.interval-ms:3600000}",
             initialDelayString = "${app.subscription-reconciliation.sweep.initial-delay-ms:300000}")
     public void scheduledSweep() {
-        if (!sweepEnabled) return;
+        if (!sweepEnabled) {
+            BackgroundJobReport.switchedOff();
+            return;
+        }
         int downgraded = sweep();
         if (downgraded > 0) {
             log.info("Subscription reconciliation sweep: {} subscription(s) downgraded to Free.", downgraded);

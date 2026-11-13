@@ -1,5 +1,6 @@
 package com.finora.service;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import com.finora.activation.ActivationAnswerRepository;
 import com.finora.activation.ImportFunnelDayRepository;
 import com.finora.entity.Account;
@@ -497,7 +498,10 @@ public class AccountPurgeSweepService {
     @Scheduled(fixedDelayString = "${app.account-purge.sweep.interval-ms:900000}",
             initialDelayString = "${app.account-purge.sweep.initial-delay-ms:300000}")
     public void scheduledSweep() {
-        if (!sweepEnabled) return;
+        if (!sweepEnabled) {
+            BackgroundJobReport.switchedOff();
+            return;
+        }
         Result result = sweep();
         if (result.purged() > 0 || result.failed() > 0) {
             log.info("Account purge sweep: {} account(s) purged, {} failed.", result.purged(), result.failed());
@@ -535,6 +539,7 @@ public class AccountPurgeSweepService {
                     sendDeletedConfirmation(userId, confirmationEmail);
                 }
             } catch (Exception e) {
+                BackgroundJobReport.itemFailed(e);
                 failed++;
                 String message = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
                 log.error("Account purge failed for user {}: {}", userId, message, e);
@@ -557,6 +562,7 @@ public class AccountPurgeSweepService {
         try {
             auditService.record(userId, "ACCOUNT_PURGE_FAILED", "User", userId, Map.of("error", message));
         } catch (RuntimeException e) {
+            BackgroundJobReport.itemFailed(e);
             log.error("Could not record the purge failure of account {}: {}", userId, e.getMessage(), e);
         }
     }
@@ -597,6 +603,7 @@ public class AccountPurgeSweepService {
                 auditService.record(userId, PURGE_STUCK_ALERTED, "User", userId, Map.of("failures", failures));
             }
         } catch (RuntimeException e) {
+            BackgroundJobReport.itemFailed(e);
             log.error("Could not check whether the purge of account {} is stuck: {}", userId, e.getMessage(), e);
         }
     }
@@ -643,6 +650,7 @@ public class AccountPurgeSweepService {
                     "type", "account_deleted", "provider", result.provider().name(),
                     "success", result.success(), "via", "purge_sweep"));
         } catch (RuntimeException e) {
+            BackgroundJobReport.itemFailed(e);
             // Never rethrown, including from the audit write below: sweep() would otherwise count
             // an account that DID purge as ACCOUNT_PURGE_FAILED.
             log.error("Account {} was purged but its deletion confirmation email failed: {}",
@@ -750,6 +758,7 @@ public class AccountPurgeSweepService {
         try {
             transactionTemplate.executeWithoutResult(tx -> userRepository.releasePurgeClaim(userId));
         } catch (RuntimeException e) {
+            BackgroundJobReport.itemFailed(e);
             log.warn("Could not release the purge claim on user {}; it goes stale after {}", userId,
                     PURGE_CLAIM_STALE_AFTER, e);
         }
@@ -808,6 +817,7 @@ public class AccountPurgeSweepService {
                     try {
                         gateway.cancelSubscription(razorpaySubscriptionId, false);
                     } catch (RuntimeException e) {
+                        BackgroundJobReport.itemFailed(e);
                         log.error("Failed to cancel Razorpay subscription {} for user {} during account purge: {}",
                                 razorpaySubscriptionId, userId, e.getMessage(), e);
                         auditService.record(userId, "RAZORPAY_SUBSCRIPTION_CANCEL_FAILED", "User", userId,
@@ -848,6 +858,7 @@ public class AccountPurgeSweepService {
                     try {
                         gateway.cancelSubscription(razorpaySubscriptionId, false);
                     } catch (RuntimeException e) {
+                        BackgroundJobReport.itemFailed(e);
                         log.error("Failed to cancel Razorpay subscription {} for user {} during account purge " +
                                 "(in-flight checkout order {}): {}",
                                 razorpaySubscriptionId, userId, order.getId(), e.getMessage(), e);
@@ -1093,6 +1104,7 @@ public class AccountPurgeSweepService {
                     statementStorageSweepService.reclaimIfUnreferenced(objectKey);
                 }
             } catch (Exception e) {
+                BackgroundJobReport.itemFailed(e);
                 log.error("Failed to purge statement {} for user {} during account purge: {}",
                         statement.getId(), userId, e.getMessage(), e);
                 if (statementPurgeFailure == null) {

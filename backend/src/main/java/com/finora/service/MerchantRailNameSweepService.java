@@ -1,5 +1,6 @@
 package com.finora.service;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import com.finora.util.MerchantNames;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -83,6 +84,10 @@ public class MerchantRailNameSweepService {
     @Scheduled(fixedDelayString = "${app.merchant-rail-name-recheck.sweep.interval-ms:300000}",
             initialDelayString = "${app.merchant-rail-name-recheck.sweep.initial-delay-ms:180000}")
     public void scheduledSweep() {
+        if (!"apply".equals(mode) && !"dry-run".equals(mode)) {
+            BackgroundJobReport.switchedOff();
+            return;
+        }
         if ("apply".equals(mode)) {
             Result result = apply();
             if (result.decided() > 0 || result.failed() > 0) {
@@ -177,6 +182,7 @@ public class MerchantRailNameSweepService {
             shared = key != null && (taken.contains(key)
                     || others.stream().anyMatch(other -> key.equals(MerchantNormalizationEngine.groupingKeyOfName(other))));
         } catch (RuntimeException e) {
+            BackgroundJobReport.itemFailed(e);
             log.error("Merchant name recheck failed for merchant {}: {}", merchant.merchantId(), e.toString());
             return Outcome.FAILED;
         }

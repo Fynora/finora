@@ -1,5 +1,6 @@
 package com.finora.integrations.google;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import com.finora.entity.FeatureEntitlement;
 import com.finora.exception.ApiException;
 import com.finora.exception.ErrorCode;
@@ -483,7 +484,10 @@ public class GmailConnectionService {
     @Scheduled(fixedDelayString = "${app.integrations.google.state-cleanup.interval-ms:3600000}",
                initialDelayString = "${app.integrations.google.state-cleanup.initial-delay-ms:120000}")
     public void scheduledStateSweep() {
-        if (!stateCleanupEnabled) return;
+        if (!stateCleanupEnabled) {
+            BackgroundJobReport.switchedOff();
+            return;
+        }
         int removed = sweepExpiredStates();
         if (removed > 0) {
             log.info("Removed {} expired Gmail OAuth state(s).", removed);

@@ -288,6 +288,24 @@ class AccountPurgeSweepServiceTest {
     }
 
     @Test
+    void aFailedPurgeIsReportedAsAFailedItemOfTheSweepsRun() {
+        User user = pendingDeletionUser();
+        stubOneCandidate(user);
+        doThrow(new IllegalStateException("simulated outage")).when(transactionRepository).hardDeleteByUserId(userId);
+        com.finora.observability.jobs.BackgroundJobStore store =
+                org.mockito.Mockito.mock(com.finora.observability.jobs.BackgroundJobStore.class);
+
+        new com.finora.observability.jobs.BackgroundJobRunner(store)
+                .recorded("AccountPurgeSweepService.scheduledSweep", service::scheduledSweep).run();
+
+        verify(store).finished(org.mockito.ArgumentMatchers.eq("AccountPurgeSweepService.scheduledSweep"),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.eq(com.finora.observability.jobs.JobOutcome.PARTLY_FAILED),
+                org.mockito.ArgumentMatchers.eq(1), org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.startsWith("IllegalStateException at "));
+    }
+
+    @Test
     void aPurgeThatFailsGivesItsClaimBack_soTheSweepCanRetryAtOnce() {
         User user = pendingDeletionUser();
         stubOneCandidate(user);

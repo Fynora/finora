@@ -1,5 +1,6 @@
 package com.finora.observability;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.sentry.Breadcrumb;
@@ -153,6 +154,9 @@ public final class WorkerExecution implements AutoCloseable {
     public void deadLettered(UUID jobId, int attempts, Throwable cause, AlertSeverity severity) {
         meters.deadLetters(worker, jobKind).increment();
         meters.failures(worker, jobKind).increment();
+        // A give-up the caller rates actionable is a failed item of the background job's run (the
+        // Background jobs page); an expected NONE one, like a customer's corrupt PDF, is not.
+        if (severity != AlertSeverity.NONE) BackgroundJobReport.itemFailed(cause);
         switch (severity) {
             case NONE -> { /* expected, not actionable -- counted above, never paged */ }
             case WARNING -> capture(jobId, "apply", "dead-letter", cause, SentryLevel.WARNING);
@@ -161,11 +165,26 @@ public final class WorkerExecution implements AutoCloseable {
     }
 
     /**
+     * Given up on one item because it can never succeed, for a reason that is the customer's
+     * situation rather than a fault (a push with no registered device, an email with no address on
+     * file, a deleted account). Counted and reported exactly as {@link #deadLettered(UUID, int,
+     * Throwable)} is, but it is not a failed item of the background job's run: the job did what it
+     * should, and counting it would leave the job "partly failed" on the Background jobs page
+     * almost all the time.
+     */
+    public void deadLetteredAsExpected(UUID jobId, int attempts, Throwable cause) {
+        meters.deadLetters(worker, jobKind).increment();
+        meters.failures(worker, jobKind).increment();
+        capture(jobId, "apply", "dead-letter", cause, SentryLevel.ERROR);
+    }
+
+    /**
      * Recording a failure itself failed, so the row is stranded mid-flight until recovery sweeps
      * it. A double fault, and invisible without this.
      */
     public void failureNotRecorded(UUID jobId, Throwable cause) {
         meters.failures(worker, jobKind).increment();
+        BackgroundJobReport.itemFailed(cause);
         capture(jobId, "record-failure", "stranded", cause);
     }
 
@@ -177,6 +196,7 @@ public final class WorkerExecution implements AutoCloseable {
      */
     public void heldWithoutReviewRecord(UUID jobId, Throwable cause) {
         meters.failures(worker, jobKind).increment();
+        BackgroundJobReport.itemFailed(cause);
         capture(jobId, "trust-hold", "no-review-record", cause, SentryLevel.ERROR);
     }
 

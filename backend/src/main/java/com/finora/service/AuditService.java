@@ -1,5 +1,6 @@
 package com.finora.service;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import com.finora.entity.AuditLog;
 import com.finora.repository.AuditLogRepository;
 import org.slf4j.Logger;
@@ -208,7 +209,10 @@ public class AuditService {
     @Scheduled(fixedDelayString = "${app.audit.redaction.interval-ms:3600000}",
             initialDelayString = "${app.audit.redaction.initial-delay-ms:300000}")
     public void scheduledRedaction() {
-        if (!redactionEnabled) return;
+        if (!redactionEnabled) {
+            BackgroundJobReport.switchedOff();
+            return;
+        }
         RedactionResult result = redactExpiredMetadata();
         if (result.redacted() > 0 || result.skipped() > 0 || result.failed() > 0) {
             log.info("Audit log redaction: {} row(s) redacted, {} skipped, {} failed.",
@@ -283,6 +287,7 @@ public class AuditService {
                 auditLogRepository.save(entry);
                 redacted++;
             } catch (RuntimeException e) {
+                BackgroundJobReport.itemFailed(e);
                 // One bad row must not abort the rest of the batch -- log and move on. The row's
                 // redactedAt was never set, so it remains a candidate and is retried next run.
                 failed++;

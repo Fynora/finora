@@ -1,5 +1,8 @@
 package com.finora.imports.jobs;
 
+import com.finora.observability.jobs.RecordedWhereItRuns;
+import com.finora.observability.jobs.BackgroundJobRunner;
+import com.finora.observability.jobs.BackgroundJobReport;
 import com.finora.entity.ImportJob;
 import com.finora.repository.ImportJobRepository;
 import com.finora.service.HeldItemAdminAlertService;
@@ -70,6 +73,19 @@ public class HoldOverdueEscalationService {
         this.executor = executor;
     }
 
+    /** Records the handed-off work as this job's run (Background jobs page); absent in unit tests. */
+    private BackgroundJobRunner backgroundJobRunner;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setBackgroundJobRunner(BackgroundJobRunner backgroundJobRunner) {
+        this.backgroundJobRunner = backgroundJobRunner;
+    }
+
+    private Runnable recorded(Runnable work) {
+        return backgroundJobRunner == null ? work : backgroundJobRunner.recorded("HoldOverdueEscalationService.scheduled", work);
+    }
+
+
     /**
      * Handed off, never run here: each email may take the provider's full timeout, and this thread
      * is the one the import-queue poll and the notification dispatcher also run on -- see
@@ -78,12 +94,16 @@ public class HoldOverdueEscalationService {
      */
     @Scheduled(fixedDelayString = "${app.hold-overdue.escalation.interval-ms:900000}",
             initialDelayString = "${app.hold-overdue.escalation.initial-delay-ms:300000}")
+    @RecordedWhereItRuns
     public void scheduled() {
-        if (!enabled) return;
-        executor.execute(() -> {
+        if (!enabled) {
+            recorded(BackgroundJobReport::switchedOff).run();
+            return;
+        }
+        executor.execute(recorded(() -> {
             int sent = escalate(Instant.now());
             if (sent > 0) log.info("Hold overdue escalation: {} hold(s) escalated.", sent);
-        });
+        }));
     }
 
     /** @return how many holds were escalated by email this run */
@@ -99,6 +119,7 @@ public class HoldOverdueEscalationService {
                     sent++;
                 }
             } catch (RuntimeException e) {
+                BackgroundJobReport.itemFailed(e); // a lock conflict is not counted (BackgroundJobReport)
                 // An optimistic-lock conflict with the worker or an admin acting on the job at this
                 // moment lands here too; the marker was not written, so the next run looks again.
                 log.warn("Hold overdue escalation failed for import job {}; will retry next run",

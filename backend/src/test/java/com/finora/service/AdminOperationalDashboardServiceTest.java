@@ -56,11 +56,13 @@ class AdminOperationalDashboardServiceTest {
     private HeldStatementRepository heldStatementRepository;
     private ImportJobRepository importJobRepository;
     private UserActivityDayRepository userActivityDayRepository;
+    private com.finora.observability.jobs.BackgroundJobsService backgroundJobsService;
     private AdminOperationalDashboardService service;
 
     @BeforeEach
     void setUp() {
         userRepository = mock(UserRepository.class);
+        backgroundJobsService = mock(com.finora.observability.jobs.BackgroundJobsService.class);
         transactionRepository = mock(TransactionRepository.class);
         statementImportRepository = mock(StatementImportRepository.class);
         budgetRepository = mock(BudgetRepository.class);
@@ -72,7 +74,7 @@ class AdminOperationalDashboardServiceTest {
         userActivityDayRepository = mock(UserActivityDayRepository.class);
         service = new AdminOperationalDashboardService(userRepository, transactionRepository,
                 statementImportRepository, budgetRepository, goalRepository, auditLogRepository, healthRegistryService,
-                heldStatementRepository, importJobRepository, userActivityDayRepository);
+                heldStatementRepository, importJobRepository, userActivityDayRepository, backgroundJobsService);
 
         when(userRepository.countByEmailNot(BootstrapService.BOOTSTRAP_IDENTIFIER)).thenReturn(0L);
         when(userActivityDayRepository.countByActivityDate(any())).thenReturn(0L);
@@ -125,6 +127,27 @@ class AdminOperationalDashboardServiceTest {
         // 48 hours before "now", taken during the call.
         assertThat(cutoff.getValue()).isBetween(before.minus(ImportJob.HOLD_PROMISE),
                 Instant.now().minus(ImportJob.HOLD_PROMISE));
+    }
+
+    @Test
+    void overview_countsBrokenBackgroundJobs() {
+        when(healthRegistryService.platformHealth()).thenReturn(new PlatformHealthDto("UP", List.of()));
+        when(backgroundJobsService.countNeedingAttention()).thenReturn(2L);
+
+        OperationalDashboardDto dto = service.overview();
+
+        assertThat(dto.needsAttention().backgroundJobsNeedingAttention()).isEqualTo(2L);
+    }
+
+    /** The dashboard is how an admin learns anything is wrong; the jobs count failing must not blank it. */
+    @Test
+    void overview_stillLoadsWhenTheBackgroundJobsCountFails() {
+        when(healthRegistryService.platformHealth()).thenReturn(new PlatformHealthDto("UP", List.of()));
+        when(backgroundJobsService.countNeedingAttention()).thenThrow(new IllegalStateException("table unreadable"));
+
+        OperationalDashboardDto dto = service.overview();
+
+        assertThat(dto.needsAttention().backgroundJobsNeedingAttention()).isZero();
     }
 
     @Test

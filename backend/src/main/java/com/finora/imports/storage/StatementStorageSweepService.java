@@ -1,5 +1,6 @@
 package com.finora.imports.storage;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import com.finora.entity.ImportJob;
 import com.finora.repository.ImportJobRepository;
 import com.finora.repository.ImportSessionRepository;
@@ -232,7 +233,10 @@ public class StatementStorageSweepService {
     @Scheduled(fixedDelayString = "${app.statement-storage.sweep.interval-ms:21600000}",
             initialDelayString = "${app.statement-storage.sweep.initial-delay-ms:300000}")
     public void scheduledSweep() {
-        if (!sweepEnabled) return;
+        if (!sweepEnabled) {
+            BackgroundJobReport.switchedOff();
+            return;
+        }
         Result result = sweep();
         if (result.swept() > 0 || result.skipped() > 0 || result.failed() > 0) {
             log.info("Statement storage sweep: {} object(s) reclaimed, {} still referenced, {} failed to delete.",
@@ -409,6 +413,7 @@ public class StatementStorageSweepService {
                     lastReferencedAt == null ? null : Duration.between(lastReferencedAt, Instant.now()));
             return ReclaimOutcome.DELETED;
         } catch (StatementStorageException e) {
+            BackgroundJobReport.itemFailed(e);
             // One bad object must not abort the rest of the batch -- log and move on. The object
             // stays a candidate and is retried on the next scheduled run regardless of which
             // caller reached this point.

@@ -1,5 +1,6 @@
 package com.finora.imports;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -216,6 +217,7 @@ public class ImportSessionService {
                 }
             });
         } catch (RuntimeException e) {
+            BackgroundJobReport.itemFailed(e);
             log.warn("Could not stamp expired-unconfirmed import sessions; sweeping them anyway", e);
         }
     }
@@ -233,7 +235,10 @@ public class ImportSessionService {
             fixedDelayString = "${app.import.session-cleanup.interval-ms:900000}",
             initialDelayString = "${app.import.session-cleanup.initial-delay-ms:60000}")
     public void scheduledSweep() {
-        if (!sessionCleanupEnabled) return;
+        if (!sessionCleanupEnabled) {
+            BackgroundJobReport.switchedOff();
+            return;
+        }
         int removed = sweepExpiredSessions();
         if (removed > 0) {
             log.info("Removed {} expired import session(s) past their {} TTL.", removed, SESSION_TTL);

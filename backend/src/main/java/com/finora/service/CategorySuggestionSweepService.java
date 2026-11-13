@@ -1,5 +1,6 @@
 package com.finora.service;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import com.finora.entity.Category;
 import com.finora.entity.CategoryRule;
 import com.finora.entity.Transaction;
@@ -77,7 +78,10 @@ public class CategorySuggestionSweepService {
     @Scheduled(fixedDelayString = "${app.category-suggestion-sweep.interval-ms:300000}",
             initialDelayString = "${app.category-suggestion-sweep.initial-delay-ms:180000}")
     public void scheduledSweep() {
-        if (!sweepEnabled) return;
+        if (!sweepEnabled) {
+            BackgroundJobReport.switchedOff();
+            return;
+        }
         Result result = sweep();
         if (result.changed() > 0 || result.stamped() > 0 || result.failed() > 0) {
             log.info("Category suggestion re-check at v{}: {} row(s) given a category, {} unchanged, {} skipped, {} failed.{}",
@@ -107,6 +111,7 @@ public class CategorySuggestionSweepService {
                     if (outcome == CHANGED) changedUsers.add(row.getUserId());
                 });
             } catch (RuntimeException e) {
+                BackgroundJobReport.itemFailed(e);
                 // Rolled back and left unstamped, so the next pass retries it; the narration is user
                 // financial data and is not logged.
                 counts[FAILED]++;
@@ -121,6 +126,7 @@ public class CategorySuggestionSweepService {
             try {
                 transactionTemplate.executeWithoutResult(tx -> reconciliationService.reconcileForUser(userId));
             } catch (RuntimeException e) {
+                BackgroundJobReport.itemFailed(e);
                 log.error("Reconciliation after category re-check failed for user {}: {}", userId, e.toString());
             }
         }

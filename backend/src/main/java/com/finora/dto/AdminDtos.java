@@ -147,7 +147,10 @@ public class AdminDtos {
             // with no decision -- Gate 1 spec §4, counted one per review as the escalation email
             // is -- each with when its oldest began, so the admin sees how late it is.
             OverdueHoldsDto trustHoldsOverdue,
-            OverdueHoldsDto importHoldsOverdue
+            OverdueHoldsDto importHoldsOverdue,
+            // Appended. Scheduled jobs that crashed, partly failed or missed their schedule
+            // (Background jobs page, V318): a broken sweep fails customers quietly otherwise.
+            long backgroundJobsNeedingAttention
     ) {}
 
     /** Holds of one kind past the 48-hour promise; {@code oldestHeldSince} is null when none are. */

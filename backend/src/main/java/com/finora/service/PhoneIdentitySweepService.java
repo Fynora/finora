@@ -1,5 +1,6 @@
 package com.finora.service;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import com.finora.repository.UserRepository;
 import com.finora.util.PhoneNumbers;
 import org.slf4j.Logger;
@@ -55,6 +56,7 @@ public class PhoneIdentitySweepService {
     @Scheduled(cron = "0 45 3 * * *")
     public void scheduledSweep() {
         if (!enabled) {
+            BackgroundJobReport.switchedOff();
             return;
         }
         try {
@@ -64,6 +66,7 @@ public class PhoneIdentitySweepService {
                         result.deleted(), result.failed(), result.kept());
             }
         } catch (RuntimeException e) {
+            BackgroundJobReport.itemFailed(e);
             log.error("Phone identity sweep could not run: {}", e.getMessage(), e);
         }
     }
@@ -97,6 +100,7 @@ public class PhoneIdentitySweepService {
                 phoneVerificationProvider.deleteIdentityForPhoneNumber(identity.e164PhoneNumber());
                 deleted++;
             } catch (RuntimeException e) {
+                BackgroundJobReport.itemFailed(e);
                 // One failure does not stop the rest; the record is found again tomorrow.
                 failed++;
                 log.error("Phone identity sweep could not delete one record: {}", e.getMessage(), e);

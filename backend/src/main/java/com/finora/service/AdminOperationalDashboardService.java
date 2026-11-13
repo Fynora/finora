@@ -64,6 +64,7 @@ public class AdminOperationalDashboardService {
     private final HeldStatementRepository heldStatementRepository;
     private final ImportJobRepository importJobRepository;
     private final UserActivityDayRepository userActivityDayRepository;
+    private final com.finora.observability.jobs.BackgroundJobsService backgroundJobsService;
 
     public AdminOperationalDashboardService(UserRepository userRepository, TransactionRepository transactionRepository,
                                              StatementImportRepository statementImportRepository,
@@ -72,7 +73,8 @@ public class AdminOperationalDashboardService {
                                              AdminHealthRegistryService healthRegistryService,
                                              HeldStatementRepository heldStatementRepository,
                                              ImportJobRepository importJobRepository,
-                                             UserActivityDayRepository userActivityDayRepository) {
+                                             UserActivityDayRepository userActivityDayRepository,
+                                             com.finora.observability.jobs.BackgroundJobsService backgroundJobsService) {
         this.userRepository = userRepository;
         this.transactionRepository = transactionRepository;
         this.statementImportRepository = statementImportRepository;
@@ -83,6 +85,21 @@ public class AdminOperationalDashboardService {
         this.heldStatementRepository = heldStatementRepository;
         this.importJobRepository = importJobRepository;
         this.userActivityDayRepository = userActivityDayRepository;
+        this.backgroundJobsService = backgroundJobsService;
+    }
+
+    /**
+     * Never lets the background-jobs count take the whole dashboard down: this screen is how an
+     * admin learns anything is wrong. A failure here reads as none and is logged; the Background
+     * jobs page itself shows the error.
+     */
+    private long backgroundJobsNeedingAttention() {
+        try {
+            return backgroundJobsService.countNeedingAttention();
+        } catch (RuntimeException e) {
+            log.warn("Could not count background jobs needing attention for the dashboard", e);
+            return 0;
+        }
     }
 
     /** The zone every platform-wide "today"/"this month" tile is bucketed by. Configurable rather
@@ -159,7 +176,8 @@ public class AdminOperationalDashboardService {
                                 ImportJob.Status.HELD_FOR_TRUST_REVIEW),
                 importJobRepository.countByStatus(ImportJob.Status.HELD_FOR_REVIEW),
                 overdue(ImportJob.Status.HELD_FOR_TRUST_REVIEW),
-                overdue(ImportJob.Status.HELD_FOR_REVIEW));
+                overdue(ImportJob.Status.HELD_FOR_REVIEW),
+                backgroundJobsNeedingAttention());
 
         // Insights row -- inverse of activeUsersToday's own source, walked back INACTIVITY_WINDOW_DAYS.
         // See UserRepository.countCustomersWithNoActivitySince for who is counted and why the account

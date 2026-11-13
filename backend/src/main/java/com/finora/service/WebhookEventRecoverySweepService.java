@@ -1,5 +1,6 @@
 package com.finora.service;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import com.finora.entity.WebhookEvent;
 import com.finora.integrations.setu.AccountAggregatorWebhookDispatcher;
 import com.finora.repository.WebhookEventRepository;
@@ -139,7 +140,10 @@ public class WebhookEventRecoverySweepService {
     @Scheduled(fixedDelayString = "${app.webhook-event-recovery.sweep.interval-ms:900000}",
             initialDelayString = "${app.webhook-event-recovery.sweep.initial-delay-ms:300000}")
     public void scheduledSweep() {
-        if (!sweepEnabled) return;
+        if (!sweepEnabled) {
+            BackgroundJobReport.switchedOff();
+            return;
+        }
         int recovered = sweep();
         if (recovered > 0) {
             log.warn("Webhook recovery sweep: {} stuck webhook event(s) reprocessed.", recovered);
@@ -159,6 +163,7 @@ public class WebhookEventRecoverySweepService {
                     recovered++;
                 }
             } catch (RuntimeException e) {
+                BackgroundJobReport.itemFailed(e);
                 // One bad event must not stop the rest of the batch -- matches every other sweep's
                 // own per-row try/catch in this codebase (e.g.
                 // SubscriptionCancellationDispatchSweepService.sweep()). markFailed leaves a visible

@@ -1,5 +1,6 @@
 package com.finora.integrations.setu;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
@@ -52,7 +53,10 @@ public class AccountAggregatorOutageSweepService {
 
     @Scheduled(fixedDelayString = "${app.integrations.setu.outage-sweep.interval-ms:3600000}")
     public void scheduledSweep() {
-        if (!sweepEnabled) return;
+        if (!sweepEnabled) {
+            BackgroundJobReport.switchedOff();
+            return;
+        }
         int found = sweep();
         if (found > 0) {
             log.info("Account Aggregator outage sweep: {} ACTIVE link(s) currently stale.", found);

@@ -6292,6 +6292,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/background-jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_32"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/background-jobs/{key}/failures": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["failures"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/audit-logs": {
         parameters: {
             query?: never;
@@ -14371,6 +14403,8 @@ export interface components {
             importsHeldForReview?: number;
             trustHoldsOverdue?: components["schemas"]["OverdueHoldsDto"];
             importHoldsOverdue?: components["schemas"]["OverdueHoldsDto"];
+            /** Format: int64 */
+            backgroundJobsNeedingAttention?: number;
         };
         OperationalDashboardDto: {
             /** Format: int64 */
@@ -14519,6 +14553,62 @@ export interface components {
             totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
+        };
+        ApiResponseListBackgroundJobDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["BackgroundJobDto"][];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        BackgroundJobDto: {
+            key?: string;
+            name?: string;
+            purpose?: string;
+            schedule?: string;
+            /** @enum {string} */
+            state?: "OK" | "PARTLY_FAILED" | "CRASHED" | "OVERDUE" | "OFF";
+            /** Format: date-time */
+            lastStartedAt?: string;
+            /** Format: date-time */
+            lastFinishedAt?: string;
+            /** Format: date-time */
+            lastSuccessAt?: string;
+            /** Format: int32 */
+            lastFailedItems?: number;
+            /** Format: int32 */
+            lastHandled?: number;
+            /** Format: int32 */
+            consecutiveFailures?: number;
+            /** Format: date-time */
+            brokenSince?: string;
+            running?: boolean;
+        };
+        ApiResponseListBackgroundJobFailure: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["BackgroundJobFailure"][];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        BackgroundJobFailure: {
+            /** Format: date-time */
+            occurredAt?: string;
+            /** @enum {string} */
+            outcome?: "OK" | "PARTLY_FAILED" | "CRASHED" | "OFF";
+            /** Format: int32 */
+            failedItems?: number;
+            errorSummary?: string;
         };
         AdminAuditLogRowDto: {
             /** Format: uuid */
@@ -25258,6 +25348,48 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseListAuditLogDto"];
+                };
+            };
+        };
+    };
+    list_32: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseListBackgroundJobDto"];
+                };
+            };
+        };
+    };
+    failures: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseListBackgroundJobFailure"];
                 };
             };
         };

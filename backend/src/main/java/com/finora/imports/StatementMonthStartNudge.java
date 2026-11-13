@@ -1,5 +1,6 @@
 package com.finora.imports;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import com.finora.entity.User;
 import com.finora.notification.domain.NotificationType;
 import com.finora.service.StatementStatusNotifier;
@@ -95,11 +96,15 @@ public class StatementMonthStartNudge {
     @Scheduled(fixedDelayString = "${app.reminders.month-start.interval-ms:3600000}",
             initialDelayString = "${app.reminders.month-start.initial-delay-ms:300000}")
     public void scheduledRun() {
-        if (!enabled) return;
+        if (!enabled) {
+            BackgroundJobReport.switchedOff();
+            return;
+        }
         try {
             int users = runDue(Instant.now());
             if (users > 0) log.info("Sent month-start statement nudges to {} user(s).", users);
         } catch (RuntimeException e) {
+            BackgroundJobReport.itemFailed(e);
             log.warn("Month-start nudge run failed; the next run will retry.", e);
         }
     }
@@ -129,6 +134,7 @@ public class StatementMonthStartNudge {
         try {
             return notifier.notifyMonthStart(userId, month, hasData);
         } catch (RuntimeException e) {
+            BackgroundJobReport.itemFailed(e);
             // One user's failure must not cost everyone after them their nudge. Nothing was queued,
             // so the next run tries again.
             log.warn("Could not queue a month-start nudge for user {}; retrying next run.", userId, e);

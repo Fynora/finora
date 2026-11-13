@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { ScrollView, Text, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
+import { ScrollView, Text, StyleSheet, Pressable, ActivityIndicator, Platform } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { billingApi } from '../api/endpoints';
 import { BillingHistorySection } from '../components/BillingHistorySection';
 import { purchasePlan } from '../lib/revenueCat';
 import { isPlanVisible } from '../lib/planDisplay';
+import { IOS_PURCHASES_ENABLED } from '../lib/iosPurchases';
 import { usePlusOffer } from '../lib/planOffer';
 import { useTheme } from '../theme';
 import { GlassScreen } from '../components/GlassScreen';
@@ -66,6 +67,24 @@ export function PaywallScreen() {
 
   if (subscription?.hasBillingSubscription) {
     return null; // design spec §6.3/§6.4 -- caller (SubscriptionScreen) routes to MySubscriptionScreen instead
+  }
+
+  // iPhone: no Subscribe until App Store purchases are ready (lib/iosPurchases.ts). Past payments
+  // stay visible; the notice has no link to buy elsewhere (App Review, see that file).
+  if (Platform.OS === 'ios' && !IOS_PURCHASES_ENABLED) {
+    return (
+      <GlassScreen style={styles.glassRoot}>
+        <ScrollView contentContainerStyle={padForTabBar(styles.container, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}>
+          <GlassSurface style={styles.card}>
+            <Text style={[styles.planName, { color: c.ink }]}>Plus is not available to buy in this app yet</Text>
+            <Text style={[styles.planPrice, { color: c.muted }]}>
+              Everything on your current plan keeps working.
+            </Text>
+          </GlassSurface>
+          <BillingHistorySection paymentProvider={null} hideWhenEmpty />
+        </ScrollView>
+      </GlassScreen>
+    );
   }
 
   async function handlePurchase(planCode: 'PLUS' | 'PREMIUM') {

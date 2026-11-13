@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PaywallScreen } from './PaywallScreen';
@@ -10,6 +11,15 @@ const mockPremium = { visible: true };
 jest.mock('../lib/premiumVisibility', () => ({
   get PREMIUM_PLAN_VISIBLE() {
     return mockPremium.visible;
+  },
+}));
+
+// iPhone purchases are off in the shipped app (lib/iosPurchases.ts). Tests default them on so the
+// purchase paths stay tested; the iPhone-notice tests turn it off.
+const mockIosPurchases = { enabled: true };
+jest.mock('../lib/iosPurchases', () => ({
+  get IOS_PURCHASES_ENABLED() {
+    return mockIosPurchases.enabled;
   },
 }));
 
@@ -110,6 +120,56 @@ describe('PaywallScreen', () => {
     } finally {
       mockPremium.visible = true;
     }
+  });
+
+  describe('iPhone while App Store purchases are off', () => {
+    const realOS = Platform.OS;
+    beforeEach(() => {
+      mockIosPurchases.enabled = false;
+      mockedPurchasePlan.mockClear();
+    });
+    afterEach(() => {
+      mockIosPurchases.enabled = true;
+      Platform.OS = realOS;
+    });
+
+    it('shows a plain notice, no Subscribe button, no price, and never calls the purchase', async () => {
+      Platform.OS = 'ios';
+      renderScreen();
+
+      expect(await screen.findByText('Plus is not available to buy in this app yet')).toBeTruthy();
+      expect(screen.queryByText('Subscribe')).toBeNull();
+      expect(screen.queryByText('₹249/mo')).toBeNull();
+      expect(screen.queryByText(/web/i)).toBeNull();
+      expect(mockedPurchasePlan).not.toHaveBeenCalled();
+    });
+
+    it('still shows past payments and invoices', async () => {
+      Platform.OS = 'ios';
+      mockedBillingApi.history.mockResolvedValue([
+        { id: 'abcdef12-0000-0000-0000-000000000000', amount: 399, currency: 'INR', provider: 'RAZORPAY',
+          status: 'SUCCESS', createdAt: '2026-08-01T10:00:00Z' },
+      ]);
+      renderScreen();
+
+      expect(await screen.findByText('Billing history')).toBeTruthy();
+      expect(screen.queryByText('Subscribe')).toBeNull();
+    });
+
+    it('leaves Android untouched: Subscribe still shows', async () => {
+      Platform.OS = 'android';
+      renderScreen();
+
+      expect((await screen.findAllByText('Subscribe')).length).toBeGreaterThan(0);
+    });
+
+    it('shows Subscribe on iPhone once the switch is on', async () => {
+      Platform.OS = 'ios';
+      mockIosPurchases.enabled = true;
+      renderScreen();
+
+      expect((await screen.findAllByText('Subscribe')).length).toBeGreaterThan(0);
+    });
   });
 
   it('adds no billing history to the Paywall of someone who never paid', async () => {

@@ -131,4 +131,18 @@ describe('needsAttentionItems', () => {
       'import is held for review',
     ]);
   });
+  it('backgroundJobsRowLinksToThePage_onlyWhenNonZero', () => {
+    expect(needsAttentionItems(data({ backgroundJobsNeedingAttention: 0 }))).toEqual([]);
+    expect(needsAttentionItems(data())).toEqual([]);
+
+    const one = needsAttentionItems(data({ backgroundJobsNeedingAttention: 1 }));
+    expect(one).toEqual([
+      expect.objectContaining({
+        count: 1, label: 'background job needs attention', to: '/background-jobs',
+        linkLabel: 'Open Background jobs', overdue: true,
+      }),
+    ]);
+    expect(needsAttentionItems(data({ backgroundJobsNeedingAttention: 3 }))[0].label)
+      .toBe('background jobs need attention');
+  });
 });

@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
-import { AlarmClock, AlertTriangle, Clock, Copy, Lock, ShieldAlert, Tag } from 'lucide-react';
+import { AlarmClock, AlertTriangle, Clock, Copy, Lock, ServerCrash, ShieldAlert, Tag } from 'lucide-react';
 import type { NeedsAttentionDto, OverdueHolds } from '../types';
 
 export interface NeedsAttentionItem {
@@ -62,6 +62,18 @@ export function needsAttentionItems(data: NeedsAttentionDto, now: number = Date.
         : 'imports are held for review',
       to: '/held-imports',
       linkLabel: 'Open Held Imports',
+    },
+    // A scheduled job that crashed, partly failed or missed its schedule fails customers quietly
+    // (a deletion not done, a notification not sent), so it reads in the danger style too.
+    {
+      count: data.backgroundJobsNeedingAttention ?? 0,
+      icon: ServerCrash,
+      label: (data.backgroundJobsNeedingAttention ?? 0) === 1
+        ? 'background job needs attention'
+        : 'background jobs need attention',
+      to: '/background-jobs',
+      linkLabel: 'Open Background jobs',
+      overdue: true,
     },
     {
       count: data.importsWithSkippedRowsToday,

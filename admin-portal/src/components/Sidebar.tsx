@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Users, ShieldCheck, ScrollText, HeartPulse, LogOut, Landmark, Settings,
   ListFilter, Store, FileCode, Sparkles, GitMerge, BarChart3, Stethoscope, FileSearch, ListRestart , BadgeCheck, Fingerprint, Route,
   CreditCard, Gift, Plug, Waypoints, Lightbulb, ListOrdered, ChevronDown, ChevronRight, Bell, Clock, ShieldAlert,
-  LifeBuoy, MessageSquare, MailCheck, Megaphone, Footprints, Smartphone, BadgePercent, Activity } from 'lucide-react';
+  LifeBuoy, MessageSquare, MailCheck, Megaphone, Footprints, Smartphone, BadgePercent, Activity, ServerCrash } from 'lucide-react';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { BrandMark } from './BrandMark';
 import { initials } from '../lib/initials';
@@ -73,6 +73,7 @@ const GROUPS = [
       { to: '/push-campaigns', label: 'Push Campaigns', icon: Megaphone, end: false, permission: 'PUSH_CAMPAIGN_MANAGE' },
       { to: '/app-icon', label: 'Festival App Icon', icon: Smartphone, end: false, permission: 'SYSTEM_SETTINGS' },
       { to: '/health', label: 'System Health', icon: HeartPulse, end: false, permission: 'PLATFORM_DIAGNOSTICS_VIEW' },
+      { to: '/background-jobs', label: 'Background jobs', icon: ServerCrash, end: false, permission: 'PLATFORM_DIAGNOSTICS_VIEW' },
       { to: '/integrations', label: 'Integrations', icon: Plug, end: false, permission: 'PLATFORM_DIAGNOSTICS_VIEW' },
       { to: '/diagnostics', label: 'Platform Diagnostics', icon: Stethoscope, end: false, permission: 'PLATFORM_DIAGNOSTICS_VIEW' },
       // Either permission: a layout curator without diagnostics access still reaches the review

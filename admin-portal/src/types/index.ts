@@ -124,6 +124,39 @@ export interface NeedsAttentionDto {
   trustHoldsOverdue?: OverdueHolds;
   /** Of the import holds above, those past the 48-hour promise. Optional for the same reason. */
   importHoldsOverdue?: OverdueHolds;
+  /** Scheduled jobs that crashed, partly failed or missed their schedule (Background jobs page).
+   *  Optional: a backend deployed before it omits the field, which reads as none. */
+  backgroundJobsNeedingAttention?: number;
+}
+
+/** A background job's state: its last run's outcome, unless it has missed its schedule. */
+export type BackgroundJobState = 'OK' | 'PARTLY_FAILED' | 'CRASHED' | 'OVERDUE' | 'OFF';
+
+/** One scheduled job on the Background jobs page (AdminBackgroundJobsController). */
+export interface BackgroundJobDto {
+  key: string;
+  name: string;
+  purpose: string;
+  /** In words: "every 30 seconds", "daily at 03:45 (server time)". */
+  schedule: string;
+  state: BackgroundJobState;
+  lastStartedAt: string | null;
+  lastFinishedAt: string | null;
+  lastSuccessAt: string | null;
+  lastFailedItems: number;
+  lastHandled: number;
+  consecutiveFailures: number;
+  brokenSince: string | null;
+  /** Started and not finished yet. */
+  running: boolean;
+}
+
+/** One crashed or partly failed run, kept 30 days. The error is its type and code location only. */
+export interface BackgroundJobFailureDto {
+  occurredAt: string;
+  outcome: 'PARTLY_FAILED' | 'CRASHED';
+  failedItems: number;
+  errorSummary: string | null;
 }
 
 /** Mirrors backend AdminDtos.OverdueHoldsDto. `oldestHeldSince` is null when `count` is 0. */

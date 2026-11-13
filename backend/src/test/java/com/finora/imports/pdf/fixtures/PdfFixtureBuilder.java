@@ -386,6 +386,84 @@ public final class PdfFixtureBuilder {
     }
 
     /**
+     * {@link #buildAmountOnLastLineSampleEveryAmountRead} in October, with every October date as OCR
+     * reads a scanned HSBC savings statement: the O of OCT comes back as a zero ("010CT2026"), in
+     * capitals on the older layout and in title case ("130ct2026") on the newer one. The first
+     * October date carries two transactions, the second printing no date of its own. Synthetic
+     * values; the balances chain from the brought-forward line to the last row.
+     */
+    public static byte[] buildOctoberDatesOcrReadWithAZeroSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 120f, 330f, 410f, 490f};
+
+        PageBuilder page = new PageBuilder();
+        page.line("Statement of Accounts")
+                .blankLine()
+                .row(col, "Date", "Details", "Withdrawals", "Deposits", "Balance")
+                .row(col, "30SEP2026", "BALANCE BROUGHT FORWARD", "", "", "8,000.00")
+                .row(col, "010CT2026", "NEFTREF100000000001", "", "", "")
+                .row(col, "", "NEFT FROM SAMPLE PAYER PVT", "", "", "")
+                .row(col, "", "LTD", "", "", "")
+                .row(col, "", "SAMPLE BANK NA", "", "", "")
+                .row(col, "", "REF100000000002", "", "50,000.00", "58,000.00")
+                .row(col, "", "UPI100000000003", "", "", "")
+                .row(col, "", "100000000004", "", "", "")
+                .row(col, "", "SAMPLE PAYEE ONE", "1,000.00", "", "57,000.00")
+                .row(col, "050CT2026", "UPI100000000005", "", "", "")
+                .row(col, "", "100000000006", "", "", "")
+                .row(col, "", "SAMPLE PAYEE TWO", "500.00", "", "56,500.00")
+                .row(col, "130ct2026", "ECS-SAMPLE", "", "", "")
+                .row(col, "", "100000000009", "", "", "")
+                .row(col, "", "100000000010", "2,000.00", "", "54,500.00");
+
+        return render(List.of(page));
+    }
+
+    /**
+     * The newer HSBC savings layout, two pages: "Transaction Details" before Deposits then
+     * Withdrawals, title-case dates OCR reads with a zero for the O of "Oct" ("300ct2026"), the
+     * date printed only on a day's first line, and under the Balance header a "(DR=Debit)" note and
+     * an "INR" line. Page 2 repeats the header and its note, opens with a dateless BALANCE BROUGHT
+     * FORWARD line, and carries one more transaction before CLOSING BALANCE. Synthetic values; the
+     * balances chain throughout.
+     */
+    public static byte[] buildRepeatedHeaderNoteSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 120f, 330f, 410f, 490f};
+        float[] noteCol = {LEFT_MARGIN, 120f, 330f, 410f, 482f};
+
+        PageBuilder first = new PageBuilder();
+        first.line("Statement of Accounts")
+                .blankLine()
+                .row(col, "Date", "Transaction Details", "Deposits", "Withdrawals", "Balance")
+                .row(col, "", "", "", "", "(DR=Debit)")
+                // As the real statement prints it: starting left of the Balance label, so it does
+                // not lie within the label's printed width.
+                .row(noteCol, "", "", "", "", "INR")
+                .row(col, "290ct2026", "BALANCE BROUGHT FORWARD", "", "", "8,000.00")
+                .row(col, "300ct2026", "NEFTREF100000000001", "", "", "")
+                .row(col, "", "NEFT FROM SAMPLE PAYER PVT", "", "", "")
+                .row(col, "", "LTD", "", "", "")
+                .row(col, "", "SAMPLE BANK NA", "", "", "")
+                .row(col, "", "REF100000000002", "50,000.00", "", "58,000.00")
+                .row(col, "", "UPI100000000003", "", "", "")
+                .row(col, "", "100000000004", "", "", "")
+                .row(col, "", "SAMPLE PAYEE ONE", "", "1,000.00", "57,000.00")
+                .row(col, "", "BALANCE CARRIED FORWARD", "", "", "57,000.00");
+
+        PageBuilder second = new PageBuilder();
+        second.line("Statement of Accounts")
+                .blankLine()
+                .row(col, "Date", "Transaction Details", "Deposits", "Withdrawals", "Balance")
+                .row(col, "", "", "", "", "(DR=Debit)")
+                .row(col, "", "BALANCE BROUGHT FORWARD", "", "", "57,000.00")
+                .row(col, "", "UPI100000000005", "", "", "")
+                .row(col, "", "100000000006", "", "", "")
+                .row(col, "", "SAMPLE PAYEE TWO", "", "500.00", "56,500.00")
+                .row(col, "", "CLOSING BALANCE", "", "", "56,500.00");
+
+        return render(List.of(first, second));
+    }
+
+    /**
      * {@link #buildAmountOnLastLineSampleEveryAmountRead} with one amount read wrong (500.00 as
      * 600.00): every amount present, but its balance no longer follows from the row above, and no
      * balance can be restored either, since the rows on its two sides disagree about it. A second

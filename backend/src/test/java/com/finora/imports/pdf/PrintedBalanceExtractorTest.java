@@ -55,6 +55,41 @@ class PrintedBalanceExtractorTest {
     }
 
     @Test
+    void aPageCarryOverIsNotTheStatementsClosingBalance_theClosingBalanceLineIs() {
+        // A newer HSBC savings layout: each page ends "BALANCE CARRIED FORWARD", the next opens
+        // "BALANCE BROUGHT FORWARD", and the statement ends "CLOSING BALANCE".
+        List<PositionedText> runs = new java.util.ArrayList<>(List.of(
+                run("BALANCE BROUGHT FORWARD", 120f, 100f), run("8,000.00", 490f, 100f),
+                run("BALANCE CARRIED FORWARD", 120f, 700f), run("57,000.00", 490f, 700f),
+                run("CLOSING BALANCE", 120f, 760f), run("56,500.00", 490f, 760f)));
+        PrintedBalanceExtractor.PrintedBalances printed = PrintedBalanceExtractor.extract(runs, null);
+        assertThat(printed.opening()).isEqualByComparingTo("8000.00");
+        assertThat(printed.closing()).isEqualByComparingTo("56500.00");
+    }
+
+    @Test
+    void theLastCarryOverIsTheClosingBalance_whenNoClosingBalanceLineIsPrinted() {
+        List<PositionedText> runs = List.of(
+                run("Balance Brought Forward", 120f, 100f), run("8,000.00", 490f, 100f),
+                run("Balance Carried Forward", 120f, 400f), run("57,000.00", 490f, 400f),
+                run("Balance Brought Forward", 120f, 450f), run("57,000.00", 490f, 450f),
+                run("Balance Carried Forward", 120f, 700f), run("56,500.00", 490f, 700f));
+        PrintedBalanceExtractor.PrintedBalances printed = PrintedBalanceExtractor.extract(runs, null);
+        assertThat(printed.opening()).isEqualByComparingTo("8000.00");
+        assertThat(printed.closing()).isEqualByComparingTo("56500.00");
+    }
+
+    @Test
+    void anExplicitClosingBalanceIsKept_overACarryOverPrintedAfterIt() {
+        // A summary printed before the ledger names the closing balance; the ledger's page
+        // carry-overs below it are not the statement's end.
+        List<PositionedText> runs = List.of(
+                run("Closing Balance", 120f, 100f), run("56,500.00", 490f, 100f),
+                run("Balance Carried Forward", 120f, 700f), run("57,000.00", 490f, 700f));
+        assertThat(PrintedBalanceExtractor.extract(runs, null).closing()).isEqualByComparingTo("56500.00");
+    }
+
+    @Test
     void aLabelWithNoFigureBesideOrBelowIt_yieldsNothing() {
         List<PositionedText> runs = List.of(
                 run("Opening Balance", 50f, 100f), run("Total Credits", 180f, 100f),

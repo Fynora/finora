@@ -645,7 +645,20 @@ public class PdfTableLocator {
     // table's columns from the first row, the section's columns looked like [Balance] alone, so a
     // plain savings ledger was detected UNKNOWN. Only the whole line, only parentheses, only before
     // any row of the section exists -- a note between two transactions is not a header annotation.
+    //
+    // Or directly under the header, wherever it prints: the newer HSBC savings layout repeats its
+    // header, note and all, at the top of every page. Under a repeated header the section already
+    // has rows, so the note was let through: it took the Balance cell, and the page's
+    // brought-forward balance, the next transaction's narration and its balance all piled into
+    // that one row, whose Balance cell then held three figures and read as none. The line under a
+    // header, within a header wrap's gap, is the header's own, however many rows precede it.
     private static final Pattern HEADER_ANNOTATION = Pattern.compile("^\\s*\\([^()]{1,40}\\)\\s*$");
+
+    // HEADER_CURRENCY_NOTE. The same HSBC layout prints "INR" on its own line under the
+    // "(DR=Debit)" note. A currency code alone is never a transaction; located as a row it reached
+    // the review screen as an unreadable line. Suppressed only directly under the header block
+    // (the header, or a note already suppressed under it), never between transactions.
+    private static final Pattern HEADER_CURRENCY_NOTE = Pattern.compile("(?i)^\\s*\\(?\\s*(?:inr|rs\\.?|\u20B9)\\s*\\)?\\s*$");
 
     // Same role, without brackets: a real SBI credit-card statement prints its header as "Transaction
     // Details" with "for Statement Period: <date> to <date>" on the line under it, and that line
@@ -2207,10 +2220,20 @@ public class PdfTableLocator {
                 // loose page-footer shape would otherwise vanish with zero trace at all.
                 recordIfTransactionShaped(row, "PAGE_FOOTER_OR_CLOSING_MARKER", pendingDroppedCandidates);
                 continue; // a page-number line or closing marker is never a transaction or a continuation of one
-            } else if (currentRows.isEmpty() && pendingLeading == null
-                    && (HEADER_ANNOTATION.matcher(rowLine).matches()
-                        || HEADER_PERIOD_ANNOTATION.matcher(rowLine).matches())) {
+            } else if ((HEADER_ANNOTATION.matcher(rowLine).matches()
+                        || HEADER_PERIOD_ANNOTATION.matcher(rowLine).matches())
+                    && ((currentRows.isEmpty() && pendingLeading == null)
+                        || directlyUnderTheHeader(rowIndex, lastHeaderLineIndex, gapFromPreviousRow))) {
                 // See HEADER_ANNOTATION's own doc comment.
+                if (ctx != null) ctx.record("HEADER_ANNOTATION_SUPPRESSED");
+                recordIfTransactionShaped(row, "HEADER_ANNOTATION_SUPPRESSED", pendingDroppedCandidates);
+                // The header block now ends here, so a currency note under this note is the
+                // header's too -- see HEADER_CURRENCY_NOTE.
+                if (rowIndex == lastHeaderLineIndex + 1) lastHeaderLineIndex = rowIndex;
+                continue;
+            } else if (HEADER_CURRENCY_NOTE.matcher(rowLine).matches()
+                    && directlyUnderTheHeader(rowIndex, lastHeaderLineIndex, gapFromPreviousRow)) {
+                // See HEADER_CURRENCY_NOTE's own doc comment.
                 if (ctx != null) ctx.record("HEADER_ANNOTATION_SUPPRESSED");
                 recordIfTransactionShaped(row, "HEADER_ANNOTATION_SUPPRESSED", pendingDroppedCandidates);
                 continue;
@@ -4523,6 +4546,13 @@ public class PdfTableLocator {
         return SECTION_MARKER.matcher(line).find()
                 || PAGE_FOOTER.matcher(line).find()
                 || STATEMENT_CLOSING_MARKER.matcher(line).find();
+    }
+
+    /** The line right under the header block (the header, or a note already suppressed under
+     *  it), within the gap a header wrap may leave. See HEADER_ANNOTATION. */
+    private static boolean directlyUnderTheHeader(int rowIndex, int lastHeaderLineIndex, Float gapFromPreviousRow) {
+        return lastHeaderLineIndex >= 0 && rowIndex == lastHeaderLineIndex + 1
+                && gapFromPreviousRow != null && gapFromPreviousRow <= HEADER_WRAP_MAX_GAP;
     }
 
     /** True when every non-blank run of {@code row} lies inside the printed width (1pt either side) of

@@ -546,11 +546,30 @@ public class CsvParser {
         // The repaired value then gets the separator retry above too: HSBC prints "07MAR2026",
         // which only parses once the day, month and year are split apart.
         String zeroForO = LETTER_O_FOR_ZERO.matcher(withoutTime).replaceAll("0");
-        if (zeroForO.equals(withoutTime)) return null;
-        parsed = tryEveryFormat(zeroForO);
+        if (!zeroForO.equals(withoutTime)) {
+            parsed = tryEveryFormat(zeroForO);
+            if (parsed != null) return parsed;
+            String zeroForOSeparated = MISSING_SEPARATOR.matcher(zeroForO).replaceAll(" ");
+            if (!zeroForOSeparated.equals(zeroForO)) {
+                parsed = tryEveryFormat(zeroForOSeparated);
+                if (parsed != null) return parsed;
+            }
+        }
+
+        // Fifth retry, same discipline, the other way round: OCR reading the letter O of a month
+        // name as a zero. Measured on scanned HSBC savings statements: "29OCT2026" came back as
+        // "290CT2026" and "29Oct2026" as "290ct2026", so every October date failed. On one
+        // statement each transaction silently took the last date that did parse (30 September)
+        // with every amount check passing; on the newer layout no row anchored at all. Only a
+        // zero inside OCT or NOV, the two month names with an O, is touched: one directly after
+        // the day's digits and before "CT", or after an N and before a V. "0CT" or "N0V" is never a
+        // number, and a result that still fails every format is still no date.
+        String oForZero = MONTH_O_READ_AS_ZERO.matcher(withoutTime).replaceAll("O");
+        if (oForZero.equals(withoutTime)) return null;
+        parsed = tryEveryFormat(oForZero);
         if (parsed != null) return parsed;
-        String zeroForOSeparated = MISSING_SEPARATOR.matcher(zeroForO).replaceAll(" ");
-        return zeroForOSeparated.equals(zeroForO) ? null : tryEveryFormat(zeroForOSeparated);
+        String oForZeroSeparated = MISSING_SEPARATOR.matcher(oForZero).replaceAll(" ");
+        return oForZeroSeparated.equals(oForZero) ? null : tryEveryFormat(oForZeroSeparated);
     }
 
     /**
@@ -644,6 +663,11 @@ public class CsvParser {
 
     private static final java.util.regex.Pattern LETTER_O_FOR_ZERO =
             java.util.regex.Pattern.compile("(?<![A-Za-z])[Oo](?=\\d)");
+
+    /** A zero where the O of OCT or NOV must be: after the day's digit (and one separator, if
+     *  printed) and before CT, or after an N and before a V. See parseDate's fifth retry. */
+    private static final java.util.regex.Pattern MONTH_O_READ_AS_ZERO =
+            java.util.regex.Pattern.compile("(?<=\\d[\\s./-]?)0(?=[Cc][Tt])|(?<=[Nn])0(?=[Vv])");
 
     private static final java.util.regex.Pattern APOSTROPHE_TWO_DIGIT_YEAR =
             java.util.regex.Pattern.compile("(?<=\\s)['\u2018\u2019](\\d{2})\\s*$");

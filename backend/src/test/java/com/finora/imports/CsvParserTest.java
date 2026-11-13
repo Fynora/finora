@@ -205,6 +205,28 @@ class CsvParserTest {
     }
 
     @Test
+    void parseDate_readsTheOOfAMonthThatOcrReadAsAZero() {
+        // Scanned HSBC savings statements: "01OCT2026" came back from OCR as "010CT2026", and the
+        // newer layout's "29Oct2026" as "290ct2026".
+        assertThat(CsvParser.parseDate("010CT2026")).isEqualTo(java.time.LocalDate.of(2026, 10, 1));
+        assertThat(CsvParser.parseDate("290ct2026")).isEqualTo(java.time.LocalDate.of(2026, 10, 29));
+        assertThat(CsvParser.parseDate("100ct2026")).isEqualTo(java.time.LocalDate.of(2026, 10, 10));
+        assertThat(CsvParser.parseDate("15N0V2026")).isEqualTo(java.time.LocalDate.of(2026, 11, 15));
+        assertThat(CsvParser.parseDate("15n0v2026")).isEqualTo(java.time.LocalDate.of(2026, 11, 15));
+        assertThat(CsvParser.parseDate("29 0ct 2026")).isEqualTo(java.time.LocalDate.of(2026, 10, 29));
+        assertThat(CsvParser.parseDate("29-0ct-2026")).isEqualTo(java.time.LocalDate.of(2026, 10, 29));
+        // Dates that already parsed are read exactly as before.
+        assertThat(CsvParser.parseDate("29OCT2026")).isEqualTo(java.time.LocalDate.of(2026, 10, 29));
+        assertThat(CsvParser.parseDate("30SEP2026")).isEqualTo(java.time.LocalDate.of(2026, 9, 30));
+        assertThat(CsvParser.parseDate("2026-10-29")).isEqualTo(java.time.LocalDate.of(2026, 10, 29));
+        // A zero not standing for the O of OCT or NOV is never rewritten into a date.
+        assertThat(CsvParser.parseDate("0CT")).isNull();
+        assertThat(CsvParser.parseDate("1200CT")).isNull();
+        assertThat(CsvParser.parseDate("ABC0CT2026")).isNull();
+        assertThat(CsvParser.parseDate("100000000001")).isNull();
+    }
+
+    @Test
     void parseDate_stripsATrailingTimeComponent() {
         // HDFC's "DATE & TIME" column combines a date and a 24-hour time in one cell, joined by
         // a literal "|" glyph in at least one real export ("30/06/2026| 14:18").

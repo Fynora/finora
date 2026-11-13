@@ -207,7 +207,8 @@ class WeakPayeeKeyNotRememberedIT extends AbstractIntegrationTest {
             boolean servedTheRememberedRow = probe.getName().equals(r.suggestedCategory());
             if (r.description().equals(FULL)) {
                 assertThat(servedTheRememberedRow).as("full UPI id still served: %s", r).isTrue();
-                assertThat(r.categorySource()).isEqualTo(CategorizationService.AI_FALLBACK_SOURCE);
+                // upsertPinned is the user's choice, served back as their learned answer (V319).
+                assertThat(r.categorySource()).isEqualTo("learned");
             } else {
                 assertThat(servedTheRememberedRow).as("weak key not served: %s", r).isFalse();
             }

@@ -8,6 +8,7 @@ import com.finora.entity.Transaction;
 import com.finora.exception.ApiException;
 import com.finora.repository.CategoryRepository;
 import com.finora.repository.MerchantCategoryLearningRepository;
+import com.finora.service.UserMerchantCategoryResolutionService.SavedCategory;
 import com.finora.util.CategoryRules;
 import com.finora.util.MerchantNames;
 import com.finora.util.PersonToPersonTransferDetector;
@@ -94,7 +95,9 @@ public class CategorizationService {
 
     /** {@code Suggestion.source()} for a Trusted shared-corpus row (spec §5/§9). */
     public static final String SHARED_CORPUS_SOURCE = "shared_corpus";
-    /** {@code Suggestion.source()} for a Fyn categorization-fallback answer (spec §8). */
+    /** {@code Suggestion.source()} for a Fyn categorization-fallback answer the model gave (spec §8).
+     *  A saved payee category the user chose comes back from the same step as "learned" instead
+     *  (see {@code savedCategorySuggestion}). */
     public static final String AI_FALLBACK_SOURCE = "ai_fallback";
     /** A confirmed import row whose category the user changed on the review screen: the server
      *  sets this when the confirmed category differs from the one it suggested (see
@@ -282,12 +285,15 @@ public class CategorizationService {
             return new Suggestion(corpusMatch.get(), SHARED_CORPUS_SOURCE, merchantId,
                     Transaction.DecisionSource.SHARED_CORPUS, null, ConfidenceEngine.INITIAL_SHARED_CORPUS_CONFIDENCE);
         }
-        Optional<String> aiMatch = direction == null || !hasCounterpartyKey(typing.key())
-                || !mayGoToModel(description) ? Optional.empty()
-                : fynCategorizationFallbackService.suggest(userId, typing.key(), direction, description);
-        if (aiMatch.isPresent()) {
-            return new Suggestion(aiMatch.get(), AI_FALLBACK_SOURCE, merchantId,
-                    Transaction.DecisionSource.AI_FALLBACK, null, ConfidenceEngine.INITIAL_AI_FALLBACK_CONFIDENCE);
+        // A narration that may not go to the model still gets the user's own saved choice for the
+        // payee: reading it sends nothing anywhere, and the import preview already serves it.
+        Optional<SavedCategory> saved = direction == null || !hasCounterpartyKey(typing.key()) ? Optional.empty()
+                : mayGoToModel(description)
+                        ? fynCategorizationFallbackService.suggest(userId, typing.key(), direction, description)
+                        : fynCategorizationFallbackService.suggestReadOnly(userId, typing.key(), direction)
+                                .filter(SavedCategory::chosenByUser);
+        if (saved.isPresent()) {
+            return savedCategorySuggestion(saved.get(), merchantId);
         }
 
         // A shop whose payee name says what it sells -- see ShopTradeCategory. In place of "Other"
@@ -462,11 +468,10 @@ public class CategorizationService {
         // TransactionNormalizer's "staging is a preview the user may abandon... same matching,
         // same order, no writes" -- Bug 36) -- suggest() would create a category and pin a
         // resolution for a transaction that may never be confirmed.
-        Optional<String> aiMatch = direction == null || !hasCounterpartyKey(typing.key()) ? Optional.empty()
+        Optional<SavedCategory> saved = direction == null || !hasCounterpartyKey(typing.key()) ? Optional.empty()
                 : fynCategorizationFallbackService.suggestReadOnly(userId, typing.key(), direction, resolutionIndex);
-        if (aiMatch.isPresent()) {
-            return new Suggestion(aiMatch.get(), AI_FALLBACK_SOURCE, merchantId,
-                    Transaction.DecisionSource.AI_FALLBACK, null, ConfidenceEngine.INITIAL_AI_FALLBACK_CONFIDENCE);
+        if (saved.isPresent()) {
+            return savedCategorySuggestion(saved.get(), merchantId);
         }
 
         // A shop whose payee name says what it sells -- see ShopTradeCategory. In place of "Other"
@@ -750,8 +755,30 @@ public class CategorizationService {
     }
 
     /** A remembered choice is one person's answer for exactly this text: what a merchant's learned
-     *  category scores with a single confirmation (its whole distribution). */
+     *  category scores with a single confirmation (its whole distribution). Also a payee's saved
+     *  category the user chose ({@link #savedCategorySuggestion}): one person's answer for exactly
+     *  that payee. */
     private static final int REMEMBERED_CONFIDENCE = 100;
+
+    /**
+     * The AI step's answer for a payee, labelled by who chose it. The step reads the user's saved
+     * payee categories ({@code user_merchant_category_resolution}), and most of those are the
+     * user's own: every confirmed or corrected transaction saves its category there
+     * ({@code UserMerchantCategoryResolutionService.pin}). Such an answer is the user's, filed the
+     * way {@link #rememberedForNarration} files a remembered line -- "learned", LEARNED_PATTERN, at
+     * {@link #REMEMBERED_CONFIDENCE} -- so it is not sent to review as a guess, counts as the user's
+     * choice where that matters ({@code FlowClassifier.categoryIsTheUsersChoice}), and is not
+     * explained as Fyn's suggestion. Only an answer the model gave is AI_FALLBACK at
+     * {@link ConfidenceEngine#INITIAL_AI_FALLBACK_CONFIDENCE}.
+     */
+    private static Suggestion savedCategorySuggestion(SavedCategory saved, UUID merchantId) {
+        if (saved.chosenByUser()) {
+            return new Suggestion(saved.categoryName(), "learned", merchantId, Transaction.DecisionSource.LEARNED_PATTERN,
+                    null, REMEMBERED_CONFIDENCE);
+        }
+        return new Suggestion(saved.categoryName(), AI_FALLBACK_SOURCE, merchantId,
+                Transaction.DecisionSource.AI_FALLBACK, null, ConfidenceEngine.INITIAL_AI_FALLBACK_CONFIDENCE);
+    }
 
     /**
      * The queued counterpart of {@link #learn}, for BATCH callers (WI1A).

@@ -5,6 +5,7 @@ import com.finora.entity.CategoryRule;
 import com.finora.entity.Merchant;
 import com.finora.entity.MerchantCategoryLearning;
 import com.finora.entity.Transaction;
+import com.finora.service.UserMerchantCategoryResolutionService.SavedCategory;
 import com.finora.dto.WorkspaceSettingsDto;
 import com.finora.repository.CategoryRepository;
 import com.finora.repository.MerchantCategoryLearningRepository;
@@ -448,7 +449,7 @@ class CategorizationServiceTest {
         when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
         when(sharedCorpusService.findTrustedSuggestion(any(), any(), any())).thenReturn(Optional.empty());
         when(fynCategorizationFallbackService.suggest(eq(userId), eq("vpa:brandnewvendor"),
-                eq(Transaction.Type.EXPENSE), anyString())).thenReturn(Optional.of("Dining"));
+                eq(Transaction.Type.EXPENSE), anyString())).thenReturn(Optional.of(new SavedCategory("Dining", false)));
 
         var suggestion = categorizationService.suggest(userId,
                 "UPI-BRAND NEW COMPLETELY UNKNOWN VENTURES PVT LTD-brandnewvendor@ybl-REF881234",
@@ -460,6 +461,86 @@ class CategorizationServiceTest {
         assertThat(suggestion.confidence()).isEqualTo(ConfidenceEngine.INITIAL_AI_FALLBACK_CONFIDENCE);
     }
 
+    /** The AI step reads the user's saved payee categories, and most are the user's own choice
+     *  (pin(), on every confirmed or corrected transaction). Such an answer is the user's: learned,
+     *  at the confidence a remembered line gets, not an AI guess at 30. */
+    @Test
+    void suggest_savedCategoryTheUserChose_isTheUsersLearnedAnswerNotAnAiGuess() {
+        UUID merchantId = UUID.randomUUID();
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(merchantId)));
+        when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
+        when(sharedCorpusService.findTrustedSuggestion(any(), any(), any())).thenReturn(Optional.empty());
+        when(fynCategorizationFallbackService.suggest(eq(userId), eq("vpa:brandnewvendor"),
+                eq(Transaction.Type.EXPENSE), anyString())).thenReturn(Optional.of(new SavedCategory("Dining", true)));
+
+        var suggestion = categorizationService.suggest(userId,
+                "UPI-BRAND NEW COMPLETELY UNKNOWN VENTURES PVT LTD-brandnewvendor@ybl-REF881234",
+                null, null, Transaction.Type.EXPENSE);
+
+        assertThat(suggestion.category()).isEqualTo("Dining");
+        assertThat(suggestion.source()).isEqualTo("learned");
+        assertThat(suggestion.decisionSource()).isEqualTo(Transaction.DecisionSource.LEARNED_PATTERN);
+        assertThat(suggestion.confidence()).isEqualTo(100);
+        assertThat(suggestion.merchantId()).isEqualTo(merchantId);
+        assertThat(CategorizationService.isUnconfirmedGuess(suggestion.source(), suggestion.category())).isFalse();
+    }
+
+    @Test
+    void suggestReadOnly_savedCategoryTheUserChose_isTheUsersLearnedAnswerNotAnAiGuess() {
+        UUID merchantId = UUID.randomUUID();
+        when(merchantNormalizationEngine.resolveReadOnly(eq(userId), anyString()))
+                .thenReturn(Optional.of(merchantWithId(merchantId)));
+        when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
+        when(sharedCorpusService.findTrustedSuggestion(any(), any(), any())).thenReturn(Optional.empty());
+        when(fynCategorizationFallbackService.suggestReadOnly(eq(userId), eq("vpa:brandnewvendor"),
+                eq(Transaction.Type.EXPENSE), any())).thenReturn(Optional.of(new SavedCategory("Dining", true)));
+
+        var suggestion = categorizationService.suggestReadOnly(List.of(), userId,
+                "UPI-BRAND NEW COMPLETELY UNKNOWN VENTURES PVT LTD-brandnewvendor@ybl-REF881234",
+                null, null, null, Transaction.Type.EXPENSE);
+
+        assertThat(suggestion.source()).isEqualTo("learned");
+        assertThat(suggestion.decisionSource()).isEqualTo(Transaction.DecisionSource.LEARNED_PATTERN);
+        assertThat(suggestion.confidence()).isEqualTo(100);
+    }
+
+    /** A person's narration never goes to the model, but reading the user's own saved choice for
+     *  that payee sends nothing anywhere -- and the import preview (suggestReadOnly) serves it. */
+    @Test
+    void suggest_namedIndividualTransfer_getsTheUsersOwnSavedChoice_withoutTheModel() {
+        UUID merchantId = UUID.randomUUID();
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(merchantId)));
+        when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
+        when(sharedCorpusService.findTrustedSuggestion(any(), any(), any())).thenReturn(Optional.empty());
+        when(fynCategorizationFallbackService.suggestReadOnly(eq(userId), eq("vpa:sampleuser"), eq(Transaction.Type.EXPENSE)))
+                .thenReturn(Optional.of(new SavedCategory("Rent", true)));
+
+        var suggestion = categorizationService.suggest(userId,
+                "UPI-RAJESH KUMAR-sampleuser@ybl-REF881234", null, null, Transaction.Type.EXPENSE);
+
+        verify(fynCategorizationFallbackService, never()).suggest(any(), any(), any(), any());
+        assertThat(suggestion.category()).isEqualTo("Rent");
+        assertThat(suggestion.decisionSource()).isEqualTo(Transaction.DecisionSource.LEARNED_PATTERN);
+    }
+
+    /** ...but a saved answer the model gave is not served for a narration that may not go to it:
+     *  the same as before saved answers said who chose them. */
+    @Test
+    void suggest_namedIndividualTransfer_aSavedModelAnswerIsNotServed() {
+        UUID merchantId = UUID.randomUUID();
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(merchantId)));
+        when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
+        when(sharedCorpusService.findTrustedSuggestion(any(), any(), any())).thenReturn(Optional.empty());
+        when(fynCategorizationFallbackService.suggestReadOnly(eq(userId), eq("vpa:sampleuser"), eq(Transaction.Type.EXPENSE)))
+                .thenReturn(Optional.of(new SavedCategory("Salary", false)));
+
+        var suggestion = categorizationService.suggest(userId,
+                "UPI-RAJESH KUMAR-sampleuser@ybl-REF881234", null, null, Transaction.Type.EXPENSE);
+
+        verify(fynCategorizationFallbackService, never()).suggest(any(), any(), any(), any());
+        assertThat(suggestion.decisionSource()).isEqualTo(Transaction.DecisionSource.STRUCTURAL_P2P);
+    }
+
     /** A payment to a named individual carries that person's name, and usually their UPI id, in
      *  its narration. The AI fallback sends the narration to a third party, so a person-shaped
      *  row must never reach it, even when it would have answered. */
@@ -469,7 +550,7 @@ class CategorizationServiceTest {
         when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(merchantId)));
         when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
         when(sharedCorpusService.findTrustedSuggestion(any(), any(), any())).thenReturn(Optional.empty());
-        when(fynCategorizationFallbackService.suggest(any(), any(), any(), any())).thenReturn(Optional.of("Dining"));
+        when(fynCategorizationFallbackService.suggest(any(), any(), any(), any())).thenReturn(Optional.of(new SavedCategory("Dining", false)));
 
         var suggestion = categorizationService.suggest(userId,
                 "UPI-RAJESH KUMAR-sampleuser@ybl-REF881234", null, null, Transaction.Type.EXPENSE);
@@ -512,7 +593,7 @@ class CategorizationServiceTest {
         when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(merchantId)));
         when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
         when(sharedCorpusService.findTrustedSuggestion(any(), any(), any())).thenReturn(Optional.empty());
-        when(fynCategorizationFallbackService.suggest(any(), any(), any(), any())).thenReturn(Optional.of("Dining"));
+        when(fynCategorizationFallbackService.suggest(any(), any(), any(), any())).thenReturn(Optional.of(new SavedCategory("Dining", false)));
 
         categorizationService.suggest(userId, "UPI RAVI SHANKAR KUMAR 412345678901", null, null, Transaction.Type.EXPENSE); // synthetic-ok
 
@@ -571,7 +652,7 @@ class CategorizationServiceTest {
         when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
         when(sharedCorpusService.findTrustedSuggestion(any(), any(), any())).thenReturn(Optional.empty());
         when(fynCategorizationFallbackService.suggestReadOnly(eq(userId), eq("vpa:brandnewvendor"),
-                eq(Transaction.Type.EXPENSE), any())).thenReturn(Optional.of("Dining"));
+                eq(Transaction.Type.EXPENSE), any())).thenReturn(Optional.of(new SavedCategory("Dining", false)));
 
         var suggestion = categorizationService.suggestReadOnly(List.of(), userId,
                 "UPI-BRAND NEW COMPLETELY UNKNOWN VENTURES PVT LTD-brandnewvendor@ybl-REF881234",
@@ -594,7 +675,7 @@ class CategorizationServiceTest {
         when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(merchantId)));
         when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
         when(sharedCorpusService.findTrustedSuggestion(any(), any(), any())).thenReturn(Optional.empty());
-        when(fynCategorizationFallbackService.suggest(any(), any(), any(), any())).thenReturn(Optional.of("Dining"));
+        when(fynCategorizationFallbackService.suggest(any(), any(), any(), any())).thenReturn(Optional.of(new SavedCategory("Dining", false)));
 
         var suggestion = categorizationService.suggest(userId, "UPI/REF37/UPI", null, null, Transaction.Type.EXPENSE);
 
@@ -609,7 +690,7 @@ class CategorizationServiceTest {
                 .thenReturn(Optional.of(merchantWithId(merchantId)));
         when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
         when(sharedCorpusService.findTrustedSuggestion(any(), any(), any())).thenReturn(Optional.empty());
-        when(fynCategorizationFallbackService.suggestReadOnly(any(), any(), any(), any())).thenReturn(Optional.of("Dining"));
+        when(fynCategorizationFallbackService.suggestReadOnly(any(), any(), any(), any())).thenReturn(Optional.of(new SavedCategory("Dining", false)));
 
         var suggestion = categorizationService.suggestReadOnly(List.of(), userId, "UPI/REF37/UPI",
                 null, null, null, Transaction.Type.EXPENSE);

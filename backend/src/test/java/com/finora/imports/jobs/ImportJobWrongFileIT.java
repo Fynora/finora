@@ -101,6 +101,31 @@ class ImportJobWrongFileIT extends AbstractIntegrationTest {
         }
     }
 
+    /** One page of cells placed at column positions, one row per line, top down. */
+    private static byte[] pdfColumns(float[] xs, String[]... rows) throws Exception {
+        try (PDDocument d = new PDDocument()) {
+            PDPage p = new PDPage();
+            d.addPage(p);
+            try (PDPageContentStream cs = new PDPageContentStream(d, p)) {
+                cs.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 10);
+                float y = 760;
+                for (String[] row : rows) {
+                    for (int i = 0; i < row.length && i < xs.length; i++) {
+                        if (row[i] == null || row[i].isEmpty()) continue;
+                        cs.beginText();
+                        cs.newLineAtOffset(xs[i], y);
+                        cs.showText(row[i]);
+                        cs.endText();
+                    }
+                    y -= 14;
+                }
+            }
+            ByteArrayOutputStream o = new ByteArrayOutputStream();
+            d.save(o);
+            return o.toByteArray();
+        }
+    }
+
     private void assertFailsStraightAway(ImportJob job, String code) {
         assertThat(job.getStatus()).as("status").isEqualTo(ImportJob.Status.FAILED);
         assertThat(job.getFailureCode()).as("failure code").isEqualTo(code);
@@ -247,6 +272,33 @@ class ImportJobWrongFileIT extends AbstractIntegrationTest {
         assertThat(job.getStatus()).isEqualTo(ImportJob.Status.HELD_FOR_REVIEW);
         assertThat(job.getFailureCode()).isEqualTo("IMPORT_NO_HEADER_DETECTED");
         assertThat(job.wasHeldForReview()).isTrue();
+    }
+
+    /**
+     * A statement whose ledger header the engine found but whose dates it could not read -- the
+     * shape of a real scanned HSBC savings statement, where OCR read the O of "Oct" as a zero. No
+     * recovered line carries a date and an amount together, so before the ledger-header evidence it
+     * failed straight away as the wrong file. Synthetic values; the dates are in a form the parser
+     * refuses on purpose.
+     */
+    @Test
+    void aStatementWhoseLedgerHeaderWasFoundButWhoseDatesCouldNotBeReadIsHeldForAnAdmin() throws Exception {
+        float[] col = {40f, 120f, 330f, 410f, 490f};
+        ImportJob job = run("unread-dates.pdf", pdfColumns(col,
+                new String[] {"Date", "Transaction Details", "Deposits", "Withdrawals", "Balance"},
+                new String[] {"30th of Oct", "NEFT FROM SAMPLE PAYER", "50,000.00", "", "58,000.00"},
+                new String[] {"31st of Oct", "UPI SAMPLE PAYEE ONE", "", "1,000.00", "57,000.00"}));
+
+        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.HELD_FOR_REVIEW);
+        assertThat(job.getFailureCode()).isEqualTo("IMPORT_NO_TRANSACTIONS_FOUND");
+        assertThat(job.wasHeldForReview()).isTrue();
+    }
+
+    /** A bank export with its ledger header and nothing under it: nothing to review, the user's to fix. */
+    @Test
+    void aLedgerCsvWithNoRowsFailsStraightAwayAndIsNotHeld() throws Exception {
+        assertFailsStraightAway(run("empty-export.csv", csv("Date,Narration,Debit,Credit,Balance\n")),
+                "IMPORT_NO_TRANSACTIONS_FOUND");
     }
 
     // ------------------------------------------------------------------ CSV

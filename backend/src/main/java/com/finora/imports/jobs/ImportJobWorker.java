@@ -526,10 +526,11 @@ public class ImportJobWorker {
      *   <li>anything nothing recognised, and anything the classifier would retry -- an
      *       infrastructure failure whose retries ran out. A failed job does not fix itself when the
      *       outage ends, so an admin reprocesses it;</li>
-     *   <li>a recognised "no table" failure whose recovered rows read like transactions
+     *   <li>a recognised "no table" failure that looks like a statement
      *       ({@link #carriesRecoveredEvidence}): the document had at least two rows carrying both a
-     *       date and an amount that the engine could not anchor into a table, which is a parser gap,
-     *       not a wrong file.</li>
+     *       date and an amount that the engine could not anchor into a table, or a table headed like
+     *       a bank ledger with lines under it the engine could not read -- a parser gap, not a wrong
+     *       file.</li>
      * </ul>
      *
      * <p><b>Not held, deliberately: every failure the user can act on themselves.</b> A damaged
@@ -810,7 +811,7 @@ public class ImportJobWorker {
      *  opening the file. An allow-list, and numbers or a boolean only: nothing from the statement
      *  itself can ride along. (Spec 2026-11-08-held-import-triage-facts-design.md, option A.) */
     private static final List<String> TRIAGE_FACT_KEYS =
-            List.of("recoveredLines", "transactionShapedLines", "looksLikeAStatement");
+            List.of("recoveredLines", "transactionShapedLines", "ledgerHeader", "looksLikeAStatement");
 
     /** Class name plus message. The class name matters as much as the text: "storage unavailable"
      *  and "unparseable statement" need different responses from whoever reads the admin queue.

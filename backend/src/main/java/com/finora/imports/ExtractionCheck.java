@@ -140,6 +140,9 @@ public final class ExtractionCheck {
 
         int transactionShaped = countTransactionShaped(staged.unparseableRows());
         boolean locatedATable = ctx != null && ctx.buildMetadata().tables() > 0;
+        // Something must have been set aside under the header: a ledger header with nothing under it
+        // is an empty export (no activity, or the wrong date range), which the user can act on.
+        boolean ledgerHeader = locatedATable && recoveredLines > 0 && namesALedger(ctx.buildMetadata().headers());
         ErrorCode code = locatedATable ? ErrorCode.IMPORT_NO_TRANSACTIONS_FOUND : ErrorCode.IMPORT_NO_HEADER_DETECTED;
         throw new ApiException(code.defaultStatus(), code,
                 (locatedATable
@@ -155,9 +158,53 @@ public final class ExtractionCheck {
                 // make that distinction: it counts every line the parser set aside, so it is
                 // non-zero for any document with text in it. Kept unchanged, for the message and
                 // for existing readers; transactionShapedLines is the count that means something.
+                //
+                // ledgerHeader is the second kind of evidence: the table the engine located is headed
+                // like a bank ledger (see namesALedger). Measured on a real scanned HSBC savings
+                // statement whose dates OCR could not read: zero transaction-shaped lines, so it was
+                // told it was the wrong file, never held on the queue, and never offered for review
+                // on the synchronous path -- though its own header named Date, Deposits, Withdrawals
+                // and Balance.
                 Map.of("recoveredLines", recoveredLines,
                         "transactionShapedLines", transactionShaped,
-                        "looksLikeAStatement", transactionShaped >= MIN_TRANSACTION_SHAPED_LINES));
+                        "ledgerHeader", ledgerHeader,
+                        "looksLikeAStatement", transactionShaped >= MIN_TRANSACTION_SHAPED_LINES || ledgerHeader));
+    }
+
+    private static final java.util.Set<String> DATE_WORDS = java.util.Set.of("date");
+    private static final java.util.Set<String> BALANCE_WORDS = java.util.Set.of("balance", "bal");
+    private static final java.util.Set<String> INFLOW_WORDS =
+            java.util.Set.of("deposit", "deposits", "credit", "credits", "cr");
+    private static final java.util.Set<String> OUTFLOW_WORDS =
+            java.util.Set.of("withdrawal", "withdrawals", "debit", "debits", "dr");
+    private static final java.util.Set<String> AMOUNT_WORDS = java.util.Set.of("amount", "amt");
+
+    /**
+     * Whether the located table's headers name a bank ledger: a date column, and either money going
+     * both ways (a deposit/credit column and a withdrawal/debit column) or a running balance beside
+     * at least one money column. Read word by word, because real headers are compounds ("Withdrawal
+     * Amt.", "Txn Date", "Closing Balance").
+     *
+     * <p>Narrow on purpose. An invoice, a bill or a salary slip has a date and an amount, but neither
+     * a balance column nor money in both directions; a card statement's single "Amount" column does
+     * not qualify either, and stays judged by its recovered lines alone. The wrong documents in
+     * {@code ImportJobWrongFileIT} are the guard that this stays false for them.
+     */
+    static boolean namesALedger(List<String> headers) {
+        if (headers == null || headers.isEmpty()) return false;
+        boolean date = false, balance = false, inflow = false, outflow = false, amount = false;
+        for (String header : headers) {
+            if (header == null) continue;
+            for (String word : header.toLowerCase(java.util.Locale.ROOT).split("[^a-z]+")) {
+                if (word.isEmpty()) continue;
+                date |= DATE_WORDS.contains(word);
+                balance |= BALANCE_WORDS.contains(word);
+                inflow |= INFLOW_WORDS.contains(word);
+                outflow |= OUTFLOW_WORDS.contains(word);
+                amount |= AMOUNT_WORDS.contains(word);
+            }
+        }
+        return date && ((inflow && outflow) || (balance && (inflow || outflow || amount)));
     }
 
     private static ApiException paymentAppHistory() {

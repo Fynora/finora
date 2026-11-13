@@ -180,7 +180,8 @@ export function importFailureTitle(code: string | null | undefined): string | un
 /**
  * A failure that looks like a statement Fynora could not read rather than the wrong file: no
  * transactions read (or no table found), yet the backend recovered at least two lines carrying
- * both a date and an amount (`details.looksLikeAStatement`, ExtractionCheck). That is a parser gap
+ * both a date and an amount, or located a table headed like a bank ledger with lines it could not
+ * read under it (`details.looksLikeAStatement`, ExtractionCheck). That is a parser gap
  * on our side -- the queue holds such a file for the team (ImportJobWorker.holdsForTriage) -- so
  * the user is not told to check their file. Only the synchronous path, which keeps nothing, needs
  * this: it is where a protected PDF goes when its password was not kept.

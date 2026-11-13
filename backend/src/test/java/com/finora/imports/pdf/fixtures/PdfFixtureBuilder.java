@@ -427,6 +427,34 @@ public final class PdfFixtureBuilder {
      * balances chain throughout.
      */
     public static byte[] buildRepeatedHeaderNoteSample() throws IOException {
+        return repeatedHeaderNotePages(false, false);
+    }
+
+    /**
+     * {@link #buildRepeatedHeaderNoteSample} as the real statement ends: under CLOSING BALANCE, the
+     * ledger's "Transaction Turnover" line (the deposit and withdrawal totals) and "Transaction
+     * Count" line, and on both pages the bank's address footer at the foot of the page, in two
+     * columns -- an address block on the left, a paragraph of notes on the right. Synthetic values;
+     * the totals and counts agree with the transactions.
+     */
+    public static byte[] buildRepeatedHeaderNoteWithLedgerSummarySample() throws IOException {
+        return repeatedHeaderNotePages(true, true);
+    }
+
+    /** {@link #buildRepeatedHeaderNoteWithLedgerSummarySample} with no "Transaction Count" line under
+     *  the turnover line: half of the pair, which is not enough to read it as the ledger's summary. */
+    public static byte[] buildRepeatedHeaderNoteWithTurnoverLineOnlySample() throws IOException {
+        return repeatedHeaderNotePages(true, false);
+    }
+
+    private static void sampleBankAddressFooter(PageBuilder page) {
+        float[] footerCol = {LEFT_MARGIN, 280f};
+        page.rowAt(70f, footerCol, "SAMPLE BANK LIMITED", "The bank meets its obligation to deliver this statement")
+                .rowAt(62f, footerCol, "Sample Area Office", "where it is sent by electronic means.")
+                .rowAt(54f, footerCol, "1 Sample Road, Sample City 100001", "Please examine your statement promptly.");
+    }
+
+    private static byte[] repeatedHeaderNotePages(boolean ledgerSummary, boolean countLine) throws IOException {
         float[] col = {LEFT_MARGIN, 120f, 330f, 410f, 490f};
         float[] noteCol = {LEFT_MARGIN, 120f, 330f, 410f, 482f};
 
@@ -448,6 +476,7 @@ public final class PdfFixtureBuilder {
                 .row(col, "", "100000000004", "", "", "")
                 .row(col, "", "SAMPLE PAYEE ONE", "", "1,000.00", "57,000.00")
                 .row(col, "", "BALANCE CARRIED FORWARD", "", "", "57,000.00");
+        if (ledgerSummary) sampleBankAddressFooter(first);
 
         PageBuilder second = new PageBuilder();
         second.line("Statement of Accounts")
@@ -459,8 +488,39 @@ public final class PdfFixtureBuilder {
                 .row(col, "", "100000000006", "", "", "")
                 .row(col, "", "SAMPLE PAYEE TWO", "", "500.00", "56,500.00")
                 .row(col, "", "CLOSING BALANCE", "", "", "56,500.00");
+        if (ledgerSummary) {
+            second.row(col, "", "Transaction Turnover", "50,000.00", "1,500.00", "");
+            if (countLine) second.row(col, "", "Transaction Count", "1", "2", "");
+            sampleBankAddressFooter(second);
+        }
 
         return render(List.of(first, second));
+    }
+
+    /**
+     * A savings ledger with no transactions, laid out as the real zero-activity HSBC statement in
+     * the corpus prints it -- unlike {@link #buildExplicitZeroTransactionCountSample}, only the
+     * first line carries a date: BALANCE BROUGHT FORWARD, then dateless CLOSING BALANCE,
+     * "Transaction Turnover" (zero on both sides, no balance) and "Transaction Count" (zero on both
+     * sides), then the bank's notes. The notes speak of products this account is not, as the real
+     * ones do. Synthetic values.
+     */
+    public static byte[] buildExplicitZeroTransactionCountAsPrintedSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 120f, 330f, 410f, 490f};
+
+        PageBuilder page = new PageBuilder();
+        page.line("Statement of Accounts")
+                .blankLine()
+                .row(col, "Date", "Transaction Details", "Deposits", "Withdrawals", "Balance")
+                .row(col, "01Jul2026", "BALANCE BROUGHT FORWARD", "", "", "500.00")
+                .row(col, "", "CLOSING BALANCE", "", "", "500.00")
+                .row(col, "", "Transaction Turnover", "0.00", "0.00", "")
+                .row(col, "", "Transaction Count", "0", "0", "")
+                .line("Important Notes")
+                .line("1. Credit card dues and loan instalments are shown on their own statements.")
+                .line("2. Report any error in this statement of account within 30 days.");
+
+        return render(List.of(page));
     }
 
     /**

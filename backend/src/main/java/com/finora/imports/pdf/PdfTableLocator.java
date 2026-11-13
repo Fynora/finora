@@ -2209,6 +2209,21 @@ public class PdfTableLocator {
                     pageRepeatSinceLastAnchor = false;
                 }
                 continue;
+            } else if (ledgerSummaryCountLine(rows, rowIndex, rowLine, rightEdgeOfTable(headerAnchors, headerEnds),
+                    marginPanelBand) != null) {
+                // A ledger's Turnover/Count summary -- see LEDGER_TURNOVER_LINE. The two lines are
+                // kept as auxiliary text; what follows them (the bank's notes and address footer)
+                // is a page-boundary block, suppressed the way PAGE_LEGEND_BLOCK_START's blocks
+                // are and for the same reason: ProductDiscovery reads auxiliary text as statement
+                // fields, and the notes name products this account is not. Measured on the real
+                // zero-activity HSBC statement: kept as auxiliary, its notes turned a SAVINGS
+                // section UNKNOWN.
+                pendingAuxiliary.add(rowLine);
+                pendingAuxiliary.add(ledgerSummaryCountLine(rows, rowIndex, rowLine,
+                        rightEdgeOfTable(headerAnchors, headerEnds), marginPanelBand));
+                pageLegendBlockActive = true;
+                if (ctx != null) ctx.record("TABLE_TOTALS_ROW_DIVERTED");
+                continue;
             } else if (PAGE_FOOTER.matcher(rowLine).find() || PAGE_FOOTER_SENTENCE.matcher(rowLine).find()
                     || isPrintTimeFooter(row)
                     || isBarePageNumber(rowLine, row, pageCount) || isOwnPageCounter(rowLine, row, pageCount)
@@ -6935,6 +6950,40 @@ public class PdfTableLocator {
     /** A bare integer in a non-amount column -- a card statement's reward-points total, printed on
      *  the same line as the amount total (real IndusInd statements). */
     private static final Pattern TOTALS_LINE_COUNT = Pattern.compile("^\\s*\\d{1,7}\\s*$");
+
+    /**
+     * A ledger's own summary, printed under its last line: "Transaction Turnover" with the deposit
+     * and withdrawal totals, then "Transaction Count" with how many of each. Both lines are
+     * required, adjacent and whole. Measured on two real HSBC savings statements, one a native
+     * PDF that prints zero activity and one a scan read through OCR: each prints exactly this pair
+     * after its CLOSING BALANCE line, then the bank's notes and address footer. Nothing in the pair
+     * is a date, so the table read the pair and everything after it -- the footer included -- as
+     * leading narration for a transaction that never came, and staged it as one unreadable row.
+     *
+     * <p>The pair is kept as auxiliary text, never dropped: {@link com.finora.imports.ExplicitZeroActivityDetector}
+     * reads the Count line there to recognise a statement that says it had no transactions. What
+     * follows the pair is suppressed as a page-boundary block (see the branch that uses this), and
+     * a transaction-shaped row or a header ends that block, as it ends every other. Recorded as
+     * TABLE_TOTALS_ROW_DIVERTED because that is what the pair is: the table's totals. In the text
+     * layer of the corpus's other statements, "turnover" appears only in GST boilerplate
+     * ("aggregate turnover"), which the whole-line match below cannot reach.
+     */
+    private static final Pattern LEDGER_TURNOVER_LINE = Pattern.compile(
+            "(?iU)^\\s*transaction\\s+turnover\\s+" + PRINTED_AMOUNT + "\\s+" + PRINTED_AMOUNT + "\\s*$");
+    private static final Pattern LEDGER_COUNT_LINE = Pattern.compile(
+            "(?iU)^\\s*transaction\\s+count\\s+\\d{1,7}\\s+\\d{1,7}\\s*$");
+
+    /** The count line, when {@code rowLine} is a ledger's turnover line and the next physical row of
+     *  the same page is its count line -- see {@link #LEDGER_TURNOVER_LINE}; null otherwise. */
+    private String ledgerSummaryCountLine(List<List<PositionedText>> rows, int rowIndex, String rowLine,
+            float rightEdge, MarginPanelBand marginPanelBand) {
+        if (!LEDGER_TURNOVER_LINE.matcher(rowLine).matches() || rowIndex + 1 >= rows.size()) return null;
+        List<PositionedText> row = rows.get(rowIndex);
+        List<PositionedText> next = rows.get(rowIndex + 1);
+        if (row.isEmpty() || next.isEmpty() || next.get(0).pageIndex() != row.get(0).pageIndex()) return null;
+        String countLine = lineOf(tableRunsOf(next, rightEdge, marginPanelBand));
+        return LEDGER_COUNT_LINE.matcher(countLine).matches() ? countLine : null;
+    }
 
     /** How far apart a totals label and its figures may be printed and still be one line. Two runs
      *  of one printed line land on separate physical rows only when their baselines differ by more

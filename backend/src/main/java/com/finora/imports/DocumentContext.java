@@ -222,7 +222,8 @@ public class DocumentContext {
         this.explicitZeroActivityDeclared = true;
     }
 
-    /** True when some located row stated, in the document's own words, that this statement's
+    /** True when some located row, or a ledger summary line the locator kept as auxiliary text,
+     *  stated, in the document's own words, that this statement's
      *  transaction count for its own covered period is zero -- see
      *  {@link ExplicitZeroActivityDetector}. Read by {@link ExtractionCheck} to tell "this
      *  statement genuinely had nothing to report" apart from "the pipeline could not read a table

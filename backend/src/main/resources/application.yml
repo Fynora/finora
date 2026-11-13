@@ -901,6 +901,15 @@ app:
     # by the owner in Railway and nowhere in this repository. Unset (the default), or shorter than
     # 32 characters, means off: the endpoint answers 404.
     key: ${APP_TRACE_RETENTION_KEY:}
+  background-job-alerts:
+    # Background jobs health (docs/superpowers/specs/2026-11-13-background-jobs-health-design.md).
+    # Every scheduled job's runs are always recorded and shown on the admin Background jobs page;
+    # this switch only controls the emails to admins with PLATFORM_DIAGNOSTICS_VIEW (broken, still
+    # broken after 24 h, working again). Off by default: watch the page for a day for false alarms,
+    # then set APP_BACKGROUND_JOB_ALERTS_ENABLED=true.
+    enabled: ${APP_BACKGROUND_JOB_ALERTS_ENABLED:false}
+    interval-ms: ${APP_BACKGROUND_JOB_ALERTS_INTERVAL_MS:300000}
+    initial-delay-ms: ${APP_BACKGROUND_JOB_ALERTS_INITIAL_DELAY_MS:120000}
   claude-fix:
     # The automatic Claude fix job (docs/superpowers/specs/2026-10-15-claude-fix-job-design.md,
     # runbook docs/engineering/claude-fix-job.md). When a PDF statement is held and its server

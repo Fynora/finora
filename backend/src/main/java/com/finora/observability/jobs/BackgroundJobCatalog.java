@@ -116,6 +116,8 @@ public final class BackgroundJobCatalog {
                 "Fetches fresh data for Account Aggregator links that missed an update.");
 
         // Diagnostics
+        put("BackgroundJobAlertChecker.check", "Background job checker",
+                "Emails admins when a background job breaks or recovers; prunes old failure records.");
         put("UserRequestLoad.flushIfMinuteElapsed", "Request load counter",
                 "Publishes the past minute's customer request counts.");
         put("UserRequestLoad.logSummary", "Request load summary",

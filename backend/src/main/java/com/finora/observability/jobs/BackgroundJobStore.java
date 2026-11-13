@@ -83,6 +83,30 @@ public class BackgroundJobStore {
         });
     }
 
+    /**
+     * Claims the right to send {@code kind} for a job: succeeds (returns 1) only if the job's last
+     * email is still {@code expectedKind}, so when two instances decide the same email at once, one
+     * sends it and the other gets 0 and stays quiet.
+     */
+    public int claimEmail(String jobKey, String expectedKind, AlertKind kind, Instant at) {
+        OffsetDateTime when = utc(at);
+        return jdbc.update("""
+                INSERT INTO background_job_status (job_key, last_email_kind, last_email_at, last_broken_email_at, updated_at)
+                VALUES (?, ?, ?, ?, now())
+                ON CONFLICT (job_key) DO UPDATE SET
+                    last_email_kind = EXCLUDED.last_email_kind,
+                    last_email_at = EXCLUDED.last_email_at,
+                    last_broken_email_at = COALESCE(EXCLUDED.last_broken_email_at, background_job_status.last_broken_email_at),
+                    updated_at = now()
+                WHERE background_job_status.last_email_kind IS NOT DISTINCT FROM ?
+                """, jobKey, kind.name(), when, kind == AlertKind.BROKEN ? when : null, expectedKind);
+    }
+
+    /** Deletes failure rows older than {@code before}; returns how many. */
+    public int pruneFailuresBefore(Instant before) {
+        return jdbc.update("DELETE FROM background_job_failures WHERE occurred_at < ?", utc(before));
+    }
+
     public List<BackgroundJobStatus> findAll() {
         return jdbc.query("SELECT * FROM background_job_status", (rs, i) -> statusOf(rs));
     }

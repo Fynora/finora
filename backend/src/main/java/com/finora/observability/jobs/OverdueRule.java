@@ -41,6 +41,21 @@ final class OverdueRule {
         return status.lastFinishedAt() == null || status.lastStartedAt().isAfter(status.lastFinishedAt());
     }
 
+    /** When the job becomes (or became) overdue on its current clock; for the "broken since" line. */
+    static Instant overdueAt(JobSchedule schedule, BackgroundJobStatus status, Instant appStartedAt) {
+        if (schedule.cron() != null) {
+            if (isRunning(status)) return status.lastStartedAt().plus(CRON_ALLOWANCE);
+            Instant expected = mostRecentFire(schedule.cron(), Instant.now());
+            return expected == null ? null : expected.plus(CRON_ALLOWANCE);
+        }
+        Duration initialDelay = schedule.initialDelay() == null ? Duration.ZERO : schedule.initialDelay();
+        Instant baseline = appStartedAt.plus(initialDelay);
+        Instant lastActivity = latest(status == null ? null : status.lastStartedAt(),
+                status == null ? null : status.lastFinishedAt());
+        if (lastActivity != null && lastActivity.isAfter(baseline)) baseline = lastActivity;
+        return baseline.plus(schedule.interval().multipliedBy(2)).plus(INTERVAL_SLACK);
+    }
+
     static boolean isOverdue(JobSchedule schedule, BackgroundJobStatus status, Instant appStartedAt, Instant now) {
         return schedule.cron() != null
                 ? cronOverdue(schedule.cron(), status, appStartedAt, now)
@@ -49,13 +64,7 @@ final class OverdueRule {
 
     private static boolean intervalOverdue(JobSchedule schedule, BackgroundJobStatus status,
                                            Instant appStartedAt, Instant now) {
-        Duration initialDelay = schedule.initialDelay() == null ? Duration.ZERO : schedule.initialDelay();
-        Instant baseline = appStartedAt.plus(initialDelay);
-        Instant lastActivity = latest(status == null ? null : status.lastStartedAt(),
-                status == null ? null : status.lastFinishedAt());
-        if (lastActivity != null && lastActivity.isAfter(baseline)) baseline = lastActivity;
-        Instant limit = baseline.plus(schedule.interval().multipliedBy(2)).plus(INTERVAL_SLACK);
-        return now.isAfter(limit);
+        return now.isAfter(overdueAt(schedule, status, appStartedAt));
     }
 
     private static boolean cronOverdue(String cron, BackgroundJobStatus status, Instant appStartedAt, Instant now) {

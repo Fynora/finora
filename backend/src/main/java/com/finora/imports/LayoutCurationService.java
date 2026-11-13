@@ -78,15 +78,21 @@ public class LayoutCurationService {
             /** The version it had before an earlier-seen layout joined and moved it up (V245), and
              *  when; both null when it has not moved in its current profile. */
             Integer previousProfileVersion, Instant profileVersionChangedAt,
-            /** Whether a blanked copy can be made of {@code reviewAnalysisReference}, and if not why.
-             *  Filled for the review queue only; null in every other listing, meaning not checked. */
+            /** Whether a blanked copy can be made of an upload the flag names, which one, and if
+             *  none can, why. Filled for the review queue only; null in every other listing, meaning
+             *  not checked. */
             ReviewCopy reviewCopy) {}
 
-    /** {@code refusal} says why no copy can be made, as a code, when {@code available} is false
-     *  ({@link com.finora.imports.blanked.FlaggedLayoutUploadService.Refusal}, or NO_UPLOAD when the
-     *  flag recorded no upload). A code, not the copy's own words: those can name a customer's
-     *  choice, and this listing carries no personal data. */
-    public record ReviewCopy(boolean available, String refusal) {}
+    /**
+     * {@code reference} is the upload a copy would be made of when {@code available}: the latest
+     * flagged upload ({@code reviewAnalysisReference}) when it can be copied, otherwise the newest
+     * upload that raised a reason the flag still carries and can be copied. {@code refusal} says why
+     * no copy can be made, as a code, when {@code available} is false: the latest flagged upload's
+     * refusal ({@link com.finora.imports.blanked.FlaggedLayoutUploadService.Refusal}), or NO_UPLOAD
+     * when the flag recorded no upload. A code, not the copy's own words: those can name a
+     * customer's choice, and this listing carries no personal data.
+     */
+    public record ReviewCopy(boolean available, String refusal, String reference) {}
 
     /** A profile and its layouts, in version order. {@code automatic} is true for a profile the
      *  engine groups into by bank and account family. */
@@ -385,12 +391,58 @@ public class LayoutCurationService {
         return names;
     }
 
+    /**
+     * The first upload the flag names that a copy can be made of, checked as the copy itself checks
+     * (reading nothing, recording nothing): the latest flagged upload, then the uploads that raised
+     * its reasons, newest first. The latest one is often the one that can't be copied (the customer
+     * deleted it, or it never went through the queue) while an earlier one that raised a reason
+     * still can.
+     */
     private ReviewCopy reviewCopyOf(RegisteredLayout layout) {
-        String reference = layout.getReviewAnalysisReference();
-        if (reference == null) return new ReviewCopy(false, "NO_UPLOAD");
-        return flaggedUploads.copyRefusal(reference)
-                .map(refusal -> new ReviewCopy(false, refusal.name()))
-                .orElseGet(() -> new ReviewCopy(true, null));
+        List<String> candidates = new ArrayList<>();
+        String latest = layout.getReviewAnalysisReference();
+        if (latest != null) candidates.add(latest);
+        layout.getReviewReasonSources().values().stream()
+                .filter(ref -> ref != null && !ref.isBlank() && !candidates.contains(ref))
+                .distinct()
+                .sorted(NEWEST_REFERENCE_FIRST)
+                .forEach(candidates::add);
+        if (candidates.isEmpty()) return new ReviewCopy(false, "NO_UPLOAD", null);
+        String firstRefusal = null;
+        for (String reference : candidates) {
+            var refusal = flaggedUploads.copyRefusal(reference);
+            if (refusal.isEmpty()) return new ReviewCopy(true, null, reference);
+            if (firstRefusal == null) firstRefusal = refusal.get().name();
+        }
+        return new ReviewCopy(false, firstRefusal, null);
+    }
+
+    /**
+     * Analysis references are {@code SA-<yyyyMMdd>-<sequence>} (StatementAnalysisRecorder), the
+     * sequence zero-padded to four digits but not capped, so they are ordered by day and then by
+     * sequence as a number, not as text. Anything else sorts after them, by text.
+     */
+    private static final java.util.regex.Pattern ANALYSIS_REFERENCE = java.util.regex.Pattern.compile("^SA-(\\d{8})-(\\d+)$");
+
+    static final Comparator<String> NEWEST_REFERENCE_FIRST = (a, b) -> {
+        long[] ka = referenceKey(a), kb = referenceKey(b);
+        if (ka == null || kb == null) {
+            if (ka != null) return -1;
+            if (kb != null) return 1;
+            return b.compareTo(a);
+        }
+        int byDay = Long.compare(kb[0], ka[0]);
+        return byDay != 0 ? byDay : Long.compare(kb[1], ka[1]);
+    };
+
+    private static long[] referenceKey(String reference) {
+        java.util.regex.Matcher m = ANALYSIS_REFERENCE.matcher(reference);
+        if (!m.matches()) return null;
+        try {
+            return new long[] {Long.parseLong(m.group(1)), Long.parseLong(m.group(2))};
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private static RegistryEntry entryOf(RegisteredLayout l, Map<UUID, String> profileNames) {

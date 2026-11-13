@@ -676,9 +676,66 @@ class FlaggedLayoutUploadBlankedCopyIT extends AbstractIntegrationTest {
 
         assertThat(copy.get("available").asBoolean()).isTrue();
         assertThat(copy.get("refusal").isNull()).isTrue();
+        assertThat(copy.get("reference").asText()).isEqualTo(upload.reference());
         // Checking reads nothing and records nothing.
         assertThat(actionsOn(upload.job().getId())).isEmpty();
         assertThat(openedNoticesFor(upload.job().getUserId())).isEmpty();
+    }
+
+    /** The review now points at {@code latest}; {@code earlier} stays the source of the reason it raised. */
+    private void reviewMovedTo(Upload latest, Upload earlier) {
+        jdbc.update("UPDATE layout_registry SET review_analysis_reference = ?, "
+                + "review_reason_sources = jsonb_build_object('NEW_LAYOUT', ?::text) WHERE fingerprint = ?",
+                latest.reference(), earlier.reference(), earlier.fingerprint());
+    }
+
+    @Test
+    void theQueueOffersTheEarlierUploadThatRaisedAReason_whenTheLatestCannotBeCopied() throws Exception {
+        Upload earlier = queueUpload();
+        Upload latest = anotherUploadOf(earlier);
+        reviewMovedTo(latest, earlier);
+        // The customer behind the latest upload discarded it.
+        jdbc.update("DELETE FROM import_sessions WHERE id = ?", latest.job().getImportSessionId());
+        User admin = createUser("ADMIN");
+
+        var copy = reviewCopyOf(earlier.fingerprint(), admin);
+
+        assertThat(copy.get("available").asBoolean()).isTrue();
+        assertThat(copy.get("reference").asText()).isEqualTo(earlier.reference());
+        assertThat(actionsOn(earlier.job().getId())).isEmpty();
+        assertThat(actionsOn(latest.job().getId())).isEmpty();
+        // And the copy the queue offers is one the copy itself makes.
+        assertThat(copy(earlier.reference(), REASON, admin).getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
+    void theQueueKeepsTheLatestUploadWhenItCanBeCopied_evenWithAnEarlierSource() throws Exception {
+        Upload earlier = queueUpload();
+        Upload latest = anotherUploadOf(earlier);
+        reviewMovedTo(latest, earlier);
+
+        var copy = reviewCopyOf(earlier.fingerprint(), createUser("ADMIN"));
+
+        assertThat(copy.get("available").asBoolean()).isTrue();
+        assertThat(copy.get("reference").asText()).isEqualTo(latest.reference());
+    }
+
+    @Test
+    void theQueueGivesTheLatestUploadsRefusal_whenNoUploadTheFlagNamesCanBeCopied() throws Exception {
+        Upload earlier = queueUpload();
+        Upload latest = anotherUploadOf(earlier);
+        reviewMovedTo(latest, earlier);
+        // Each refused for its own reason: the latest discarded, the earlier a CSV.
+        jdbc.update("DELETE FROM import_sessions WHERE id = ?", latest.job().getImportSessionId());
+        jdbc.update("UPDATE import_jobs SET source_format = 'CSV' WHERE id = ?", earlier.job().getId());
+        assertThat(copy(earlier.reference(), REASON, createUser("ADMIN")).getBody()).contains("not available for CSV");
+
+        var copy = reviewCopyOf(earlier.fingerprint(), createUser("ADMIN"));
+
+        assertThat(copy.get("available").asBoolean()).isFalse();
+        // The latest upload's refusal, not the earlier one's.
+        assertThat(copy.get("refusal").asText()).isEqualTo("CUSTOMER_STOPPED");
+        assertThat(copy.get("reference").isNull()).isTrue();
     }
 
     @Test

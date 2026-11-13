@@ -16920,6 +16920,9 @@
                     },
                     "refusal": {
                         "type": "string"
+                    },
+                    "reference": {
+                        "type": "string"
                     }
                 }
             },

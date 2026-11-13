@@ -255,6 +255,12 @@ function BankOriginsTable() {
   );
 }
 
+/** The upload the copy button copies: the one the server checked and named. A server from before it
+ *  named one checked only the latest flagged upload, so that is the one. */
+function copyReference(entry: RegistryEntry): string | null {
+  return entry.reviewCopy?.reference ?? entry.reviewAnalysisReference ?? null;
+}
+
 /** What the queue says in place of the copy button. A customer's choice (a cancelled, discarded or
  *  deleted import, a closed account) is not named: this page carries no personal data. */
 function copyRefusalText(refusal: ReviewCopyRefusal | null): string {
@@ -354,17 +360,25 @@ export function ReviewQueuePanel() {
                         <CheckCircle2 size={14} /> Resolve
                       </button>
                     )}
-                    {/* The server checks each flagged layout's latest upload as a copy would,
-                        before anything is read; the button shows only where pressing it can work,
-                        and otherwise the reason does, as a code it turns into words here. Without
-                        that answer (a server that does not send it yet) nothing shows. */}
+                    {/* The server checks the uploads the flag names as a copy would, before
+                        anything is read (the latest flagged upload, else the newest that raised a
+                        reason), and says which one a copy can be made of. The button shows only
+                        where pressing it can work, and otherwise the reason does, as a code it
+                        turns into words here. Without that answer (a server that does not send
+                        it yet) nothing shows. */}
                     {canCopy && entry.reviewCopy && (
-                      entry.reviewCopy.available && entry.reviewAnalysisReference ? (
+                      entry.reviewCopy.available && copyReference(entry) ? (
                         <div className="mt-2">
+                          {copyReference(entry) !== entry.reviewAnalysisReference && (
+                            <p className="mb-1 text-xs text-muted">
+                              The latest upload can&apos;t be copied. This copies{' '}
+                              <span className="font-mono">{copyReference(entry)}</span>, which raised one of these reasons.
+                            </p>
+                          )}
                           <BlankedCopyPanel
                             askReason
                             fetchCopy={(reason) => adminBlankedCopyApi.flaggedLayoutUpload(
-                              entry.reviewAnalysisReference as string, reason ?? '')}
+                              copyReference(entry) as string, reason ?? '')}
                           />
                         </div>
                       ) : (

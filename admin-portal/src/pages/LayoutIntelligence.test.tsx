@@ -303,6 +303,42 @@ describe('LayoutIntelligence — layout review queue and profiles', () => {
     save.mockRestore();
   });
 
+  it('copies the earlier upload the server names when the latest one cannot be copied, and says so', async () => {
+    mockAuth(['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE'], ['ADMIN']);
+    vi.mocked(adminLayoutRegistryApi.reviewQueue).mockResolvedValue([entry({
+      reviewAnalysisReference: 'SA-000009',
+      reviewReasonSources: { NEW_LAYOUT: 'SA-000002' },
+      reviewCopy: { available: true, refusal: null, reference: 'SA-000002' },
+    })]);
+    vi.mocked(adminBlankedCopyApi.flaggedLayoutUpload).mockResolvedValue({
+      fileName: 'blanked-SA-000002.trace', trace: '# finora-pdf-trace v3\n', check: 'MATCHES',
+      notCheckedReason: null, differences: [],
+    });
+    const save = vi.spyOn(download, 'downloadBlob').mockImplementation(() => {});
+    const user = userEvent.setup();
+    renderPage('/layout-intelligence?tab=review');
+
+    expect(await screen.findByText(/The latest upload can.t be copied\. This copies/)).toHaveTextContent('SA-000002');
+    await user.click(screen.getByRole('button', { name: 'Download blanked copy' }));
+    await user.type(screen.getByLabelText('Reason'), 'Rebuild the reader for this layout');
+    await user.click(screen.getByRole('button', { name: 'Make blanked copy' }));
+
+    await waitFor(() => expect(adminBlankedCopyApi.flaggedLayoutUpload)
+      .toHaveBeenCalledWith('SA-000002', 'Rebuild the reader for this layout'));
+    save.mockRestore();
+  });
+
+  it('says nothing about an earlier upload when the copy is of the latest one', async () => {
+    mockAuth(['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE'], ['ADMIN']);
+    vi.mocked(adminLayoutRegistryApi.reviewQueue).mockResolvedValue([entry({
+      reviewCopy: { available: true, refusal: null, reference: 'SA-000001' },
+    })]);
+    renderPage('/layout-intelligence?tab=review');
+
+    expect(await screen.findByRole('button', { name: 'Download blanked copy' })).toBeInTheDocument();
+    expect(screen.queryByText(/The latest upload can.t be copied/)).not.toBeInTheDocument();
+  });
+
   it('offers no blanked copy to a curator without the Admin role', async () => {
     mockAuth(['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE'], ['SUPPORT']);
     vi.mocked(adminLayoutRegistryApi.reviewQueue).mockResolvedValue([entry(COPYABLE)]);

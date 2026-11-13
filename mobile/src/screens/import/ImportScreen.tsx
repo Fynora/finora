@@ -1185,8 +1185,10 @@ export function ImportScreen() {
       hapticSuccess();
       // Whether to show the invite-a-friend card: only for an import that saved transactions, and
       // the server decides the rest (once per person, InvitePromptService). A failed check shows
-      // no card.
-      const inviteRequest = result.imported > 0 && result.statementImportId
+      // no card. Not under warnings (rows left out, a missing period): "Fynora sorted your
+      // statement" would clash with them, so the one showing waits for a clean import, the same
+      // rule as the rating ask below (Sid, 2026-11-13).
+      const inviteRequest = result.imported > 0 && result.statementImportId && !result.warnings?.length
         ? checkInvite(result.statementImportId)
         : Promise.resolve(null);
       inviteCheckFor.current = inviteRequest;

@@ -30,12 +30,14 @@ describe('useDashboardKpis', () => {
     const { result } = renderHook(() =>
       useDashboardKpis({ ...BASE_SUMMARY, reportingMonthIsCurrent: false, reportingMonth: '2026-07' } as any)
     );
-    // monthLabel() formats short month + 2-digit year (see mobile/src/lib/format.ts), not "July 2026".
-    expect(result.current.deltaLabel).toBe('vs the month before Jul 26');
+    // monthYearLabel() (mobile/src/lib/format.ts): "Jul 2026", never "Jul 26", which beside the cards'
+    // day ranges ("1–15 Jul") read as the 26th of July (break-test 2026-11-13).
+    expect(result.current.deltaLabel).toBe('vs the month before Jul 2026');
+    expect(result.current.deltaSpokenLabel).toBe('versus the month before Jul 2026');
   });
 
   // periodTitleLong is for months named inside a phrase ("June 2026 at a Glance"), where
-  // monthLabel's "Jun 26" would read as a date.
+  // a short month alone would read as a date.
   it('titles the period "This Month" only when the reporting month is current', () => {
     const { result } = renderHook(() => useDashboardKpis(BASE_SUMMARY as any));
     expect(result.current.periodTitle).toBe('This Month');
@@ -49,7 +51,7 @@ describe('useDashboardKpis', () => {
         ...BASE_SUMMARY, reportingMonthIsCurrent: false, reportingMonth: '2026-06', priorMonth: '2026-05',
       } as any)
     );
-    expect(result.current.periodTitle).toBe('Jun 26');
+    expect(result.current.periodTitle).toBe('Jun 2026');
     expect(result.current.periodTitleLong).toBe('June 2026');
     expect(result.current.priorPeriodLabel).toBe('May 2026');
   });

@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { KpiItem } from '../components/dashboard/LedgerSnapshotCard';
-import { monthLabel, monthLabelLong } from './format';
+import { monthLabelLong, monthYearLabel } from './format';
 import { longMonthName, statementBehindNote } from './statementBehind';
 import { monthCardLabel } from './periodCardLabel';
 import type { DashboardSummary } from '../types';
@@ -16,20 +16,20 @@ import type { DashboardSummary } from '../types';
 export function useDashboardKpis(summary: DashboardSummary | undefined) {
   return useMemo(() => {
     const periodIsCurrent = summary ? (summary.reportingMonthIsCurrent || !summary.reportingMonth) : true;
-    const periodLabel = periodIsCurrent ? 'this month' : monthLabel(summary!.reportingMonth!);
+    const periodLabel = periodIsCurrent ? 'this month' : monthYearLabel(summary!.reportingMonth!);
     // The heading over the month's figures (Dashboard's snapshot card, Ledger's month card). It
     // used to be a hardcoded "This Month" in both, so figures from an earlier month were titled as
     // the current one while web named the month.
     // Names the days the figures cover ("1–8 Nov") when the server says how far they reach, so a
     // month whose statements stop on the 8th is not read as the whole month.
     const periodTitle = monthCardLabel(summary?.reportingMonth, summary?.figuresThrough,
-      periodIsCurrent ? 'This Month' : monthLabel(summary!.reportingMonth!), !periodIsCurrent, summary?.figuresFrom);
+      periodIsCurrent ? 'This Month' : monthYearLabel(summary!.reportingMonth!), !periodIsCurrent, summary?.figuresFrom);
     const deltaLabel = periodIsCurrent
       ? 'vs last month'
-      : `vs the month before ${monthLabel(summary!.reportingMonth!)}`;
+      : `vs the month before ${monthYearLabel(summary!.reportingMonth!)}`;
     const deltaSpokenLabel = periodIsCurrent
       ? 'versus last month'
-      : `versus the month before ${monthLabel(summary!.reportingMonth!)}`;
+      : `versus the month before ${monthYearLabel(summary!.reportingMonth!)}`;
     // periodTitle's spelled-out form, for headings and prose that name the month inside a phrase
     // ("June 2026 at a Glance", "lower than May 2026"), where "Jun 26" would read as a date --
     // Insights, whose own month picker already spells months out. priorMonth comes from the
@@ -53,7 +53,7 @@ export function useDashboardKpis(summary: DashboardSummary | undefined) {
             // file is from a past month, this figure is only as fresh as that: reuses the exact
             // periodIsCurrent/reportingMonth this hook already computes for the identical reason
             // (Bug 05) rather than inventing a second "how current is this" concept.
-            caption: periodIsCurrent ? 'As of today' : `As of ${monthLabel(summary.reportingMonth!)}`,
+            caption: periodIsCurrent ? 'As of today' : `As of ${monthYearLabel(summary.reportingMonth!)}`,
             isPercent: false,
           },
           { label: 'Income', value: summary.monthlyIncome, delta: summary.incomeDeltaPct, invert: false, caption: null as string | null, isPercent: false },

@@ -2616,6 +2616,24 @@ describe('Import — multi-account summary screen warnings', () => {
     expect(invitePromptApi.check).toHaveBeenCalledWith(['stmt-Savings', 'stmt-Credit Card']);
   });
 
+  it('does not ask about the invite card when any account came back with warnings', async () => {
+    vi.mocked(invitePromptApi.check).mockClear().mockResolvedValueOnce({ show: true, shownRecently: false });
+    vi.mocked(importApi.confirmMulti).mockReset().mockResolvedValue({
+      perAccount: [summaryFor('Savings'), summaryFor('Credit Card', { warnings: ['12 rows were left out.'] })],
+    } as never);
+    const user = userEvent.setup();
+    renderImport();
+
+    stageSections([section('Savings'), section('Credit Card')]);
+    await pickAndUploadPdf(user);
+    await screen.findByText(/this statement covers 2 accounts/i);
+    await user.click(confirmAll());
+
+    expect(await screen.findByText('12 rows were left out.')).toBeInTheDocument();
+    expect(screen.queryByText('Fynora sorted your statement.')).not.toBeInTheDocument();
+    expect(invitePromptApi.check).not.toHaveBeenCalled();
+  });
+
   /** The action only appears for the account whose own period actually duplicated one on file. */
   it('offers "Import this one as a replacement?" only for the account with a duplicateOfStatementId', async () => {
     vi.mocked(importApi.confirmMulti).mockReset().mockResolvedValue({
@@ -4847,6 +4865,26 @@ describe('Import — invite card after an import', () => {
     await user.click(screen.getByRole('button', { name: /import another/i }));
     await screen.findByTestId('statement-dropzone');
     expect(screen.queryByText('Fynora sorted your statement.')).not.toBeInTheDocument();
+  });
+
+  it('does not ask about the card on an import with warnings, so its one showing waits for a clean import', async () => {
+    vi.mocked(importApi.confirm).mockResolvedValue({
+      imported: 1, skipped: 0, duplicatesDetected: 0, transfersIdentified: 0, newMerchantsLearned: 0,
+      accountsCreated: [], productsCreated: {}, categoriesAssigned: {}, warnings: ['12 rows were left out.'],
+      account: null, totalCredits: 0, totalDebits: 0, statementOpeningBalance: null, statementClosingBalance: null,
+      statementPeriodStart: null, statementPeriodEnd: null, importDurationMs: 12, source: 'CSV',
+      statementImportId: 'stmt-first',
+    } as never);
+    const user = userEvent.setup();
+    renderImport();
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+    await screen.findByText(/which account is this statement for/i);
+    await user.click(screen.getByRole('button', { name: /confirm import/i }));
+
+    expect(await screen.findByText('12 rows were left out.')).toBeInTheDocument();
+    expect(screen.queryByText('Fynora sorted your statement.')).not.toBeInTheDocument();
+    expect(invitePromptApi.check).not.toHaveBeenCalled();
   });
 
   it('shows no card when the server says no', async () => {

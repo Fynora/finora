@@ -1918,7 +1918,7 @@ describe('Spending by Category donut drill-through (Track C/C4)', () => {
 
     expect(navigate).toHaveBeenCalledWith('Transactions', {
       filters: expect.objectContaining({
-        categoryName: 'Dining', dateFrom: '2026-08-01', dateTo: '2026-08-31', label: 'Dining · Aug 26',
+        categoryName: 'Dining', dateFrom: '2026-08-01', dateTo: '2026-08-31', label: 'Dining · Aug 2026',
       }),
     });
   });
@@ -1972,7 +1972,7 @@ describe('month card heading', () => {
 
     renderScreen();
 
-    expect(await screen.findByText('Jun 26')).toBeTruthy();
+    expect(await screen.findByText('Jun 2026')).toBeTruthy();
     expect(screen.queryByText('This Month')).toBeNull();
   });
 });
@@ -2022,7 +2022,7 @@ describe('"As of" staleness caption on Total Balance (Track C/C5)', () => {
 
     renderScreen();
 
-    expect(await screen.findByText('As of Jun 26')).toBeTruthy();
+    expect(await screen.findByText('As of Jun 2026')).toBeTruthy();
     expect(screen.queryByText('As of today')).toBeNull();
   });
 });

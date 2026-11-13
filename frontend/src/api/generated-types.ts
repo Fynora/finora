@@ -7356,6 +7356,7 @@ export interface components {
         ReviewCopy: {
             available?: boolean;
             refusal?: string;
+            reference?: string;
         };
         UpdateFeatureFlagRequest: {
             enabled?: boolean;

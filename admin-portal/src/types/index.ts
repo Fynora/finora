@@ -1781,8 +1781,9 @@ export interface RegistryEntry {
    *  null when it has not moved in its current profile (V245). */
   previousProfileVersion: number | null;
   profileVersionChangedAt: string | null;
-  /** Whether a blanked copy of the latest upload can be made, checked as the copy itself would before
-   *  reading anything. Only the review queue fills it; absent or null elsewhere, meaning not checked. */
+  /** Whether a blanked copy can be made of an upload the flag names (the latest flagged upload, else
+   *  the newest that raised a reason), checked as the copy itself would before reading anything. Only
+   *  the review queue fills it; absent or null elsewhere, meaning not checked. */
   reviewCopy?: ReviewCopyAvailability | null;
 }
 
@@ -1794,6 +1795,9 @@ export type ReviewCopyRefusal = 'UNKNOWN_UPLOAD' | 'NOT_FLAGGED' | 'NOT_FLAGGING
 export interface ReviewCopyAvailability {
   available: boolean;
   refusal: ReviewCopyRefusal | null;
+  /** The upload a copy would be made of, when available. Differs from reviewAnalysisReference when
+   *  the latest flagged upload can't be copied but an earlier one that raised a reason can. */
+  reference?: string | null;
 }
 
 /** A family of layouts, members in version order. `automatic` profiles are created and filled by

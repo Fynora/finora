@@ -2,7 +2,7 @@ package com.finora.observability.jobs;
 
 import java.time.Instant;
 
-/** One row of {@code background_job_status} (V317). */
+/** One row of {@code background_job_status} (V318). */
 public record BackgroundJobStatus(
         String jobKey,
         Instant lastStartedAt,

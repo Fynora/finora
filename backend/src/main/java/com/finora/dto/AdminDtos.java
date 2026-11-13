@@ -149,7 +149,7 @@ public class AdminDtos {
             OverdueHoldsDto trustHoldsOverdue,
             OverdueHoldsDto importHoldsOverdue,
             // Appended. Scheduled jobs that crashed, partly failed or missed their schedule
-            // (Background jobs page, V317): a broken sweep fails customers quietly otherwise.
+            // (Background jobs page, V318): a broken sweep fails customers quietly otherwise.
             long backgroundJobsNeedingAttention
     ) {}
 

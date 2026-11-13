@@ -14,7 +14,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 
 /**
- * Reads and writes the two background-job tables (V317).
+ * Reads and writes the two background-job tables (V318).
  *
  * <p>Plain SQL rather than JPA entities: a run's record is an upsert whose counters
  * ({@code consecutive_failures}, {@code broken_since}) must be computed from the row as it stands,

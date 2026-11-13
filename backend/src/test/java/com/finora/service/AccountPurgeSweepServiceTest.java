@@ -84,6 +84,7 @@ import java.util.UUID;
 import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -144,6 +145,8 @@ class AccountPurgeSweepServiceTest {
         phoneVerificationProvider = mock(PhoneVerificationProvider.class);
         when(phoneVerificationProvider.isConfigured()).thenReturn(true);
         userRepository = mock(UserRepository.class);
+        // Every purge here claims its account (V316); the claim's own cases set this to 0.
+        when(userRepository.claimPurge(any(), any(), any())).thenReturn(1);
         gmailConnectionService = mock(GmailConnectionService.class);
         gmailConnectionRepository = mock(GmailConnectionRepository.class);
         gateway = mock(RazorpaySubscriptionGateway.class);
@@ -264,6 +267,86 @@ class AccountPurgeSweepServiceTest {
         StatementImportRepository.StatementMetadata m = mock(StatementImportRepository.StatementMetadata.class);
         when(m.getId()).thenReturn(id);
         return m;
+    }
+
+    // ---------------------------------------------------------------- one purge at a time (V316)
+
+    @Test
+    void sweep_skipsAnAccountAnotherPurgeHolds_withoutCountingOrEmailingIt() {
+        User user = pendingDeletionUser();
+        stubOneCandidate(user);
+        when(userRepository.claimPurge(eq(userId), any(), any())).thenReturn(0);
+
+        AccountPurgeSweepService.Result result = service.sweep();
+
+        assertThat(result.purged()).isZero();
+        assertThat(result.failed()).isZero();
+        verifyNoInteractions(gmailConnectionService);
+        verify(transactionRepository, never()).hardDeleteByUserId(any());
+        verify(userRepository, never()).save(any());
+        verifyNoInteractions(emailProvider);
+    }
+
+    @Test
+    void aPurgeThatFailsGivesItsClaimBack_soTheSweepCanRetryAtOnce() {
+        User user = pendingDeletionUser();
+        stubOneCandidate(user);
+        doThrow(new IllegalStateException("simulated outage")).when(transactionRepository).hardDeleteByUserId(userId);
+
+        AccountPurgeSweepService.Result result = service.sweep();
+
+        assertThat(result.failed()).isEqualTo(1);
+        verify(userRepository).releasePurgeClaim(userId);
+    }
+
+    @Test
+    void aPurgeThatFinishesKeepsItsClaim() {
+        User user = pendingDeletionUser();
+        stubOneCandidate(user);
+
+        service.sweep();
+
+        verify(userRepository, never()).releasePurgeClaim(any());
+    }
+
+    @Test
+    void theClaimTreatsAnOlderClaimAsStale_afterTheWindow() {
+        User user = pendingDeletionUser();
+        stubOneCandidate(user);
+        Instant before = Instant.now();
+
+        service.sweep();
+
+        verify(userRepository).claimPurge(eq(userId), any(),
+                argThat(stale -> !stale.isAfter(Instant.now().minus(AccountPurgeSweepService.PURGE_CLAIM_STALE_AFTER))
+                        && stale.isAfter(before.minus(AccountPurgeSweepService.PURGE_CLAIM_STALE_AFTER).minusSeconds(5))));
+    }
+
+    @Test
+    void anAdminDeleteWhileAnotherPurgeHoldsTheAccount_isRefusedWith409() {
+        User user = pendingDeletionUser();
+        when(userRepository.findById(userId)).thenReturn(java.util.Optional.of(user));
+        when(userRepository.claimPurge(eq(userId), any(), any())).thenReturn(0);
+
+        assertThatThrownBy(() -> service.adminPurge(userId, UUID.randomUUID()))
+                .isInstanceOf(com.finora.exception.ApiException.class)
+                .satisfies(e -> assertThat(((com.finora.exception.ApiException) e).getStatus()).isEqualTo(org.springframework.http.HttpStatus.CONFLICT))
+                .hasMessageContaining("already being deleted");
+        verifyNoInteractions(gmailConnectionService);
+    }
+
+    @Test
+    void anAdminDeleteThatFindsTheAccountAlreadyDeleted_isSatisfied() {
+        User user = pendingDeletionUser();
+        User deleted = pendingDeletionUser();
+        deleted.setStatus(User.STATUS_DELETED);
+        // Pending when the request arrived, deleted by the time it tried to claim.
+        when(userRepository.findById(userId)).thenReturn(java.util.Optional.of(user), java.util.Optional.of(deleted));
+        when(userRepository.claimPurge(eq(userId), any(), any())).thenReturn(0);
+
+        service.adminPurge(userId, UUID.randomUUID());
+
+        verifyNoInteractions(gmailConnectionService);
     }
 
     @Test

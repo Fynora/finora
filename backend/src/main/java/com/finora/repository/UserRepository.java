@@ -16,6 +16,23 @@ import java.util.UUID;
 
 public interface UserRepository extends JpaRepository<User, UUID> {
 
+    /** Claims the account for one purge (V316): 1 when this caller may purge it, 0 when it is
+     *  deleted, gone, or claimed by another purge since {@code staleBefore}. One statement, so two
+     *  callers can never both get 1. */
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.data.jpa.repository.Query(value = "UPDATE users SET purge_claimed_at = :now "
+            + "WHERE id = :userId AND status <> 'DELETED' "
+            + "AND (purge_claimed_at IS NULL OR purge_claimed_at < :staleBefore)", nativeQuery = true)
+    int claimPurge(@org.springframework.data.repository.query.Param("userId") UUID userId,
+                   @org.springframework.data.repository.query.Param("now") java.time.Instant now,
+                   @org.springframework.data.repository.query.Param("staleBefore") java.time.Instant staleBefore);
+
+    /** Gives the claim back after a purge that failed, so the sweep can retry it at once. */
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.data.jpa.repository.Query(value = "UPDATE users SET purge_claimed_at = NULL WHERE id = :userId",
+            nativeQuery = true)
+    int releasePurgeClaim(@org.springframework.data.repository.query.Param("userId") UUID userId);
+
     /** The user row, locked until the transaction ends. AccountSuspensionService takes it before
      *  checking for an open appeal or deletion request, so a double submit cannot raise two. */
     @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)

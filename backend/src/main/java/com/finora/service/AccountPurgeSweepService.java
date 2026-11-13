@@ -108,6 +108,14 @@ import java.util.UUID;
  * on it from scratch, tolerant of every step above having already run once (see "Idempotent by
  * construction" below).
  *
+ * <p>An Admin's delete ({@link #adminPurge}) is a third caller. Idempotent is not the same as one
+ * at a time: two callers at once each ran the whole purge, outbound calls included (six
+ * simultaneous Admin deletes ran it six times). So {@code purgeOne} first claims the account
+ * (V316, {@code users.purge_claimed_at}) with one conditional update; a caller that finds a live
+ * claim stands aside (the sweep skips it, an Admin is told it is already being deleted). A purge
+ * that fails gives its claim back; a claim left by a crashed process goes stale after
+ * {@link #PURGE_CLAIM_STALE_AFTER} and the sweep takes it over.
+ *
  * <h2>Idempotent by construction, not via a job-tracking table</h2>
  * Modeled directly on {@link com.finora.imports.storage.StatementStorageSweepService}: no dedicated
  * job table, just a per-user try/catch and an ordering guarantee. {@link #purgeOne} writes {@code
@@ -296,6 +304,10 @@ public class AccountPurgeSweepService {
     private final com.finora.repository.SenderInflowRuleRepository senderInflowRuleRepository;
     private final AuditService auditService;
     private final PasswordEncoder passwordEncoder;
+    /** How long a purge's claim on an account (V316) holds before another purge may take it over:
+     *  far longer than a purge takes, short enough that the sweep recovers a crashed one. */
+    static final java.time.Duration PURGE_CLAIM_STALE_AFTER = java.time.Duration.ofMinutes(15);
+
     private final TransactionTemplate transactionTemplate;
     private final AuditLogRepository auditLogRepository;
     private final EmailProvider emailProvider;
@@ -516,7 +528,8 @@ public class AccountPurgeSweepService {
                 String confirmationEmail = selfServiceConfirmationEmail(userId);
                 // No distinct second actor -- this is the sweep resuming a self-service request
                 // the account itself already made (see purgeOne's own doc on the actor param).
-                purgeOne(userId, userId);
+                // Another purge holding the account (V316) finishes it and is not counted here.
+                if (!purgeOne(userId, userId)) continue;
                 purged++;
                 if (confirmationEmail != null) {
                     sendDeletedConfirmation(userId, confirmationEmail);
@@ -685,7 +698,14 @@ public class AccountPurgeSweepService {
         }
         auditService.record(userId, DELETION_REQUESTED_BY_ADMIN, "User", userId,
                 Map.of("actorId", actingAdminId.toString()));
-        purgeOne(userId, actingAdminId);
+        if (!purgeOne(userId, actingAdminId)) {
+            // Deleted in the meantime: the request is satisfied. Otherwise another purge holds it.
+            boolean deleted = userRepository.findById(userId).map(User::isDeleted).orElse(true);
+            if (!deleted) {
+                throw new ApiException(HttpStatus.CONFLICT,
+                        "This account is already being deleted. Refresh in a moment to see it finished.");
+            }
+        }
     }
 
     /**
@@ -700,11 +720,42 @@ public class AccountPurgeSweepService {
      * requestDeletion passes the authenticated caller's own id). A future caller that passes a
      * less-trusted id would need to add that check itself, not assume this method has it.
      *
+     * @return true when this call purged the account; false when it was already deleted, gone,
+     *         or another purge held it (V316), which then finishes the job
      * @param actingAdminId FG-025: self-service (requestDeletion) and the scheduled sweep both
      *                       pass {@code userId} itself (no distinct second actor), admin purge
      *                       passes the real admin id -- same convention as AccountService.create.
      */
-    void purgeOne(UUID userId, UUID actingAdminId) {
+    boolean purgeOne(UUID userId, UUID actingAdminId) {
+        Instant now = Instant.now();
+        int[] claimed = {0};
+        transactionTemplate.executeWithoutResult(tx ->
+                claimed[0] = userRepository.claimPurge(userId, now, now.minus(PURGE_CLAIM_STALE_AFTER)));
+        if (claimed[0] != 1) {
+            // Deleted already, gone, or another purge holds it right now: that one finishes the job.
+            return false;
+        }
+        boolean finished = false;
+        try {
+            purgeClaimed(userId, actingAdminId);
+            finished = true;
+            return true;
+        } finally {
+            if (!finished) releaseClaim(userId);
+        }
+    }
+
+    /** After a failure, best-effort: a claim that cannot be released goes stale and is taken over. */
+    private void releaseClaim(UUID userId) {
+        try {
+            transactionTemplate.executeWithoutResult(tx -> userRepository.releasePurgeClaim(userId));
+        } catch (RuntimeException e) {
+            log.warn("Could not release the purge claim on user {}; it goes stale after {}", userId,
+                    PURGE_CLAIM_STALE_AFTER, e);
+        }
+    }
+
+    private void purgeClaimed(UUID userId, UUID actingAdminId) {
         User user = userRepository.findById(userId).orElse(null);
         if (user == null || user.isDeleted()) {
             // Nothing left to do -- an idempotent retry landing here a second time, or a row that

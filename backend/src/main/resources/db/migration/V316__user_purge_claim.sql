@@ -1,0 +1,12 @@
+-- One purge of an account at a time (AccountPurgeSweepService.purgeOne).
+--
+-- An account can be purged from three places: the customer's own delete, an Admin's delete in the
+-- portal, and the nightly sweep that finishes a purge that failed partway. purgeOne runs outside a
+-- transaction on purpose (it calls Gmail, Razorpay and the phone sign-in provider), so two
+-- requests at once each ran the whole purge: six simultaneous Admin deletes ran it six times.
+--
+-- purgeOne now claims the account first with one conditional UPDATE: it sets this column only when
+-- the account is not deleted and has no claim younger than the stale window. A second request
+-- finds the claim and stands aside. A purge that fails releases its claim, so the sweep retries; a
+-- claim left by a crashed process goes stale and the sweep takes it over.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS purge_claimed_at TIMESTAMPTZ;

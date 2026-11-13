@@ -35,6 +35,13 @@ function formatDetailValue(value: unknown): string {
 /** One finding's evidence as key: value pairs -- the numbers behind the trigger, not a sentence
  *  summarising them. `details` is an arbitrary allowlisted map from the backend, so this renders
  *  whatever keys are actually present rather than assuming a fixed shape. */
+/**
+ * Rule outcomes that do not explain a hold: the rule found nothing wrong, or did not apply to this
+ * statement. Folded under a toggle so the decision is not pushed off a phone screen; anything else,
+ * an outcome added later included, stays in view.
+ */
+const QUIET_OUTCOMES = new Set(['VERIFIED', 'NOT_APPLICABLE']);
+
 function FindingCard({ finding }: { finding: HeldStatementFinding }) {
   // A balance mismatch's rows are described in sentences below the pairs, by the same component
   // Import Trace uses, rather than printed here as a line of JSON. Left in the pairs only when
@@ -151,6 +158,7 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
   const [fixReferenceDraft, setFixReferenceDraft] = useState('');
   const [rerunResult, setRerunResult] = useState<HeldStatementRerunResult | null>(null);
   const [stagedRows, setStagedRows] = useState<HeldStatementStagedRows | null>(null);
+  const [showQuietFindings, setShowQuietFindings] = useState(false);
 
   const detail = useQuery({
     queryKey: ['held-statement-detail', heldId],
@@ -277,6 +285,12 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
   }
 
   const { summary, findings, timeline } = detail.data;
+  // The checks that explain the hold first; the ones that passed or did not apply behind a toggle,
+  // only when something does explain it (otherwise there would be nothing left to read).
+  const explainingFindings = findings.filter((f) => !QUIET_OUTCOMES.has(f.outcome));
+  const quietFindingCount = findings.length - explainingFindings.length;
+  const foldQuietFindings = explainingFindings.length > 0 && quietFindingCount > 0;
+  const shownFindings = foldQuietFindings && !showQuietFindings ? explainingFindings : findings;
   const resolved = RESOLVED_STATUSES.has(summary.status);
   // A locked PDF staged without its password being kept: nobody can open the stored file, so
   // the original and re-run are not offered and the rows below are the review.
@@ -380,12 +394,24 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
       <section className="bg-card border border-border rounded-xl2 p-6 space-y-3">
         <h3 className="text-sm font-semibold text-ink">Why this fired</h3>
         <p className="text-sm text-muted">{summary.triggerSummary ?? '—'}</p>
-        {findings.length > 0 && (
+        {shownFindings.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {findings.map((finding) => (
+            {shownFindings.map((finding) => (
               <FindingCard key={`${finding.sectionIndex}-${finding.rule}`} finding={finding} />
             ))}
           </div>
+        )}
+        {foldQuietFindings && (
+          <button
+            type="button"
+            aria-expanded={showQuietFindings}
+            onClick={() => setShowQuietFindings((shown) => !shown)}
+            className="min-h-[44px] rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-ink"
+          >
+            {showQuietFindings
+              ? `Hide the ${quietFindingCount} checks that passed or did not apply`
+              : `Show ${quietFindingCount} more ${quietFindingCount === 1 ? 'check' : 'checks'} (passed or did not apply)`}
+          </button>
         )}
       </section>
 

@@ -673,7 +673,8 @@ public class PdfPreviewGenerator {
         // ctx is never null here -- see the call-graph trace on the FINANCIAL_PRODUCT_CLASSIFICATION
         // guard above, in buildSections.
         if (sectionCount <= 1
-                && ExplicitZeroActivityDetector.anyRowDeclaresZeroTransactionCount(sectionRows)) {
+                && (ExplicitZeroActivityDetector.anyRowDeclaresZeroTransactionCount(sectionRows)
+                    || ExplicitZeroActivityDetector.anyLineDeclaresZeroTransactionCount(section.auxiliaryText()))) {
             ctx.recordExplicitZeroActivityDeclared();
         }
         // Which staged row each located row became, or NOT_SHOWN for one that did not stage (it

@@ -74,6 +74,24 @@ public final class ExplicitZeroActivityDetector {
         return false;
     }
 
+    /**
+     * The same claim, made by a line the table locator kept as auxiliary text rather than as a row:
+     * "Transaction Count" and two counts, both zero. {@code PdfTableLocator} diverts a ledger's
+     * Turnover/Count summary there (see its LEDGER_TURNOVER_LINE), so on a statement whose
+     * summary it recognises, the row-based check above never sees the Count line. Whole-line and
+     * both counts required, for the reason the row check requires both figures.
+     */
+    public static boolean anyLineDeclaresZeroTransactionCount(List<String> lines) {
+        if (lines == null) return false;
+        for (String line : lines) {
+            if (line != null && ZERO_TRANSACTION_COUNT_LINE.matcher(line).matches()) return true;
+        }
+        return false;
+    }
+
+    private static final Pattern ZERO_TRANSACTION_COUNT_LINE =
+            Pattern.compile("(?iU)^\\s*transaction\\s+count\\s+0+\\s+0+\\s*$");
+
     private static boolean isZero(BigDecimal value) {
         return value != null && value.signum() == 0;
     }

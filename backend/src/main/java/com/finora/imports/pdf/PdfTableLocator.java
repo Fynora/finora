@@ -645,7 +645,20 @@ public class PdfTableLocator {
     // table's columns from the first row, the section's columns looked like [Balance] alone, so a
     // plain savings ledger was detected UNKNOWN. Only the whole line, only parentheses, only before
     // any row of the section exists -- a note between two transactions is not a header annotation.
+    //
+    // Or directly under the header, wherever it prints: the newer HSBC savings layout repeats its
+    // header, note and all, at the top of every page. Under a repeated header the section already
+    // has rows, so the note was let through: it took the Balance cell, and the page's
+    // brought-forward balance, the next transaction's narration and its balance all piled into
+    // that one row, whose Balance cell then held three figures and read as none. The line under a
+    // header, within a header wrap's gap, is the header's own, however many rows precede it.
     private static final Pattern HEADER_ANNOTATION = Pattern.compile("^\\s*\\([^()]{1,40}\\)\\s*$");
+
+    // HEADER_CURRENCY_NOTE. The same HSBC layout prints "INR" on its own line under the
+    // "(DR=Debit)" note. A currency code alone is never a transaction; located as a row it reached
+    // the review screen as an unreadable line. Suppressed only directly under the header block
+    // (the header, or a note already suppressed under it), never between transactions.
+    private static final Pattern HEADER_CURRENCY_NOTE = Pattern.compile("(?i)^\\s*\\(?\\s*(?:inr|rs\\.?|\u20B9)\\s*\\)?\\s*$");
 
     // Same role, without brackets: a real SBI credit-card statement prints its header as "Transaction
     // Details" with "for Statement Period: <date> to <date>" on the line under it, and that line
@@ -2196,6 +2209,21 @@ public class PdfTableLocator {
                     pageRepeatSinceLastAnchor = false;
                 }
                 continue;
+            } else if (ledgerSummaryCountLine(rows, rowIndex, rowLine, rightEdgeOfTable(headerAnchors, headerEnds),
+                    marginPanelBand) != null) {
+                // A ledger's Turnover/Count summary -- see LEDGER_TURNOVER_LINE. The two lines are
+                // kept as auxiliary text; what follows them (the bank's notes and address footer)
+                // is a page-boundary block, suppressed the way PAGE_LEGEND_BLOCK_START's blocks
+                // are and for the same reason: ProductDiscovery reads auxiliary text as statement
+                // fields, and the notes name products this account is not. Measured on the real
+                // zero-activity HSBC statement: kept as auxiliary, its notes turned a SAVINGS
+                // section UNKNOWN.
+                pendingAuxiliary.add(rowLine);
+                pendingAuxiliary.add(ledgerSummaryCountLine(rows, rowIndex, rowLine,
+                        rightEdgeOfTable(headerAnchors, headerEnds), marginPanelBand));
+                pageLegendBlockActive = true;
+                if (ctx != null) ctx.record("TABLE_TOTALS_ROW_DIVERTED");
+                continue;
             } else if (PAGE_FOOTER.matcher(rowLine).find() || PAGE_FOOTER_SENTENCE.matcher(rowLine).find()
                     || isPrintTimeFooter(row)
                     || isBarePageNumber(rowLine, row, pageCount) || isOwnPageCounter(rowLine, row, pageCount)
@@ -2207,10 +2235,20 @@ public class PdfTableLocator {
                 // loose page-footer shape would otherwise vanish with zero trace at all.
                 recordIfTransactionShaped(row, "PAGE_FOOTER_OR_CLOSING_MARKER", pendingDroppedCandidates);
                 continue; // a page-number line or closing marker is never a transaction or a continuation of one
-            } else if (currentRows.isEmpty() && pendingLeading == null
-                    && (HEADER_ANNOTATION.matcher(rowLine).matches()
-                        || HEADER_PERIOD_ANNOTATION.matcher(rowLine).matches())) {
+            } else if ((HEADER_ANNOTATION.matcher(rowLine).matches()
+                        || HEADER_PERIOD_ANNOTATION.matcher(rowLine).matches())
+                    && ((currentRows.isEmpty() && pendingLeading == null)
+                        || directlyUnderTheHeader(rowIndex, lastHeaderLineIndex, gapFromPreviousRow))) {
                 // See HEADER_ANNOTATION's own doc comment.
+                if (ctx != null) ctx.record("HEADER_ANNOTATION_SUPPRESSED");
+                recordIfTransactionShaped(row, "HEADER_ANNOTATION_SUPPRESSED", pendingDroppedCandidates);
+                // The header block now ends here, so a currency note under this note is the
+                // header's too -- see HEADER_CURRENCY_NOTE.
+                if (rowIndex == lastHeaderLineIndex + 1) lastHeaderLineIndex = rowIndex;
+                continue;
+            } else if (HEADER_CURRENCY_NOTE.matcher(rowLine).matches()
+                    && directlyUnderTheHeader(rowIndex, lastHeaderLineIndex, gapFromPreviousRow)) {
+                // See HEADER_CURRENCY_NOTE's own doc comment.
                 if (ctx != null) ctx.record("HEADER_ANNOTATION_SUPPRESSED");
                 recordIfTransactionShaped(row, "HEADER_ANNOTATION_SUPPRESSED", pendingDroppedCandidates);
                 continue;
@@ -4523,6 +4561,13 @@ public class PdfTableLocator {
         return SECTION_MARKER.matcher(line).find()
                 || PAGE_FOOTER.matcher(line).find()
                 || STATEMENT_CLOSING_MARKER.matcher(line).find();
+    }
+
+    /** The line right under the header block (the header, or a note already suppressed under
+     *  it), within the gap a header wrap may leave. See HEADER_ANNOTATION. */
+    private static boolean directlyUnderTheHeader(int rowIndex, int lastHeaderLineIndex, Float gapFromPreviousRow) {
+        return lastHeaderLineIndex >= 0 && rowIndex == lastHeaderLineIndex + 1
+                && gapFromPreviousRow != null && gapFromPreviousRow <= HEADER_WRAP_MAX_GAP;
     }
 
     /** True when every non-blank run of {@code row} lies inside the printed width (1pt either side) of
@@ -6905,6 +6950,40 @@ public class PdfTableLocator {
     /** A bare integer in a non-amount column -- a card statement's reward-points total, printed on
      *  the same line as the amount total (real IndusInd statements). */
     private static final Pattern TOTALS_LINE_COUNT = Pattern.compile("^\\s*\\d{1,7}\\s*$");
+
+    /**
+     * A ledger's own summary, printed under its last line: "Transaction Turnover" with the deposit
+     * and withdrawal totals, then "Transaction Count" with how many of each. Both lines are
+     * required, adjacent and whole. Measured on two real HSBC savings statements, one a native
+     * PDF that prints zero activity and one a scan read through OCR: each prints exactly this pair
+     * after its CLOSING BALANCE line, then the bank's notes and address footer. Nothing in the pair
+     * is a date, so the table read the pair and everything after it -- the footer included -- as
+     * leading narration for a transaction that never came, and staged it as one unreadable row.
+     *
+     * <p>The pair is kept as auxiliary text, never dropped: {@link com.finora.imports.ExplicitZeroActivityDetector}
+     * reads the Count line there to recognise a statement that says it had no transactions. What
+     * follows the pair is suppressed as a page-boundary block (see the branch that uses this), and
+     * a transaction-shaped row or a header ends that block, as it ends every other. Recorded as
+     * TABLE_TOTALS_ROW_DIVERTED because that is what the pair is: the table's totals. In the text
+     * layer of the corpus's other statements, "turnover" appears only in GST boilerplate
+     * ("aggregate turnover"), which the whole-line match below cannot reach.
+     */
+    private static final Pattern LEDGER_TURNOVER_LINE = Pattern.compile(
+            "(?iU)^\\s*transaction\\s+turnover\\s+" + PRINTED_AMOUNT + "\\s+" + PRINTED_AMOUNT + "\\s*$");
+    private static final Pattern LEDGER_COUNT_LINE = Pattern.compile(
+            "(?iU)^\\s*transaction\\s+count\\s+\\d{1,7}\\s+\\d{1,7}\\s*$");
+
+    /** The count line, when {@code rowLine} is a ledger's turnover line and the next physical row of
+     *  the same page is its count line -- see {@link #LEDGER_TURNOVER_LINE}; null otherwise. */
+    private String ledgerSummaryCountLine(List<List<PositionedText>> rows, int rowIndex, String rowLine,
+            float rightEdge, MarginPanelBand marginPanelBand) {
+        if (!LEDGER_TURNOVER_LINE.matcher(rowLine).matches() || rowIndex + 1 >= rows.size()) return null;
+        List<PositionedText> row = rows.get(rowIndex);
+        List<PositionedText> next = rows.get(rowIndex + 1);
+        if (row.isEmpty() || next.isEmpty() || next.get(0).pageIndex() != row.get(0).pageIndex()) return null;
+        String countLine = lineOf(tableRunsOf(next, rightEdge, marginPanelBand));
+        return LEDGER_COUNT_LINE.matcher(countLine).matches() ? countLine : null;
+    }
 
     /** How far apart a totals label and its figures may be printed and still be one line. Two runs
      *  of one printed line land on separate physical rows only when their baselines differ by more

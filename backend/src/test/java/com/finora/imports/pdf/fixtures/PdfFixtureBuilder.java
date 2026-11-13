@@ -386,6 +386,144 @@ public final class PdfFixtureBuilder {
     }
 
     /**
+     * {@link #buildAmountOnLastLineSampleEveryAmountRead} in October, with every October date as OCR
+     * reads a scanned HSBC savings statement: the O of OCT comes back as a zero ("010CT2026"), in
+     * capitals on the older layout and in title case ("130ct2026") on the newer one. The first
+     * October date carries two transactions, the second printing no date of its own. Synthetic
+     * values; the balances chain from the brought-forward line to the last row.
+     */
+    public static byte[] buildOctoberDatesOcrReadWithAZeroSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 120f, 330f, 410f, 490f};
+
+        PageBuilder page = new PageBuilder();
+        page.line("Statement of Accounts")
+                .blankLine()
+                .row(col, "Date", "Details", "Withdrawals", "Deposits", "Balance")
+                .row(col, "30SEP2026", "BALANCE BROUGHT FORWARD", "", "", "8,000.00")
+                .row(col, "010CT2026", "NEFTREF100000000001", "", "", "")
+                .row(col, "", "NEFT FROM SAMPLE PAYER PVT", "", "", "")
+                .row(col, "", "LTD", "", "", "")
+                .row(col, "", "SAMPLE BANK NA", "", "", "")
+                .row(col, "", "REF100000000002", "", "50,000.00", "58,000.00")
+                .row(col, "", "UPI100000000003", "", "", "")
+                .row(col, "", "100000000004", "", "", "")
+                .row(col, "", "SAMPLE PAYEE ONE", "1,000.00", "", "57,000.00")
+                .row(col, "050CT2026", "UPI100000000005", "", "", "")
+                .row(col, "", "100000000006", "", "", "")
+                .row(col, "", "SAMPLE PAYEE TWO", "500.00", "", "56,500.00")
+                .row(col, "130ct2026", "ECS-SAMPLE", "", "", "")
+                .row(col, "", "100000000009", "", "", "")
+                .row(col, "", "100000000010", "2,000.00", "", "54,500.00");
+
+        return render(List.of(page));
+    }
+
+    /**
+     * The newer HSBC savings layout, two pages: "Transaction Details" before Deposits then
+     * Withdrawals, title-case dates OCR reads with a zero for the O of "Oct" ("300ct2026"), the
+     * date printed only on a day's first line, and under the Balance header a "(DR=Debit)" note and
+     * an "INR" line. Page 2 repeats the header and its note, opens with a dateless BALANCE BROUGHT
+     * FORWARD line, and carries one more transaction before CLOSING BALANCE. Synthetic values; the
+     * balances chain throughout.
+     */
+    public static byte[] buildRepeatedHeaderNoteSample() throws IOException {
+        return repeatedHeaderNotePages(false, false);
+    }
+
+    /**
+     * {@link #buildRepeatedHeaderNoteSample} as the real statement ends: under CLOSING BALANCE, the
+     * ledger's "Transaction Turnover" line (the deposit and withdrawal totals) and "Transaction
+     * Count" line, and on both pages the bank's address footer at the foot of the page, in two
+     * columns -- an address block on the left, a paragraph of notes on the right. Synthetic values;
+     * the totals and counts agree with the transactions.
+     */
+    public static byte[] buildRepeatedHeaderNoteWithLedgerSummarySample() throws IOException {
+        return repeatedHeaderNotePages(true, true);
+    }
+
+    /** {@link #buildRepeatedHeaderNoteWithLedgerSummarySample} with no "Transaction Count" line under
+     *  the turnover line: half of the pair, which is not enough to read it as the ledger's summary. */
+    public static byte[] buildRepeatedHeaderNoteWithTurnoverLineOnlySample() throws IOException {
+        return repeatedHeaderNotePages(true, false);
+    }
+
+    private static void sampleBankAddressFooter(PageBuilder page) {
+        float[] footerCol = {LEFT_MARGIN, 280f};
+        page.rowAt(70f, footerCol, "SAMPLE BANK LIMITED", "The bank meets its obligation to deliver this statement")
+                .rowAt(62f, footerCol, "Sample Area Office", "where it is sent by electronic means.")
+                .rowAt(54f, footerCol, "1 Sample Road, Sample City 100001", "Please examine your statement promptly.");
+    }
+
+    private static byte[] repeatedHeaderNotePages(boolean ledgerSummary, boolean countLine) throws IOException {
+        float[] col = {LEFT_MARGIN, 120f, 330f, 410f, 490f};
+        float[] noteCol = {LEFT_MARGIN, 120f, 330f, 410f, 482f};
+
+        PageBuilder first = new PageBuilder();
+        first.line("Statement of Accounts")
+                .blankLine()
+                .row(col, "Date", "Transaction Details", "Deposits", "Withdrawals", "Balance")
+                .row(col, "", "", "", "", "(DR=Debit)")
+                // As the real statement prints it: starting left of the Balance label, so it does
+                // not lie within the label's printed width.
+                .row(noteCol, "", "", "", "", "INR")
+                .row(col, "290ct2026", "BALANCE BROUGHT FORWARD", "", "", "8,000.00")
+                .row(col, "300ct2026", "NEFTREF100000000001", "", "", "")
+                .row(col, "", "NEFT FROM SAMPLE PAYER PVT", "", "", "")
+                .row(col, "", "LTD", "", "", "")
+                .row(col, "", "SAMPLE BANK NA", "", "", "")
+                .row(col, "", "REF100000000002", "50,000.00", "", "58,000.00")
+                .row(col, "", "UPI100000000003", "", "", "")
+                .row(col, "", "100000000004", "", "", "")
+                .row(col, "", "SAMPLE PAYEE ONE", "", "1,000.00", "57,000.00")
+                .row(col, "", "BALANCE CARRIED FORWARD", "", "", "57,000.00");
+        if (ledgerSummary) sampleBankAddressFooter(first);
+
+        PageBuilder second = new PageBuilder();
+        second.line("Statement of Accounts")
+                .blankLine()
+                .row(col, "Date", "Transaction Details", "Deposits", "Withdrawals", "Balance")
+                .row(col, "", "", "", "", "(DR=Debit)")
+                .row(col, "", "BALANCE BROUGHT FORWARD", "", "", "57,000.00")
+                .row(col, "", "UPI100000000005", "", "", "")
+                .row(col, "", "100000000006", "", "", "")
+                .row(col, "", "SAMPLE PAYEE TWO", "", "500.00", "56,500.00")
+                .row(col, "", "CLOSING BALANCE", "", "", "56,500.00");
+        if (ledgerSummary) {
+            second.row(col, "", "Transaction Turnover", "50,000.00", "1,500.00", "");
+            if (countLine) second.row(col, "", "Transaction Count", "1", "2", "");
+            sampleBankAddressFooter(second);
+        }
+
+        return render(List.of(first, second));
+    }
+
+    /**
+     * A savings ledger with no transactions, laid out as the real zero-activity HSBC statement in
+     * the corpus prints it -- unlike {@link #buildExplicitZeroTransactionCountSample}, only the
+     * first line carries a date: BALANCE BROUGHT FORWARD, then dateless CLOSING BALANCE,
+     * "Transaction Turnover" (zero on both sides, no balance) and "Transaction Count" (zero on both
+     * sides), then the bank's notes. The notes speak of products this account is not, as the real
+     * ones do. Synthetic values.
+     */
+    public static byte[] buildExplicitZeroTransactionCountAsPrintedSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 120f, 330f, 410f, 490f};
+
+        PageBuilder page = new PageBuilder();
+        page.line("Statement of Accounts")
+                .blankLine()
+                .row(col, "Date", "Transaction Details", "Deposits", "Withdrawals", "Balance")
+                .row(col, "01Jul2026", "BALANCE BROUGHT FORWARD", "", "", "500.00")
+                .row(col, "", "CLOSING BALANCE", "", "", "500.00")
+                .row(col, "", "Transaction Turnover", "0.00", "0.00", "")
+                .row(col, "", "Transaction Count", "0", "0", "")
+                .line("Important Notes")
+                .line("1. Credit card dues and loan instalments are shown on their own statements.")
+                .line("2. Report any error in this statement of account within 30 days.");
+
+        return render(List.of(page));
+    }
+
+    /**
      * {@link #buildAmountOnLastLineSampleEveryAmountRead} with one amount read wrong (500.00 as
      * 600.00): every amount present, but its balance no longer follows from the row above, and no
      * balance can be restored either, since the rows on its two sides disagree about it. A second

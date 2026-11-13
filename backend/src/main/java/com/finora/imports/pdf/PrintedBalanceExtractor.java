@@ -33,6 +33,8 @@ public final class PrintedBalanceExtractor {
             "(?i)^(?:opening\\s+balance|balance\\s+brought\\s+forward|balance\\s+b/f|opening\\s+bal\\.?)$");
     private static final Pattern CLOSING_LABEL = Pattern.compile(
             "(?i)^(?:closing\\s+balance|balance\\s+carried\\s+forward|balance\\s+c/f|closing\\s+bal\\.?)$");
+    /** The closing labels that name the statement's own end, as opposed to a page's carry-over. */
+    private static final Pattern EXPLICIT_CLOSING_LABEL = Pattern.compile("(?i)^(?:closing\\s+balance|closing\\s+bal\\.?)$");
     /** "INR10,728.84", "Rs. 1,15,238.60", "₹ 500.00", "7,077.40 Cr" -- the amount with the currency
      *  marker a summary prints around it. */
     private static final Pattern CURRENCY_DECORATION = Pattern.compile("(?i)^(?:inr|rs\\.?|\\u20b9)\\s*|\\s*(?:cr|dr)\\.?$");
@@ -43,16 +45,27 @@ public final class PrintedBalanceExtractor {
     private static final float MAX_ROW_GAP = 40.0f;
     private static final float SAME_ROW_MAX_X_DISTANCE = 320.0f;
 
+    /**
+     * The opening balance is the first one printed: a later page's "brought forward" is a carry-over.
+     * The closing balance is the statement's own: an explicit "Closing Balance" wherever it prints,
+     * else the LAST "carried forward". A layout that prints "BALANCE CARRIED FORWARD" at the foot of
+     * every page (a newer HSBC savings layout) and "CLOSING BALANCE" at the end used to give the
+     * first page's carry-over as the statement's closing balance -- the first match won.
+     */
     public static PrintedBalances extract(List<PositionedText> runs, DocumentContext ctx) {
         if (runs == null || runs.isEmpty()) return PrintedBalances.NONE;
         List<List<PositionedText>> rows = StatementSummaryExtractor.groupIntoRows(runs);
         BigDecimal opening = null, closing = null;
-        for (int i = 0; i < rows.size() && (opening == null || closing == null); i++) {
+        boolean closingIsExplicit = false;
+        for (int i = 0; i < rows.size(); i++) {
             if (isATransactionTableHeader(rows.get(i))) continue;
             for (PositionedText label : rows.get(i)) {
                 String text = label.text().trim().replaceAll(":$", "").trim();
                 boolean isOpening = opening == null && OPENING_LABEL.matcher(text).matches();
-                boolean isClosing = closing == null && CLOSING_LABEL.matcher(text).matches();
+                boolean explicitClosing = EXPLICIT_CLOSING_LABEL.matcher(text).matches();
+                // A carry-over never replaces an explicit closing balance; any later closing label
+                // replaces a carry-over, and a later explicit one replaces an earlier one.
+                boolean isClosing = CLOSING_LABEL.matcher(text).matches() && (explicitClosing || !closingIsExplicit);
                 if (!isOpening && !isClosing) continue;
                 // Inline first: a figure to the label's right on the same row is the value; only a
                 // label with nothing beside it is a grid heading. Measured on a real (scanned) HSBC
@@ -61,7 +74,12 @@ public final class PrintedBalanceExtractor {
                 BigDecimal value = valueBeside(rows.get(i), label);
                 if (value == null) value = valueBelow(rows, i, label);
                 if (value == null) continue;
-                if (isOpening) opening = value; else closing = value;
+                if (isOpening) {
+                    opening = value;
+                } else {
+                    closing = value;
+                    closingIsExplicit = explicitClosing;
+                }
             }
         }
         if (opening == null && closing == null) return PrintedBalances.NONE;

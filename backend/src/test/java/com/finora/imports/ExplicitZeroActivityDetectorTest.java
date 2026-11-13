@@ -86,4 +86,37 @@ class ExplicitZeroActivityDetectorTest {
     void false_forAnEmptyRowList() {
         assertThat(ExplicitZeroActivityDetector.anyRowDeclaresZeroTransactionCount(List.of())).isFalse();
     }
+    // The same claim, from a ledger summary line the PDF locator kept as auxiliary text.
+
+    @Test
+    void line_true_whenTheCountLineReadsZeroOnBothSides() {
+        assertThat(ExplicitZeroActivityDetector.anyLineDeclaresZeroTransactionCount(
+                List.of("Transaction Turnover 0.00 0.00", "Transaction Count 0 0"))).isTrue();
+    }
+
+    @Test
+    void line_false_whenEitherCountIsNotZero() {
+        assertThat(ExplicitZeroActivityDetector.anyLineDeclaresZeroTransactionCount(
+                List.of("Transaction Count 0 3"))).isFalse();
+        assertThat(ExplicitZeroActivityDetector.anyLineDeclaresZeroTransactionCount(
+                List.of("Transaction Count 2 0"))).isFalse();
+    }
+
+    @Test
+    void line_false_whenOnlyOneSideIsPrinted() {
+        assertThat(ExplicitZeroActivityDetector.anyLineDeclaresZeroTransactionCount(
+                List.of("Transaction Count 0"))).isFalse();
+    }
+
+    @Test
+    void line_false_whenTheLabelIsPartOfALongerLine() {
+        assertThat(ExplicitZeroActivityDetector.anyLineDeclaresZeroTransactionCount(
+                List.of("Transaction Count 0 0 as at 30 June"))).isFalse();
+    }
+
+    @Test
+    void line_false_forNoLines() {
+        assertThat(ExplicitZeroActivityDetector.anyLineDeclaresZeroTransactionCount(null)).isFalse();
+        assertThat(ExplicitZeroActivityDetector.anyLineDeclaresZeroTransactionCount(List.of())).isFalse();
+    }
 }

@@ -90,13 +90,31 @@ class ReferralServiceTest {
 
     @Test
     void myCode_generatesAndPersistsOne_whenTheUserHasNoneYet() {
-        when(referralCodeRepository.findByUserId(referrerId)).thenReturn(Optional.empty());
+        ReferralCode stored = new ReferralCode();
+        stored.setUserId(referrerId);
+        stored.setCode("ABCD1234");
+        when(referralCodeRepository.findByUserId(referrerId)).thenReturn(Optional.empty(), Optional.of(stored));
         when(referralCodeRepository.existsByCode(any())).thenReturn(false);
 
         String code = service.myCode(referrerId);
 
-        assertThat(code).isNotBlank();
-        verify(referralCodeRepository).save(any(ReferralCode.class));
+        assertThat(code).isEqualTo("ABCD1234");
+        verify(referralCodeRepository).insertIfAbsent(eq(referrerId), any());
+        verify(referralCodeRepository, never()).save(any(ReferralCode.class));
+    }
+
+    @Test
+    void myCode_triesAFreshCode_whenTheDrawnOneWasTakenBetweenTheCheckAndTheInsert() {
+        ReferralCode stored = new ReferralCode();
+        stored.setUserId(referrerId);
+        stored.setCode("SECOND01");
+        // The first insert conflicts on the code and stores nothing; the second stores this user's.
+        when(referralCodeRepository.findByUserId(referrerId))
+                .thenReturn(Optional.empty(), Optional.empty(), Optional.of(stored));
+        when(referralCodeRepository.existsByCode(any())).thenReturn(false);
+
+        assertThat(service.myCode(referrerId)).isEqualTo("SECOND01");
+        verify(referralCodeRepository, org.mockito.Mockito.times(2)).insertIfAbsent(eq(referrerId), any());
     }
 
     @Test
@@ -488,7 +506,10 @@ class ReferralServiceTest {
     // code: null back -- a broken share link, not just a missing convenience.
     @Test
     void myReferrals_lazilyCreatesTheCode_whenTheUserHasNoneYet() {
-        when(referralCodeRepository.findByUserId(referrerId)).thenReturn(Optional.empty());
+        ReferralCode stored = new ReferralCode();
+        stored.setUserId(referrerId);
+        stored.setCode("ABCD1234");
+        when(referralCodeRepository.findByUserId(referrerId)).thenReturn(Optional.empty(), Optional.of(stored));
         when(referralCodeRepository.existsByCode(any())).thenReturn(false);
         when(referralRepository.findByReferrerUserIdOrderByCreatedAtDesc(referrerId)).thenReturn(List.of());
         when(walletLedgerRepository.sumAmountByUserId(referrerId)).thenReturn(BigDecimal.ZERO);
@@ -496,7 +517,7 @@ class ReferralServiceTest {
         MyReferralsDto dto = service.myReferrals(referrerId);
 
         assertThat(dto.code()).isNotBlank();
-        verify(referralCodeRepository).save(any(ReferralCode.class));
+        verify(referralCodeRepository).insertIfAbsent(eq(referrerId), any());
     }
 
     @Test

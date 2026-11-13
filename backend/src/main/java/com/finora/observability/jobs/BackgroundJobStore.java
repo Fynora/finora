@@ -111,16 +111,19 @@ public class BackgroundJobStore {
         return jdbc.query("SELECT * FROM background_job_status", (rs, i) -> statusOf(rs));
     }
 
-    /** A job's failure rows since {@code since}, newest first. */
+    /** At most this many failure rows are returned: a job failing every 30 seconds for a month has ~86,000. */
+    static final int FAILURE_ROWS_SHOWN = 50;
+
+    /** A job's newest failure rows since {@code since}, newest first, at most {@link #FAILURE_ROWS_SHOWN}. */
     public List<BackgroundJobFailure> failuresSince(String jobKey, Instant since) {
         return jdbc.query("""
                 SELECT occurred_at, outcome, failed_items, error_summary FROM background_job_failures
-                WHERE job_key = ? AND occurred_at >= ? ORDER BY occurred_at DESC
+                WHERE job_key = ? AND occurred_at >= ? ORDER BY occurred_at DESC LIMIT ?
                 """,
                 (rs, i) -> new BackgroundJobFailure(rs.getObject("occurred_at", OffsetDateTime.class).toInstant(),
                         JobOutcome.valueOf(rs.getString("outcome")), rs.getInt("failed_items"),
                         rs.getString("error_summary")),
-                jobKey, utc(since));
+                jobKey, utc(since), FAILURE_ROWS_SHOWN);
     }
 
     private static BackgroundJobStatus statusOf(ResultSet rs) throws SQLException {

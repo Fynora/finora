@@ -339,6 +339,7 @@ Alert on rates and levels, never on individual retry events:
 | `SENTRY_DSN` | *(unset)* | **Unset disables monitoring entirely.** The safe default. |
 | `SENTRY_ENVIRONMENT` | `development` | Set to `production` on the deployed backend. |
 | `SENTRY_RELEASE` | *(unset)* | Set to the commit SHA so an error points at a deploy, not at "production". |
+| `APP_BACKGROUND_JOB_ALERTS_ENABLED` | `false` | Emails admins with `PLATFORM_DIAGNOSTICS_VIEW` when a scheduled job breaks, stays broken 24 h, or recovers. Runs are recorded and shown on the admin Background jobs page either way. See section 16. |
 
 Fixed in `application.yml` and not intended to be overridden: `sentry.logging.enabled: false` (the
 starter would otherwise ship every ERROR log as an event, and a log line is the likeliest place a
@@ -995,3 +996,32 @@ request, not a user, which a measurement can afford and a limit could not.
 Switch off with `USER_LOAD_DIAGNOSTICS_ENABLED=false`. Remove the two classes, their registration in
 `WebMvcConfig` and this section once a limit has been chosen, or keep only the metrics if they prove
 useful.
+
+## 16. Background jobs health
+
+Every `@Scheduled` method's runs are recorded (`com.finora.observability.jobs`, tables
+`background_job_status` and `background_job_failures`, V318) and shown on the admin portal's
+**Background jobs** page, broken first. Design:
+`docs/superpowers/specs/2026-11-13-background-jobs-health-design.md`.
+
+- **Recording is automatic.** `BackgroundJobObservationHandler` receives Spring's scheduled-task
+  observation for every run. Nothing to add for a new job except its line in
+  `BackgroundJobCatalog` (a plain name and purpose); `BackgroundJobCatalogTest` fails without it.
+- **A job says what a normal return hides.** Call `BackgroundJobReport.itemFailed(e)` in a catch
+  that swallows one item's failure, and `BackgroundJobReport.switchedOff()` before returning early
+  because the job's flag or mode is off. Both do nothing outside a scheduled run, so shared code
+  can call them. An optimistic-lock conflict is never counted (routine; the row waits for the next
+  run). `WorkerExecution` forwards its own failures, except a dead letter at `AlertSeverity.NONE` and
+  `deadLetteredAsExpected` (the customer's situation, such as a push with no registered device).
+- **A job that hands its work to another thread** is annotated `@RecordedWhereItRuns` and wraps the
+  work in `BackgroundJobRunner.recorded(key, work)`, so the page shows the work's outcome, not the
+  millisecond hand-off.
+- **States:** Crashed, Partly failed, Overdue (no run within `2 x interval + 5 min`, or 30 minutes
+  after a missed daily time), Off, OK. Errors are stored as type and code location only, never the
+  message; failure rows are kept 30 days and the page shows the newest 50.
+- **Emails** (`APP_BACKGROUND_JOB_ALERTS_ENABLED`, off by default): one when a job breaks, one if it
+  is still broken 24 hours later, one when it works again; at most one "broken" email per job per
+  24 hours. Each email is claimed with a conditional update, so two instances send it once.
+- **Known limit:** all scheduled jobs share Spring's default single scheduler thread, so one slow
+  run (for example `ImportJobWorker.poll` parsing a batch of statements) delays every other job and
+  can make several show Overdue at once. That is a real delay, not a page fault.

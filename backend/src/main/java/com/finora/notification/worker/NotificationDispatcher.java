@@ -396,8 +396,15 @@ public class NotificationDispatcher {
                 }
                 repository.save(notification);
             });
-            execution.deadLettered(notification.getId(), notification.getAttemptCount(),
-                    new IllegalStateException(reason));
+            // No provider configured is a setup fault and counts against the job; a real provider's
+            // permanent answer (no device, no address, account deleted) is the customer's situation.
+            if ("unconfigured".equals(providerName)) {
+                execution.deadLettered(notification.getId(), notification.getAttemptCount(),
+                        new IllegalStateException(reason));
+            } else {
+                execution.deadLetteredAsExpected(notification.getId(), notification.getAttemptCount(),
+                        new IllegalStateException(reason));
+            }
         } catch (RuntimeException e) {
             log.error("Could not record dead-letter for notification {}", notification.getId(), e);
             execution.failureNotRecorded(notification.getId(), e);

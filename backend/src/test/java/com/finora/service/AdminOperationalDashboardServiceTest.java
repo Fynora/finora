@@ -130,6 +130,27 @@ class AdminOperationalDashboardServiceTest {
     }
 
     @Test
+    void overview_countsBrokenBackgroundJobs() {
+        when(healthRegistryService.platformHealth()).thenReturn(new PlatformHealthDto("UP", List.of()));
+        when(backgroundJobsService.countNeedingAttention()).thenReturn(2L);
+
+        OperationalDashboardDto dto = service.overview();
+
+        assertThat(dto.needsAttention().backgroundJobsNeedingAttention()).isEqualTo(2L);
+    }
+
+    /** The dashboard is how an admin learns anything is wrong; the jobs count failing must not blank it. */
+    @Test
+    void overview_stillLoadsWhenTheBackgroundJobsCountFails() {
+        when(healthRegistryService.platformHealth()).thenReturn(new PlatformHealthDto("UP", List.of()));
+        when(backgroundJobsService.countNeedingAttention()).thenThrow(new IllegalStateException("table unreadable"));
+
+        OperationalDashboardDto dto = service.overview();
+
+        assertThat(dto.needsAttention().backgroundJobsNeedingAttention()).isZero();
+    }
+
+    @Test
     void overview_populatesNeedsAttentionFromRealPlatformWideCounts() {
         when(healthRegistryService.platformHealth()).thenReturn(new PlatformHealthDto("UP", List.of()));
         when(statementImportRepository.countWithSkippedRowsAfter(any())).thenReturn(3L);

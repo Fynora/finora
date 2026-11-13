@@ -60,6 +60,8 @@ function FailureHistory({ jobKey }: { jobKey: string }) {
   if (!data) return <LoadError error={error} what="this job's failures" />;
   if (data.length === 0) return <p className="text-sm text-muted">No failures in the last 30 days.</p>;
   return (
+    <>
+    {data.length >= 50 && <p className="text-xs text-muted mb-2">The 50 most recent are shown.</p>}
     <ul className="space-y-2">
       {data.map((f) => (
         <li key={f.occurredAt + (f.errorSummary ?? '')} className="text-sm border border-border rounded-lg px-3 py-2">
@@ -70,6 +72,7 @@ function FailureHistory({ jobKey }: { jobKey: string }) {
         </li>
       ))}
     </ul>
+    </>
   );
 }
 

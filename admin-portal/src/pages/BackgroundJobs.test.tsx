@@ -136,6 +136,16 @@ describe('BackgroundJobs', () => {
     expect(await screen.findByText('No failures in the last 30 days.')).toBeInTheDocument();
   });
 
+  it('saysWhenOnlyTheNewest50FailuresAreShown', async () => {
+    vi.mocked(adminBackgroundJobsApi.list).mockResolvedValue(JOBS);
+    vi.mocked(adminBackgroundJobsApi.failures).mockResolvedValue(Array.from({ length: 50 }, (_, i) => ({
+      occurredAt: new Date(Date.UTC(2026, 10, 13, 8, 0, i)).toISOString(), outcome: 'CRASHED' as const,
+      failedItems: 0, errorSummary: `E at A:${i}`,
+    })));
+    renderPage('/background-jobs?job=AccountPurgeSweepService.scheduledSweep');
+    expect(await screen.findByText('The 50 most recent are shown.')).toBeInTheDocument();
+  });
+
   it('aFailedLoadShowsLoadError', async () => {
     vi.mocked(adminBackgroundJobsApi.list).mockRejectedValue(new Error('network down'));
     renderPage();

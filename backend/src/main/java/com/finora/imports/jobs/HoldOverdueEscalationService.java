@@ -119,10 +119,7 @@ public class HoldOverdueEscalationService {
                     sent++;
                 }
             } catch (RuntimeException e) {
-                // A conflict is routine, not a failure of this job (Background jobs page).
-                if (!(e instanceof org.springframework.dao.OptimisticLockingFailureException)) {
-                    BackgroundJobReport.itemFailed(e);
-                }
+                BackgroundJobReport.itemFailed(e); // a lock conflict is not counted (BackgroundJobReport)
                 // An optimistic-lock conflict with the worker or an admin acting on the job at this
                 // moment lands here too; the marker was not written, so the next run looks again.
                 log.warn("Hold overdue escalation failed for import job {}; will retry next run",

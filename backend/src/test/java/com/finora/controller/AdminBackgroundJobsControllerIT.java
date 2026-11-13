@@ -141,6 +141,23 @@ class AdminBackgroundJobsControllerIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void failuresAreCappedAtTheNewest50() throws Exception {
+        crashedRow(DAILY_JOB);
+        Instant now = Instant.now();
+        for (int i = 0; i < 60; i++) {
+            failureRow(DAILY_JOB, now.minus(Duration.ofMinutes(i + 1)), "E at A:" + i);
+        }
+
+        ResponseEntity<String> response = get("/api/v1/admin/background-jobs/" + DAILY_JOB + "/failures",
+                admin("ADMIN", User.SCOPE_ADMIN));
+
+        JsonNode rows = mapper.readTree(response.getBody()).get("data");
+        assertThat(rows).hasSize(50);
+        assertThat(rows.get(0).get("errorSummary").asText()).isEqualTo("E at A:0");
+        assertThat(rows.get(49).get("errorSummary").asText()).isEqualTo("E at A:49");
+    }
+
+    @Test
     void unknownKeyIs404() {
         ResponseEntity<String> response = get("/api/v1/admin/background-jobs/NoSuch.job/failures",
                 admin("ADMIN", User.SCOPE_ADMIN));

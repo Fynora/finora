@@ -68,4 +68,10 @@ class WorkerExecutionReportTest {
         assertThat(failedItemsAfter(e -> e.heldWithoutReviewRecord(UUID.randomUUID(), new RuntimeException("x"))))
                 .isEqualTo(1);
     }
+
+    @Test
+    void deadLetteredAsExpected_reportsNothing() {
+        assertThat(failedItemsAfter(e -> e.deadLetteredAsExpected(UUID.randomUUID(), 1,
+                new IllegalStateException("no device to send to")))).isZero();
+    }
 }

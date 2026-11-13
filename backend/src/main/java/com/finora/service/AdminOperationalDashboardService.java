@@ -88,6 +88,20 @@ public class AdminOperationalDashboardService {
         this.backgroundJobsService = backgroundJobsService;
     }
 
+    /**
+     * Never lets the background-jobs count take the whole dashboard down: this screen is how an
+     * admin learns anything is wrong. A failure here reads as none and is logged; the Background
+     * jobs page itself shows the error.
+     */
+    private long backgroundJobsNeedingAttention() {
+        try {
+            return backgroundJobsService.countNeedingAttention();
+        } catch (RuntimeException e) {
+            log.warn("Could not count background jobs needing attention for the dashboard", e);
+            return 0;
+        }
+    }
+
     /** The zone every platform-wide "today"/"this month" tile is bucketed by. Configurable rather
      *  than hardcoded so a deployment serving a different market can say so, and defaulted to the
      *  one this platform actually targets rather than to UTC or to the container's arbitrary
@@ -163,7 +177,7 @@ public class AdminOperationalDashboardService {
                 importJobRepository.countByStatus(ImportJob.Status.HELD_FOR_REVIEW),
                 overdue(ImportJob.Status.HELD_FOR_TRUST_REVIEW),
                 overdue(ImportJob.Status.HELD_FOR_REVIEW),
-                backgroundJobsService.countNeedingAttention());
+                backgroundJobsNeedingAttention());
 
         // Insights row -- inverse of activeUsersToday's own source, walked back INACTIVITY_WINDOW_DAYS.
         // See UserRepository.countCustomersWithNoActivitySince for who is counted and why the account

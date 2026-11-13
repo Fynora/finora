@@ -165,6 +165,20 @@ public final class WorkerExecution implements AutoCloseable {
     }
 
     /**
+     * Given up on one item because it can never succeed, for a reason that is the customer's
+     * situation rather than a fault (a push with no registered device, an email with no address on
+     * file, a deleted account). Counted and reported exactly as {@link #deadLettered(UUID, int,
+     * Throwable)} is, but it is not a failed item of the background job's run: the job did what it
+     * should, and counting it would leave the job "partly failed" on the Background jobs page
+     * almost all the time.
+     */
+    public void deadLetteredAsExpected(UUID jobId, int attempts, Throwable cause) {
+        meters.deadLetters(worker, jobKind).increment();
+        meters.failures(worker, jobKind).increment();
+        capture(jobId, "apply", "dead-letter", cause, SentryLevel.ERROR);
+    }
+
+    /**
      * Recording a failure itself failed, so the row is stranded mid-flight until recovery sweeps
      * it. A double fault, and invisible without this.
      */

@@ -1,5 +1,7 @@
 package com.finora.notification.worker;
 
+import static org.mockito.Mockito.never;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
@@ -167,6 +169,20 @@ class NotificationDispatcherTest {
 
         // An unconfigured provider will never succeed; retrying five times just wastes the queue.
         assertThat(pending.getStatus()).isEqualTo(NotificationStatus.DEAD_LETTER);
+    }
+
+    @Test
+    void noProviderConfigured_stillCountsAsAJobFailure() {
+        WorkerExecution execution = mock(WorkerExecution.class);
+        when(observability.begin(any(), any())).thenReturn(execution);
+        when(observability.beginScheduled(any(), any())).thenReturn(execution);
+        when(emailProvider.isConfigured()).thenReturn(false);
+        when(repository.claimDue(any(), anyInt())).thenReturn(List.of(pending));
+
+        dispatcher.drainOnce();
+
+        verify(execution).deadLettered(eq(pending.getId()), anyInt(), any());
+        verify(execution, never()).deadLetteredAsExpected(any(), anyInt(), any());
     }
 
     @Test
@@ -344,6 +360,26 @@ class NotificationDispatcherTest {
      * dead-lettering. A {@link ChannelSendResult#permanent()} result must dead-letter on the FIRST
      * drain pass instead.
      */
+    /**
+     * A permanent failure is the customer's situation (no device, no email address, account
+     * deleted), not the dispatcher failing: it must not count against the job on the Background
+     * jobs page, or the sender would read "partly failed" almost all the time.
+     */
+    @Test
+    void aPermanentFailureIsDeadLetteredAsExpected_notAsAJobFailure() {
+        WorkerExecution execution = mock(WorkerExecution.class);
+        when(observability.begin(any(), any())).thenReturn(execution);
+        when(observability.beginScheduled(any(), any())).thenReturn(execution);
+        when(repository.claimDue(any(), anyInt())).thenReturn(List.of(pending));
+        when(emailProvider.send(any()))
+                .thenReturn(ChannelSendResult.permanentFailure("resend", "no email address on file"));
+
+        dispatcher.drainOnce();
+
+        verify(execution).deadLetteredAsExpected(eq(pending.getId()), anyInt(), any());
+        verify(execution, never()).deadLettered(any(), anyInt(), any());
+    }
+
     @Test
     void drainOnce_deadLettersImmediatelyWhenTheProviderReportsAPermanentFailure() {
         when(repository.claimDue(any(), anyInt())).thenReturn(List.of(pending));

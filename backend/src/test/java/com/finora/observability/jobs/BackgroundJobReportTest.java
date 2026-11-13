@@ -80,4 +80,19 @@ class BackgroundJobReportTest {
         BackgroundJobReport.itemFailed(null);
         assertThat(BackgroundJobReport.end().failedItems()).isEqualTo(1);
     }
+
+    @Test
+    void anOptimisticLockConflictIsRoutine_notAFailedItem() {
+        BackgroundJobReport.begin();
+        BackgroundJobReport.itemFailed(new org.springframework.dao.OptimisticLockingFailureException("row changed"));
+        BackgroundJobReport.itemFailed(new org.springframework.orm.ObjectOptimisticLockingFailureException(Object.class, 1));
+        assertThat(BackgroundJobReport.end().failedItems()).isZero();
+    }
+
+    @Test
+    void anyOtherErrorStillCounts() {
+        BackgroundJobReport.begin();
+        BackgroundJobReport.itemFailed(new org.springframework.dao.DataIntegrityViolationException("x"));
+        assertThat(BackgroundJobReport.end().failedItems()).isEqualTo(1);
+    }
 }

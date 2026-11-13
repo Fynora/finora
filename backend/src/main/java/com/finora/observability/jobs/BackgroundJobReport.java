@@ -1,5 +1,7 @@
 package com.finora.observability.jobs;
 
+import org.springframework.dao.OptimisticLockingFailureException;
+
 /**
  * What a background job says about its own run, beyond "it returned" or "it threw".
  *
@@ -30,10 +32,15 @@ public final class BackgroundJobReport {
 
     private BackgroundJobReport() {}
 
-    /** One item of this run failed and the job carried on. */
+    /**
+     * One item of this run failed and the job carried on. An optimistic-lock conflict is not
+     * counted: it means someone else changed the row at that moment (a webhook, an admin, the
+     * worker), and every sweep here leaves the row for its next run, so it is routine.
+     */
     public static void itemFailed(Throwable cause) {
         Accumulator run = CURRENT.get();
         if (run == null) return;
+        if (cause instanceof OptimisticLockingFailureException) return;
         run.failedItems++;
         if (run.firstError == null) run.firstError = cause;
     }

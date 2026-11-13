@@ -3763,7 +3763,7 @@ describe('ImportScreen — store-rating ask after a successful import', () => {
       expect(askForReview).not.toHaveBeenCalled();
     });
 
-    it('shows the card even when the summary has warnings, below them, and still no rating sheet', async () => {
+    it('does not ask about the card when the summary has warnings, so its one showing waits for a clean import', async () => {
       invite.check.mockResolvedValue({ show: true, shownRecently: false });
       api.import.confirm.mockResolvedValue({
         ...summary(3, 'fresh'), statementImportId: 'stmt-first',
@@ -3771,9 +3771,10 @@ describe('ImportScreen — store-rating ask after a successful import', () => {
       } as never);
       await importFreshStatement();
 
-      expect(await screen.findByText('Fynora sorted your statement.')).toBeOnTheScreen();
-      expect(screen.getByText(/Missing statement detected/)).toBeOnTheScreen();
+      expect(await screen.findByText(/Missing statement detected/)).toBeOnTheScreen();
       await waitPastDelay();
+      expect(invite.check).not.toHaveBeenCalled();
+      expect(screen.queryByText('Fynora sorted your statement.')).not.toBeOnTheScreen();
       expect(askForReview).not.toHaveBeenCalled();
     });
 

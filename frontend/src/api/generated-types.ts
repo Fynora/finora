@@ -7788,6 +7788,8 @@ export interface components {
             category: string;
             /** @enum {string} */
             kind: "PERSON_PAID" | "SHOP" | "GUESS" | "MONEY_IN";
+            /** @enum {string} */
+            source?: "QUICK_SORT" | "DASHBOARD";
         };
         AnswerResult: {
             /** Format: int32 */
@@ -21941,6 +21943,7 @@ export interface operations {
             query?: {
                 skip?: number;
                 preview?: boolean;
+                source?: "QUICK_SORT" | "DASHBOARD";
             };
             header?: never;
             path?: never;

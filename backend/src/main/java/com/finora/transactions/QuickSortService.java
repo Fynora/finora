@@ -111,7 +111,7 @@ public class QuickSortService {
         List<UUID> filed = new ArrayList<>(otherWaiting);
         filed.add(anchor.getId());
         transactionRepository.stampQuickSorted(userId, filed, java.time.Instant.now());
-        metrics.answered(req.kind().name());
+        metrics.answered(req.kind().name(), req.sourceOrDefault());
         return new QuickSortDto.AnswerResult(filed.size());
     }
 

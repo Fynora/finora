@@ -23,6 +23,13 @@ public final class QuickSortDto {
     }
 
     /**
+     * Where a question was asked: the full Quick sort (Ledger on web, Category review and Import on
+     * mobile), or the few questions on the Dashboard. Only a tag on the usage counters, so the
+     * Dashboard's use can be told apart from the full run's; nothing behaves differently by it.
+     */
+    public enum Source { QUICK_SORT, DASHBOARD }
+
+    /**
      * One batch of questions.
      *
      * @param waitingTotal all money still waiting for review, including this batch
@@ -52,10 +59,22 @@ public final class QuickSortDto {
     /** @param transactionIds every waiting row in the groups after this batch */
     public record Rest(int questions, int payments, BigDecimal amount, List<UUID> transactionIds) {}
 
-    /** An answer to one question: file the payee (or the one row) from its anchor. */
+    /**
+     * An answer to one question: file the payee (or the one row) from its anchor.
+     *
+     * @param source where it was asked; absent from an app build older than the Dashboard questions,
+     *               which counts as {@link Source#QUICK_SORT}
+     */
     public record AnswerRequest(@jakarta.validation.constraints.NotNull UUID anchorTransactionId,
                                 @jakarta.validation.constraints.NotBlank String category,
-                                @jakarta.validation.constraints.NotNull Kind kind) {}
+                                @jakarta.validation.constraints.NotNull Kind kind,
+                                Source source) {
+
+        /** {@link #source()}, with an absent one counted as the full Quick sort. */
+        public Source sourceOrDefault() {
+            return source == null ? Source.QUICK_SORT : source;
+        }
+    }
 
     /** @param filed how many of the payee's rows the answer filed: the anchor, and for a key that names
      *               one payee every other row of it the user had not chosen by hand (waiting or not,

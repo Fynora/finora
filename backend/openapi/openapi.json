@@ -9665,6 +9665,19 @@
                             "type": "boolean",
                             "default": false
                         }
+                    },
+                    {
+                        "name": "source",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "default": "QUICK_SORT",
+                            "enum": [
+                                "QUICK_SORT",
+                                "DASHBOARD"
+                            ]
+                        }
                     }
                 ],
                 "responses": {
@@ -18072,6 +18085,13 @@
                             "SHOP",
                             "GUESS",
                             "MONEY_IN"
+                        ]
+                    },
+                    "source": {
+                        "type": "string",
+                        "enum": [
+                            "QUICK_SORT",
+                            "DASHBOARD"
                         ]
                     }
                 },

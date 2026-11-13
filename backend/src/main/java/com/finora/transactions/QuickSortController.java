@@ -33,9 +33,10 @@ public class QuickSortController {
      */
     @GetMapping
     public ApiResponse<QuickSortDto.Batch> batch(@RequestParam(defaultValue = "0") int skip,
-                                                 @RequestParam(defaultValue = "false") boolean preview) {
+                                                 @RequestParam(defaultValue = "false") boolean preview,
+                                                 @RequestParam(defaultValue = "QUICK_SORT") QuickSortDto.Source source) {
         QuickSortDto.Batch batch = quickSortService.batch(currentUser.id(), Math.max(skip, 0));
-        if (!preview) metrics.batchShown(batch.questions().size());
+        if (!preview) metrics.batchShown(batch.questions().size(), source);
         return ApiResponse.ok(batch);
     }
 

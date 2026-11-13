@@ -27,20 +27,27 @@ public interface InvitePromptRepository extends JpaRepository<InvitePrompt, UUID
     int recordShown(@Param("userId") UUID userId, @Param("today") LocalDate today);
 
     /**
-     * Records a showing on {@code today} only when none was ever recorded. Share and Not now are
-     * tapped on a card the person saw, but the app reports SHOWN separately, fire and forget; when
-     * that report is lost (a dropped connection), this keeps the record true, so a Not now still
-     * keeps the card away and the two-showing cap still holds. Returns 1 when it recorded the
-     * showing, 0 when one was already recorded (a SHOWN arriving later the same day is then a
-     * same-day repeat, so nothing is counted twice).
+     * Records a showing on {@code today} when the card on screen cannot be one already recorded:
+     * none was ever recorded, or the last one is on or before {@code oldestRecordedShowing} -- so long
+     * ago that the card could only be on screen because the quiet period after it ended and it was
+     * shown again. Share and Not now are tapped on a card the person saw, but the app reports SHOWN
+     * separately, fire and forget; when that report is lost (a dropped connection), this keeps the
+     * record true, for the second showing as much as the first, so a Not now still keeps the card
+     * away and the two-showing cap still holds. A card shown yesterday and answered today is the
+     * same showing, so nothing changes. Returns 1 when it recorded the showing, 0 when the showing
+     * was already recorded (a SHOWN arriving later the same day is then a same-day repeat, so
+     * nothing is counted twice).
      */
     @Transactional
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(value = "INSERT INTO invite_prompts (user_id, times_shown, last_shown_on) VALUES (:userId, 1, :today) "
-            + "ON CONFLICT (user_id) DO UPDATE SET times_shown = 1, last_shown_on = :today "
-            + "WHERE invite_prompts.times_shown = 0",
+            + "ON CONFLICT (user_id) DO UPDATE SET times_shown = LEAST(invite_prompts.times_shown + 1, 2), "
+            + "last_shown_on = :today "
+            + "WHERE invite_prompts.times_shown = 0 OR invite_prompts.last_shown_on IS NULL "
+            + "OR invite_prompts.last_shown_on <= :oldestRecordedShowing",
             nativeQuery = true)
-    int recordShownIfNever(@Param("userId") UUID userId, @Param("today") LocalDate today);
+    int recordShownIfUnrecorded(@Param("userId") UUID userId, @Param("today") LocalDate today,
+                                @Param("oldestRecordedShowing") LocalDate oldestRecordedShowing);
 
     /** The first day Share was tapped; a later tap keeps it. */
     @Transactional

@@ -109,8 +109,13 @@ public class InvitePromptService {
     }
 
     /** Share or Not now on a card whose SHOWN report never arrived: it was seen, so it counts as a
-     *  showing (see InvitePromptRepository.recordShownIfNever). */
+     *  showing -- the second showing as much as the first. A recorded showing at least
+     *  {@link #QUIET_DAYS_AFTER_NOT_NOW} days old cannot be the card on screen: the check shows the
+     *  card again only after that long (see InvitePromptRepository.recordShownIfUnrecorded). */
     private void recordImpliedShowing(UUID userId, LocalDate today, ClientPlatform platform) {
-        if (repository.recordShownIfNever(userId, today) == 1) metrics.event(InvitePromptEvent.SHOWN, platform);
+        LocalDate oldestRecordedShowing = today.minusDays(QUIET_DAYS_AFTER_NOT_NOW);
+        if (repository.recordShownIfUnrecorded(userId, today, oldestRecordedShowing) == 1) {
+            metrics.event(InvitePromptEvent.SHOWN, platform);
+        }
     }
 }

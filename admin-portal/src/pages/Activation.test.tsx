@@ -542,6 +542,11 @@ describe('Activation', () => {
     expect(within(table).getByText('8')).toBeInTheDocument();
     expect(within(table).getByText('2 (25%)')).toBeInTheDocument();
     expect(within(table).getByText('5 (63%)')).toBeInTheDocument();
+    // All-time totals under a date-range picker: said in the heading and the note, so nobody reads
+    // them as the picked range's (break-test 2026-11-13).
+    expect(screen.getByRole('heading', { name: 'Invite card after an import, all time' })).toBeInTheDocument();
+    expect(screen.getByText(/All time: the dates picked above do not change these\./)).toBeInTheDocument();
+    expect(screen.getByText(/is counted under both/)).toBeInTheDocument();
   });
 
   it('says when nobody has seen the invite card, and shows nothing from an older backend', async () => {
@@ -553,7 +558,7 @@ describe('Activation', () => {
     vi.mocked(adminActivationApi.report).mockResolvedValue(report());
     renderPage();
     await screen.findByRole('table', { name: 'Month-start nudges by month' });
-    expect(screen.queryByText('Invite card after an import')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Invite card after an import, all time' })).not.toBeInTheDocument();
   });
 
   it('says when no month-start nudge has been sent', async () => {

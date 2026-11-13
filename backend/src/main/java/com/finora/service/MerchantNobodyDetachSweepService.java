@@ -1,5 +1,6 @@
 package com.finora.service;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import com.finora.util.MerchantNames;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -84,6 +85,10 @@ public class MerchantNobodyDetachSweepService {
     @Scheduled(fixedDelayString = "${app.merchant-nobody-detach.sweep.interval-ms:300000}",
             initialDelayString = "${app.merchant-nobody-detach.sweep.initial-delay-ms:240000}")
     public void scheduledSweep() {
+        if (!"apply".equals(mode) && !"dry-run".equals(mode)) {
+            BackgroundJobReport.switchedOff();
+            return;
+        }
         if ("apply".equals(mode)) {
             Result r = apply();
             if (r.decided() > 0 || r.failed() > 0 || r.busy() > 0) {
@@ -186,6 +191,7 @@ public class MerchantNobodyDetachSweepService {
         try {
             nobody = rows.stream().filter(r -> MerchantNames.narrationNamesNobody(r.description())).map(Row::id).toList();
         } catch (RuntimeException e) {
+            BackgroundJobReport.itemFailed(e);
             log.error("Merchant nobody detach failed for merchant {}: {}", merchantId, e.toString());
             tally.failed++;
             return false;

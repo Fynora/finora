@@ -1,5 +1,6 @@
 package com.finora.imports;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import com.finora.entity.ImportJob;
 import com.finora.entity.ImportSession;
 import com.finora.service.StatementStatusNotifier;
@@ -86,11 +87,15 @@ public class UnconfirmedImportReminder {
     @Scheduled(fixedDelayString = "${app.import.confirm-reminder.interval-ms:900000}",
             initialDelayString = "${app.import.confirm-reminder.initial-delay-ms:120000}")
     public void scheduledRun() {
-        if (!enabled) return;
+        if (!enabled) {
+            BackgroundJobReport.switchedOff();
+            return;
+        }
         try {
             int users = remindDue(Instant.now());
             if (users > 0) log.info("Sent confirm reminders to {} user(s).", users);
         } catch (RuntimeException e) {
+            BackgroundJobReport.itemFailed(e);
             log.warn("Confirm reminder run failed; the next run will retry.", e);
         }
     }
@@ -138,6 +143,7 @@ public class UnconfirmedImportReminder {
                 Boolean sent = transaction.execute(status -> remindOne(user.getKey(), user.getValue(), now));
                 if (Boolean.TRUE.equals(sent)) reminded++;
             } catch (RuntimeException e) {
+                BackgroundJobReport.itemFailed(e);
                 // One user's failure must not cost everyone after them their reminder. Their sessions
                 // were not stamped (the transaction rolled back), so the next run tries again.
                 log.warn("Could not send a confirm reminder to user {}; retrying next run.", user.getKey(), e);

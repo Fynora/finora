@@ -1,5 +1,8 @@
 package com.finora.imports.refresh;
 
+import com.finora.observability.jobs.RecordedWhereItRuns;
+import com.finora.observability.jobs.BackgroundJobRunner;
+import com.finora.observability.jobs.BackgroundJobReport;
 import com.finora.config.BuildVersionResolver;
 import com.finora.dto.ImportDto.StagingResponse;
 import com.finora.entity.StatementImport;
@@ -94,19 +97,36 @@ public class StatementRefreshDryRunService {
 
     public record BatchResult(String parserVersion, int checked) {}
 
+    /** Records the handed-off work as this job's run (Background jobs page); absent in unit tests. */
+    private BackgroundJobRunner backgroundJobRunner;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setBackgroundJobRunner(BackgroundJobRunner backgroundJobRunner) {
+        this.backgroundJobRunner = backgroundJobRunner;
+    }
+
+    private Runnable recorded(Runnable work) {
+        return backgroundJobRunner == null ? work : backgroundJobRunner.recorded("StatementRefreshDryRunService.scheduledRun", work);
+    }
+
+
     @Scheduled(fixedDelayString = "${app.statement-refresh.dry-run.interval-ms:60000}",
             initialDelayString = "${app.statement-refresh.dry-run.initial-delay-ms:120000}")
+    @RecordedWhereItRuns
     public void scheduledRun() {
-        if (!enabled) return;
+        if (!enabled) {
+            recorded(BackgroundJobReport::switchedOff).run();
+            return;
+        }
         // Handed off, never run here: see BackgroundWorkConfig.statementRefreshDryRunExecutor. A tick
         // arriving while a batch is still running is dropped by that executor.
-        executor.execute(() -> {
+        executor.execute(recorded(() -> {
             BatchResult result = runBatch(batchSize);
             if (result.checked() > 0) {
                 log.info("Statement refresh dry run: checked {} statement(s) under build {}.",
                         result.checked(), result.parserVersion());
             }
-        });
+        }));
     }
 
     /** Checks up to {@code limit} statements not yet checked under the running build. */
@@ -128,6 +148,7 @@ public class StatementRefreshDryRunService {
             } catch (DataIntegrityViolationException e) {
                 // Another worker wrote this statement's preview first: the unique index is the guard.
             } catch (RuntimeException e) {
+                BackgroundJobReport.itemFailed(e);
                 // Never let one statement stop the batch. The class name only: a message from a
                 // parser can quote the statement's own text.
                 log.warn("Statement refresh dry run could not check statement {}: {}", statementId,

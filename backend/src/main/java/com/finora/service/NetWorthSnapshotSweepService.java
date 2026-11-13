@@ -1,5 +1,6 @@
 package com.finora.service;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import com.finora.entity.User;
 import com.finora.repository.AccountRepository;
 import com.finora.repository.UserRepository;
@@ -61,7 +62,10 @@ public class NetWorthSnapshotSweepService {
     @Scheduled(fixedDelayString = "${app.net-worth-snapshot.sweep.interval-ms:14400000}",
             initialDelayString = "${app.net-worth-snapshot.sweep.initial-delay-ms:300000}")
     public void scheduledSweep() {
-        if (!sweepEnabled) return;
+        if (!sweepEnabled) {
+            BackgroundJobReport.switchedOff();
+            return;
+        }
         Result result = sweep();
         // Unconditional: saved/skipped are the routine, all-succeeding-day numbers an operator
         // needs to confirm the sweep is actually running and how many users it covers -- gating
@@ -98,6 +102,7 @@ public class NetWorthSnapshotSweepService {
                 netWorthService.snapshotForTodayOnly(user.getId(), user.getTimezone());
                 saved++;
             } catch (Exception e) {
+                BackgroundJobReport.itemFailed(e);
                 failed++;
                 log.error("Net worth snapshot failed for user {}: {}", user.getId(), e.getMessage(), e);
             }

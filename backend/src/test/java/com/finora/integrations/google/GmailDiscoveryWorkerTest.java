@@ -412,6 +412,23 @@ class GmailDiscoveryWorkerTest {
      * {@code application-test.yml} can turn it off without disabling the tests.
      */
     @Test
+    void theScheduledTriggerReportsSwitchedOffWhenDisabled() {
+        GmailDiscoveryWorker disabled = new GmailDiscoveryWorker(discovery, extraction, connections,
+                observabilityStub(), entitlementService, userRepository, false, 25, 500, 50, 3_600_000L);
+        com.finora.observability.jobs.BackgroundJobStore store =
+                org.mockito.Mockito.mock(com.finora.observability.jobs.BackgroundJobStore.class);
+
+        new com.finora.observability.jobs.BackgroundJobRunner(store)
+                .recorded("GmailDiscoveryWorker.scheduledDiscovery", disabled::scheduledDiscovery).run();
+
+        verify(store).finished(org.mockito.ArgumentMatchers.eq("GmailDiscoveryWorker.scheduledDiscovery"),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.eq(com.finora.observability.jobs.JobOutcome.OFF),
+                org.mockito.ArgumentMatchers.eq(0), org.mockito.ArgumentMatchers.eq(0),
+                org.mockito.ArgumentMatchers.isNull());
+    }
+
+    @Test
     void theScheduledTriggerDoesNothingWhenDisabled() {
         GmailDiscoveryWorker disabled = new GmailDiscoveryWorker(discovery, extraction, connections,
                 observabilityStub(), entitlementService, userRepository, false, 25, 500, 50, 3_600_000L);

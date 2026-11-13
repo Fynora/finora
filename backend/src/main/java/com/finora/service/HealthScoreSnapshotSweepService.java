@@ -1,5 +1,6 @@
 package com.finora.service;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import com.finora.dto.DashboardSummaryDto;
 import com.finora.entity.User;
 import com.finora.repository.AccountRepository;
@@ -48,7 +49,10 @@ public class HealthScoreSnapshotSweepService {
     @Scheduled(fixedDelayString = "${app.health-score-snapshot.sweep.interval-ms:14400000}",
             initialDelayString = "${app.health-score-snapshot.sweep.initial-delay-ms:300000}")
     public void scheduledSweep() {
-        if (!sweepEnabled) return;
+        if (!sweepEnabled) {
+            BackgroundJobReport.switchedOff();
+            return;
+        }
         Result result = sweep();
         log.info("Health score snapshot sweep: {} snapshots saved, {} score unavailable, {} skipped, {} failed.",
                 result.snapshotsSaved(), result.scoreUnavailable(), result.skipped(), result.failed());
@@ -85,6 +89,7 @@ public class HealthScoreSnapshotSweepService {
                     scoreUnavailable++;
                 }
             } catch (Exception e) {
+                BackgroundJobReport.itemFailed(e);
                 log.warn("Health score snapshot sweep failed for user {}: {}", user.getId(), e.getMessage());
                 failed++;
             }

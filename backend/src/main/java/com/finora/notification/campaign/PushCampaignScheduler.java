@@ -1,5 +1,6 @@
 package com.finora.notification.campaign;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -54,6 +55,7 @@ public class PushCampaignScheduler {
             initialDelayString = "${app.push-campaigns.scheduler.initial-delay-ms:30000}")
     public void tick() {
         if (!enabled) {
+            BackgroundJobReport.switchedOff();
             return;
         }
         runDue(clock.now());
@@ -77,6 +79,7 @@ public class PushCampaignScheduler {
             try {
                 service.claimDue(id, now).ifPresent(runIds::add);
             } catch (RuntimeException e) {
+                BackgroundJobReport.itemFailed(e);
                 // One bad campaign must not stop the others from being looked at.
                 log.error("Could not start the due push campaign {}", id, e);
             }
@@ -93,6 +96,7 @@ public class PushCampaignScheduler {
                 lastCapPruneDay = today;
             }
         } catch (RuntimeException e) {
+            BackgroundJobReport.itemFailed(e);
             log.error("Push campaign housekeeping failed", e);
         }
     }

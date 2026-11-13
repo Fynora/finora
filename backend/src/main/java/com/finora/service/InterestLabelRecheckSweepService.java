@@ -1,5 +1,6 @@
 package com.finora.service;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import com.finora.entity.Transaction;
 import com.finora.util.CategoryRules;
 import org.slf4j.Logger;
@@ -63,7 +64,10 @@ public class InterestLabelRecheckSweepService {
     @Scheduled(fixedDelayString = "${app.interest-label-recheck.sweep.interval-ms:300000}",
             initialDelayString = "${app.interest-label-recheck.sweep.initial-delay-ms:150000}")
     public void scheduledSweep() {
-        if (!sweepEnabled) return;
+        if (!sweepEnabled) {
+            BackgroundJobReport.switchedOff();
+            return;
+        }
         Result result = sweep();
         if (result.relabelled() > 0 || result.left() > 0 || result.failed() > 0) {
             log.info("Interest label recheck: {} row(s) relabelled, {} left as they were, {} failed.{}",
@@ -94,6 +98,7 @@ public class InterestLabelRecheckSweepService {
                 try {
                     label = importLabelIfDifferent(row);
                 } catch (RuntimeException e) {
+                    BackgroundJobReport.itemFailed(e);
                     counts[2]++;
                     log.error("Interest label recheck failed for transaction {}: {}", row.id(), e.toString());
                     continue;

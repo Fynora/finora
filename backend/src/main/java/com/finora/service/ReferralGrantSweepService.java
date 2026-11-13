@@ -1,5 +1,6 @@
 package com.finora.service;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import com.finora.entity.Plan;
 import com.finora.entity.ReferralGrant;
 import com.finora.notification.api.NotificationRequest;
@@ -69,7 +70,10 @@ public class ReferralGrantSweepService {
     @Scheduled(fixedDelayString = "${app.referral-grant.sweep.interval-ms:3600000}",
             initialDelayString = "${app.referral-grant.sweep.initial-delay-ms:300000}")
     public void scheduledSweep() {
-        if (!sweepEnabled) return;
+        if (!sweepEnabled) {
+            BackgroundJobReport.switchedOff();
+            return;
+        }
         int activated = sweep();
         if (activated > 0) {
             log.info("Referral grant sweep: {} grant(s) activated.", activated);
@@ -87,6 +91,7 @@ public class ReferralGrantSweepService {
                     activated++;
                 }
             } catch (RuntimeException e) {
+                BackgroundJobReport.itemFailed(e);
                 log.error("Referral grant activation failed for user {}, will retry next sweep.", userId, e);
             }
         }

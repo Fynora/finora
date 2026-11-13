@@ -1,5 +1,6 @@
 package com.finora.service;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import com.finora.imports.PrintedOrder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -70,6 +71,10 @@ public class StatementRowOrderRepairSweepService {
     @Scheduled(fixedDelayString = "${app.statement-row-order-repair.sweep.interval-ms:300000}",
             initialDelayString = "${app.statement-row-order-repair.sweep.initial-delay-ms:270000}")
     public void scheduledSweep() {
+        if (!"apply".equals(mode) && !"dry-run".equals(mode)) {
+            BackgroundJobReport.switchedOff();
+            return;
+        }
         if ("apply".equals(mode)) {
             if (passComplete) return;
             Result result = run(true);
@@ -107,6 +112,7 @@ public class StatementRowOrderRepairSweepService {
                     moved += rows;
                 }
             } catch (RuntimeException e) {
+                BackgroundJobReport.itemFailed(e);
                 log.warn("Statement row order repair could not repair statement {}: {}", statement, e.toString());
             }
         }

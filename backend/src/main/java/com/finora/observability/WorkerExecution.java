@@ -1,5 +1,6 @@
 package com.finora.observability;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.sentry.Breadcrumb;
@@ -153,6 +154,9 @@ public final class WorkerExecution implements AutoCloseable {
     public void deadLettered(UUID jobId, int attempts, Throwable cause, AlertSeverity severity) {
         meters.deadLetters(worker, jobKind).increment();
         meters.failures(worker, jobKind).increment();
+        // A give-up the caller rates actionable is a failed item of the background job's run (the
+        // Background jobs page); an expected NONE one, like a customer's corrupt PDF, is not.
+        if (severity != AlertSeverity.NONE) BackgroundJobReport.itemFailed(cause);
         switch (severity) {
             case NONE -> { /* expected, not actionable -- counted above, never paged */ }
             case WARNING -> capture(jobId, "apply", "dead-letter", cause, SentryLevel.WARNING);
@@ -166,6 +170,7 @@ public final class WorkerExecution implements AutoCloseable {
      */
     public void failureNotRecorded(UUID jobId, Throwable cause) {
         meters.failures(worker, jobKind).increment();
+        BackgroundJobReport.itemFailed(cause);
         capture(jobId, "record-failure", "stranded", cause);
     }
 
@@ -177,6 +182,7 @@ public final class WorkerExecution implements AutoCloseable {
      */
     public void heldWithoutReviewRecord(UUID jobId, Throwable cause) {
         meters.failures(worker, jobKind).increment();
+        BackgroundJobReport.itemFailed(cause);
         capture(jobId, "trust-hold", "no-review-record", cause, SentryLevel.ERROR);
     }
 

@@ -1,5 +1,6 @@
 package com.finora.service;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import com.finora.entity.IapProduct;
 import com.finora.entity.Plan;
 import com.finora.entity.Subscription;
@@ -125,7 +126,10 @@ public class LapsedSubscriptionCheckSweepService {
     @Scheduled(fixedDelayString = "${app.lapsed-subscription-check.sweep.interval-ms:86400000}",
             initialDelayString = "${app.lapsed-subscription-check.sweep.initial-delay-ms:600000}")
     public void scheduledSweep() {
-        if (!sweepEnabled || "off".equalsIgnoreCase(mode)) return;
+        if (!sweepEnabled || "off".equalsIgnoreCase(mode)) {
+            BackgroundJobReport.switchedOff();
+            return;
+        }
         Result r = sweep(isApply());
         if (r.checked() > 0) {
             log.info("Lapsed subscription check ({}): {} checked, {} ended, {} paid-until moved, {} not confirmed ended, "
@@ -148,6 +152,7 @@ public class LapsedSubscriptionCheckSweepService {
             try {
                 outcome = checkOne(candidate.getId(), cutoff, apply);
             } catch (RuntimeException e) {
+                BackgroundJobReport.itemFailed(e);
                 // A provider error, a lock conflict with a webhook landing now: this row only, next pass.
                 log.warn("Lapsed subscription check skipped subscription {}: {}", candidate.getId(),
                         e.getClass().getSimpleName());

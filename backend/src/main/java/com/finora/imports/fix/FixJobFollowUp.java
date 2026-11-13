@@ -1,5 +1,8 @@
 package com.finora.imports.fix;
 
+import com.finora.observability.jobs.RecordedWhereItRuns;
+import com.finora.observability.jobs.BackgroundJobRunner;
+import com.finora.observability.jobs.BackgroundJobReport;
 import com.finora.config.BuildVersionResolver;
 import com.finora.dto.HeldStatementRerunResultDto;
 import com.finora.entity.HeldStatement;
@@ -88,15 +91,32 @@ public class FixJobFollowUp {
         this.executor = executor;
     }
 
+    /** Records the handed-off work as this job's run (Background jobs page); absent in unit tests. */
+    private BackgroundJobRunner backgroundJobRunner;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setBackgroundJobRunner(BackgroundJobRunner backgroundJobRunner) {
+        this.backgroundJobRunner = backgroundJobRunner;
+    }
+
+    private Runnable recorded(Runnable work) {
+        return backgroundJobRunner == null ? work : backgroundJobRunner.recorded("FixJobFollowUp.scheduled", work);
+    }
+
+
     /** Handed to the fix job's own thread: every GitHub call may take its full timeout. */
     @Scheduled(fixedDelayString = "${app.claude-fix.follow-up-interval-ms:600000}",
             initialDelayString = "${app.claude-fix.follow-up-initial-delay-ms:120000}")
+    @RecordedWhereItRuns
     public void scheduled() {
-        if (!properties.isEnabled()) return;
-        executor.execute(() -> {
+        if (!properties.isEnabled()) {
+            recorded(BackgroundJobReport::switchedOff).run();
+            return;
+        }
+        executor.execute(recorded(() -> {
             int changed = followUp(Instant.now());
             if (changed > 0) log.info("Claude fix follow-up: {} job(s) moved on", changed);
-        });
+        }));
     }
 
     /** @return how many rows changed, holds caught up included */
@@ -107,6 +127,7 @@ public class FixJobFollowUp {
             try {
                 if (step(row, now)) changed++;
             } catch (RuntimeException e) {
+                BackgroundJobReport.itemFailed(e);
                 log.warn("Claude fix follow-up for held job {} failed ({}); will retry next run", row.getJobId(),
                         FixJobStarter.typeName(e));
             }
@@ -124,6 +145,7 @@ public class FixJobFollowUp {
         try {
             missed = jobs.findHeldWithoutDecision(now.minus(CATCH_UP_WINDOW), now.minus(CATCH_UP_DELAY), CATCH_UP_BATCH);
         } catch (RuntimeException e) {
+            BackgroundJobReport.itemFailed(e);
             log.warn("Claude fix catch-up could not look for missed holds ({})", FixJobStarter.typeName(e));
             return 0;
         }

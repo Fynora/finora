@@ -1,5 +1,6 @@
 package com.finora.notification.worker;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import com.finora.notification.api.NotificationPreferenceResolver;
 import com.finora.notification.domain.Notification;
 import com.finora.notification.domain.NotificationChannel;
@@ -146,6 +147,7 @@ public class NotificationDispatcher {
             initialDelayString = "${app.notification.queue.initial-delay-ms:15000}")
     public void poll() {
         if (!enabled) {
+            BackgroundJobReport.switchedOff();
             return;
         }
         recoverAbandoned();
@@ -267,6 +269,7 @@ public class NotificationDispatcher {
             return !preferenceResolver.isEnabled(notification.getUserId(), notification.getCategory(),
                     notification.getChannel());
         } catch (RuntimeException e) {
+            BackgroundJobReport.itemFailed(e);
             log.error("Could not re-check the preference for notification {}; sending it",
                     notification.getId(), e);
             return false;
@@ -301,6 +304,7 @@ public class NotificationDispatcher {
             });
             execution.completed(notification.getId());
         } catch (RuntimeException e) {
+            BackgroundJobReport.itemFailed(e);
             log.error("Could not record delivery success for notification {}",
                     notification.getId(), e);
             execution.failureNotRecorded(notification.getId(), e);
@@ -327,6 +331,7 @@ public class NotificationDispatcher {
                 }
             });
         } catch (RuntimeException e) {
+            BackgroundJobReport.itemFailed(e);
             log.error("Could not record delivery failure for notification {}",
                     notification.getId(), e);
             execution.failureNotRecorded(notification.getId(), e);
@@ -413,6 +418,7 @@ public class NotificationDispatcher {
                     NotificationLog.of(notificationId, provider, response, success, attempt,
                             Instant.now()));
         } catch (RuntimeException e) {
+            BackgroundJobReport.itemFailed(e);
             log.error("Could not record delivery log for notification {}", notificationId, e);
         }
     }

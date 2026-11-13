@@ -1,5 +1,6 @@
 package com.finora.integrations.google;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import com.finora.entity.FeatureEntitlement;
 import com.finora.entity.User;
 import com.finora.integrations.google.merchant.GmailReceiptExtractionService;
@@ -135,7 +136,10 @@ public class GmailDiscoveryWorker {
     @Scheduled(fixedDelayString = "${app.integrations.google.discovery.interval-ms:900000}",
                initialDelayString = "${app.integrations.google.discovery.initial-delay-ms:180000}")
     public void scheduledDiscovery() {
-        if (!enabled) return;
+        if (!enabled) {
+            BackgroundJobReport.switchedOff();
+            return;
+        }
         runOnce();
     }
 
@@ -205,6 +209,7 @@ public class GmailDiscoveryWorker {
                             connection.getId());
                     canExtract = false;
                 } catch (RuntimeException e) {
+                    BackgroundJobReport.itemFailed(e);
                     // Transient by elimination: a timeout, a 5xx, a rate limit. The next tick
                     // resumes from what was recorded, so this is a delay rather than a loss --
                     // but a mailbox that keeps landing here needs to back off, or it re-enters the
@@ -300,6 +305,7 @@ public class GmailDiscoveryWorker {
             extraction.extractFor(connection, extractionMessagesPerConnection);
             execution.completed(connection.getId());
         } catch (RuntimeException e) {
+            BackgroundJobReport.itemFailed(e);
             // Extraction only throws here for a whole-batch failure (its own access-token fetch) --
             // per-message parser/body failures are already caught and logged inside
             // GmailReceiptExtractionService itself and never reach this catch.

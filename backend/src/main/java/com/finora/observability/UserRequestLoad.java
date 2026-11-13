@@ -1,5 +1,6 @@
 package com.finora.observability;
 
+import com.finora.observability.jobs.BackgroundJobReport;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -154,7 +155,10 @@ public class UserRequestLoad {
     @Scheduled(fixedDelayString = "${app.diagnostics.user-load.flush-interval-ms:30000}",
             initialDelayString = "${app.diagnostics.user-load.flush-interval-ms:30000}")
     public void flushIfMinuteElapsed() {
-        if (!enabled) return;
+        if (!enabled) {
+            BackgroundJobReport.switchedOff();
+            return;
+        }
         try {
             long minute = minuteNow();
             if (window.get().minute != minute) rotateTo(minute);

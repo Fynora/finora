@@ -706,7 +706,7 @@ function MonthStartNudges({ months }: { months: NonNullable<ActivationReport['mo
 }
 
 /** V315: the invite-a-friend card after an import -- people shown it, and what they tapped.
- *  Not range-bound. People who signed up through a shared web link show under "By source" as
+ *  Not range-bound (all time), and the page says so. People who signed up through a shared web link show under "By source" as
  *  friend_invite. */
 function InvitePrompt({ counts }: { counts: NonNullable<ActivationReport['invitePrompt']> }) {
   if (counts.shown === 0) return <p className="p-4 text-sm text-muted">Nobody has been shown the invite card yet.</p>;
@@ -730,7 +730,9 @@ function InvitePrompt({ counts }: { counts: NonNullable<ActivationReport['invite
         </tbody>
       </table>
       <p className="text-xs text-muted">
-        People, not taps. Sign-ups from a shared web link appear under By source as friend_invite.
+        All time: the dates picked above do not change these. People, not taps; someone who tapped Not
+        now and later, on the card&apos;s second showing, Share is counted under both. Sign-ups from a
+        shared web link appear under By source as friend_invite.
       </p>
     </div>
   );
@@ -872,7 +874,7 @@ function ActivationContent() {
           </Section>
 
           {data.invitePrompt && (
-            <Section title="Invite card after an import">
+            <Section title="Invite card after an import, all time">
               <InvitePrompt counts={data.invitePrompt} />
             </Section>
           )}

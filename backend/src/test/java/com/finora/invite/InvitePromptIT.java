@@ -330,6 +330,84 @@ class InvitePromptIT extends AbstractIntegrationTest {
         assertThat(check(user, first).get("shownRecently").asBoolean()).isTrue();
     }
 
+    /** The second showing's SHOWN report lost too (break-test 2026-11-13): before, only a first
+     *  showing was filled in, so the Not now left the record at one showing 180 days old and the card
+     *  came back on the very next import. Now the Not now records it: two showings, never again. */
+    @Test
+    void notNowOnASecondShowingWhoseShownReportWasLostStillEndsIt() {
+        User user = user();
+        statementImport(user, 3, false);
+        pinTo(TODAY.minusDays(InvitePromptService.QUIET_DAYS_AFTER_NOT_NOW));
+        event(user, "SHOWN");
+        event(user, "DISMISSED");
+
+        pinTo(TODAY);
+        UUID later = statementImport(user, 3, false);
+        assertThat(check(user, later).get("show").asBoolean()).as("180 days later").isTrue();
+        double shownBefore = counter("shown", "web");
+        event(user, "DISMISSED");
+        assertThat(timesShown(user)).as("the lost second showing is recorded").isEqualTo(2);
+        assertThat(((Date) row(user).get("last_shown_on")).toLocalDate()).isEqualTo(TODAY);
+        // The lost SHOWN turning up later that day is the same showing.
+        event(user, "SHOWN");
+        assertThat(timesShown(user)).isEqualTo(2);
+        assertThat(counter("shown", "web") - shownBefore).as("one showing, counted once").isEqualTo(1.0);
+
+        pinTo(TODAY.plusDays(1));
+        UUID nextDay = statementImport(user, 3, false);
+        assertThat(check(user, nextDay).get("show").asBoolean()).as("the next import").isFalse();
+        pinTo(TODAY.plusDays(InvitePromptService.QUIET_DAYS_AFTER_NOT_NOW * 2L));
+        UUID muchLater = statementImport(user, 3, false);
+        assertThat(check(user, muchLater).get("show").asBoolean()).as("two showings: never again").isFalse();
+    }
+
+    /** Same, with Share: counted as the second showing, and Share still means never again. */
+    @Test
+    void shareOnASecondShowingWhoseShownReportWasLostCountsIt() {
+        User user = user();
+        statementImport(user, 3, false);
+        pinTo(TODAY.minusDays(InvitePromptService.QUIET_DAYS_AFTER_NOT_NOW + 20));
+        event(user, "SHOWN");
+        event(user, "DISMISSED");
+
+        pinTo(TODAY);
+        UUID later = statementImport(user, 3, false);
+        assertThat(check(user, later).get("show").asBoolean()).isTrue();
+        event(user, "SHARE_TAPPED");
+        assertThat(timesShown(user)).isEqualTo(2);
+        assertThat(check(user, later).get("shownRecently").asBoolean()).isTrue();
+    }
+
+    /** A card left on screen and answered on a later day is the showing already recorded, right up to
+     *  the day before the quiet period ends; from that day on it can only be a new showing. */
+    @Test
+    void anAnswerOnALaterDayIsTheSameShowingUntilTheQuietPeriodEnds() {
+        User sameNight = user();
+        statementImport(sameNight, 3, false);
+        pinTo(TODAY.minusDays(1));
+        event(sameNight, "SHOWN");
+        pinTo(TODAY);
+        event(sameNight, "DISMISSED");
+        assertThat(timesShown(sameNight)).as("answered the next day").isEqualTo(1);
+        assertThat(((Date) row(sameNight).get("last_shown_on")).toLocalDate()).isEqualTo(TODAY.minusDays(1));
+
+        User dayBefore = user();
+        statementImport(dayBefore, 3, false);
+        pinTo(TODAY.minusDays(InvitePromptService.QUIET_DAYS_AFTER_NOT_NOW - 1));
+        event(dayBefore, "SHOWN");
+        pinTo(TODAY);
+        event(dayBefore, "DISMISSED");
+        assertThat(timesShown(dayBefore)).as("179 days after the recorded showing").isEqualTo(1);
+
+        User onTheDay = user();
+        statementImport(onTheDay, 3, false);
+        pinTo(TODAY.minusDays(InvitePromptService.QUIET_DAYS_AFTER_NOT_NOW));
+        event(onTheDay, "SHOWN");
+        pinTo(TODAY);
+        event(onTheDay, "DISMISSED");
+        assertThat(timesShown(onTheDay)).as("180 days after the recorded showing").isEqualTo(2);
+    }
+
     @Test
     void shareTappedMeansNeverAgain() {
         User user = user();

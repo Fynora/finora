@@ -86,6 +86,36 @@ class QuickSortIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void answerWithoutSourceStillFilesThePayee() throws Exception {
+        // An app build older than the Dashboard questions sends no source.
+        seed(user.getId(), accountId, "vpa:samplea", 100);
+        seed(user.getId(), accountId, "vpa:samplea", 100);
+        UUID anchor = seed(user.getId(), accountId, "vpa:samplea", 100);
+
+        JsonNode answer = data(post("/api/v1/transactions/quick-sort/answer",
+                "{\"anchorTransactionId\":\"" + anchor + "\",\"category\":\"Groceries\",\"kind\":\"SHOP\"}", user));
+
+        assertThat(answer.get("filed").asInt()).isEqualTo(3);
+    }
+
+    @Test
+    void dashboardSourceIsAcceptedOnBatchAndAnswer() throws Exception {
+        seed(user.getId(), accountId, "vpa:samplea", 100);
+        seed(user.getId(), accountId, "vpa:samplea", 100);
+        UUID anchor = seed(user.getId(), accountId, "vpa:samplea", 100);
+        seed(user.getId(), accountId, "vpa:sampleb", 50);
+
+        JsonNode fromDashboard = data(restTemplate.exchange("/api/v1/transactions/quick-sort?skip=0&source=DASHBOARD",
+                HttpMethod.GET, new HttpEntity<>(bearerFor(user)), String.class));
+        assertThat(questionIds(fromDashboard)).isEqualTo(questionIds(batch(0)));
+
+        JsonNode answer = data(post("/api/v1/transactions/quick-sort/answer",
+                "{\"anchorTransactionId\":\"" + anchor + "\",\"category\":\"Groceries\",\"kind\":\"SHOP\","
+                        + "\"source\":\"DASHBOARD\"}", user));
+        assertThat(answer.get("filed").asInt()).isEqualTo(3);
+    }
+
+    @Test
     void answeringNeverRefilesAPaymentOfThePayeeThatWasNotWaiting() throws Exception {
         UUID a = seed(user.getId(), accountId, "vpa:samplea", 100);
         UUID b = seed(user.getId(), accountId, "vpa:samplea", 100);

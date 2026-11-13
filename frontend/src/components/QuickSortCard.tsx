@@ -4,8 +4,14 @@ import { Sparkles } from 'lucide-react';
 import { transactionsApi } from '../api/endpoints';
 import { CategoryCombobox } from './CategoryCombobox';
 import { CategoryCreateEditPanel } from './CategoryCreateEditPanel';
+import { Link } from 'react-router-dom';
 import type { QuickSortBatch, QuickSortKind, QuickSortQuestion } from '../types';
 import { formatDate } from '../utils/date';
+import { trackNavigation } from '../lib/trackNavigation';
+import { safeStorage } from '../lib/safeStorage';
+import {
+  DASHBOARD_QUESTION_LIMIT, DASHBOARD_QUICK_SORT_KEY, isHiddenToday, notNowValue,
+} from '../lib/dashboardQuickSort';
 
 function fmt(n: number) {
   return (n < 0 ? '-₹' : '₹') + Math.round(Math.abs(n)).toLocaleString('en-IN');
@@ -27,8 +33,21 @@ const AFFECTED_QUERIES = ['transactions', 'recent-transactions', 'dashboard-summ
  * and the answers offered; this card asks one question at a time. Progress is the money sorted
  * out of everything that waited, earlier visits included (the batch's sortedTotal), so it carries
  * across "Sort 10 more" and across visits.
+ *
+ * variant "dashboard" (spec docs/superpowers/specs/2026-11-13-dashboard-quick-sort-design.md): the
+ * same questions, at most DASHBOARD_QUESTION_LIMIT per visit, then how many payees are still waiting
+ * and a way to the full Quick sort. No progress line, no "Sort 10 more", and never "Stop asking
+ * about these": nothing leaves the queue from the Dashboard unless it is answered. "Not now" hides it
+ * until tomorrow for accountEmail on this device. Loading, empty and failed all render nothing.
  */
-export function QuickSortCard() {
+export function QuickSortCard({ variant = 'full', accountEmail = null }: {
+  variant?: 'full' | 'dashboard';
+  /** The signed-in account, for the dashboard variant's "Not now". */
+  accountEmail?: string | null;
+} = {}) {
+  const dashboard = variant === 'dashboard';
+  const [hidden, setHidden] = useState(() =>
+    dashboard && isHiddenToday(safeStorage.getItem(DASHBOARD_QUICK_SORT_KEY), accountEmail, new Date()));
   const queryClient = useQueryClient();
   const [batch, setBatch] = useState<QuickSortBatch | null>(null);
   const [index, setIndex] = useState(0);
@@ -44,7 +63,7 @@ export function QuickSortCard() {
   const [restStopped, setRestStopped] = useState(false);
 
   function load(skip: number, first = false) {
-    transactionsApi.quickSort(skip)
+    (dashboard ? transactionsApi.quickSort(skip, false, 'DASHBOARD') : transactionsApi.quickSort(skip))
       .then((b) => {
         setBatch(b);
         setIndex(0);
@@ -59,13 +78,18 @@ export function QuickSortCard() {
         else setError("Couldn't load more questions — please try again.");
       });
   }
-  useEffect(() => load(0, true), []);
+  // One fetch per mount; "Not now" earlier today skips it. Mount-only on purpose: "Not now" pressed
+  // later sets hidden, which must not refetch, and load is a fresh closure every render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!hidden) load(0, true); }, []);
 
   // Hidden only when the first batch found nothing waiting; a later empty batch (everything left
   // was skipped) still shows the end of the run.
-  if (!batch || !startTotal) return null;
+  if (hidden || !batch || !startTotal) return null;
 
-  const current: QuickSortQuestion | undefined = batch.questions[index];
+  // The dashboard asks the batch's first few, in the server's order.
+  const asked = dashboard ? Math.min(batch.questions.length, DASHBOARD_QUESTION_LIMIT) : batch.questions.length;
+  const current: QuickSortQuestion | undefined = index < asked ? batch.questions[index] : undefined;
   const restOffered = batch.rest.questions > 0 && !restStopped;
   // Nothing left to ask, offer or come back to.
   const allSorted = !current && !restOffered && skipped === 0;
@@ -87,7 +111,9 @@ export function QuickSortCard() {
     setSaving(true);
     setError(null);
     try {
-      await transactionsApi.quickSortAnswer(q.anchorTransactionId, category, q.kind);
+      await (dashboard
+        ? transactionsApi.quickSortAnswer(q.anchorTransactionId, category, q.kind, 'DASHBOARD')
+        : transactionsApi.quickSortAnswer(q.anchorTransactionId, category, q.kind));
       setAnsweredInBatch((n) => n + q.total);
       setIndex((i) => i + 1);
       setShowMore(false);
@@ -136,6 +162,99 @@ export function QuickSortCard() {
     } finally {
       setSaving(false);
     }
+  }
+
+  function notNow() {
+    safeStorage.setItem(DASHBOARD_QUICK_SORT_KEY, notNowValue(accountEmail, new Date()));
+    setHidden(true);
+  }
+
+  if (dashboard) {
+    // Still waiting once this visit's few are done: the batch's unasked questions, the ones skipped
+    // here (skipping files nothing), and every payee after the batch.
+    const stillWaiting = batch.questions.length - asked + skipped + batch.rest.questions;
+    if (!current && stillWaiting === 0) return null;
+    return (
+      <section className="rounded-xl border border-border bg-card p-4 space-y-3" aria-label="Sort a few payments">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-ink">
+            <Sparkles size={16} className="text-primary" /> Sort a few payments
+          </h2>
+          {current && <span className="text-xs text-muted">{index + 1} of {asked}</span>}
+        </div>
+
+        {current ? (
+          <div className="space-y-3">
+            <div>
+              <p className="text-base font-semibold text-ink">{current.payee}</p>
+              <p className="text-xs text-muted">
+                {current.payments} {current.payments === 1 ? 'payment' : 'payments'} · {fmt(current.total)}
+              </p>
+            </div>
+            <p className="text-sm text-ink">
+              {current.kind === 'GUESS' ? `Fynora thinks: ${current.currentCategory}` : PROMPT[current.kind]}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {current.kind === 'GUESS' && current.currentCategory && (
+                <button type="button" disabled={saving}
+                  className="rounded-full border border-border px-3 py-1.5 text-sm text-ink hover:bg-black/5 disabled:opacity-60"
+                  onClick={() => void answer(current, current.currentCategory!)}>
+                  Correct
+                </button>
+              )}
+              {current.answers
+                .filter((a) => !(current.kind === 'GUESS' && a === current.currentCategory))
+                .map((a) => (
+                  <button key={a} type="button" disabled={saving}
+                    className="rounded-full border border-border px-3 py-1.5 text-sm text-ink hover:bg-black/5 disabled:opacity-60"
+                    onClick={() => void answer(current, a)}>
+                    {a}
+                  </button>
+                ))}
+              <button type="button" disabled={saving}
+                className="rounded-full border border-dashed border-border px-3 py-1.5 text-sm text-muted"
+                onClick={() => setShowMore((v) => !v)}>
+                {current.kind === 'GUESS' ? 'Change' : 'More…'}
+              </button>
+            </div>
+            {showMore && (creating !== null ? (
+              <CategoryCreateEditPanel
+                mode="create"
+                initialName={creating}
+                onSaved={(c) => void answer(current, c.name)}
+                onCancel={() => setCreating(null)}
+              />
+            ) : (
+              <CategoryCombobox
+                value=""
+                onChange={(name) => { if (name) void answer(current, name); }}
+                onCreateNew={(text) => setCreating(text)}
+              />
+            ))}
+            <div className="flex justify-end gap-3">
+              <button type="button" disabled={saving} className="text-sm text-muted underline" onClick={skip}>
+                Skip
+              </button>
+              <button type="button" disabled={saving} className="text-sm text-muted underline" onClick={notNow}>
+                Not now
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm text-ink">
+              {stillWaiting} {stillWaiting === 1 ? 'payee' : 'payees'} still waiting
+            </p>
+            <Link to="/app/transactions" onClick={() => trackNavigation('transactions', 'contextual')}
+              className="text-sm font-medium text-primary underline">
+              Open Quick sort
+            </Link>
+          </div>
+        )}
+
+        {error && <p className="text-sm text-danger">{error}</p>}
+      </section>
+    );
   }
 
   return (

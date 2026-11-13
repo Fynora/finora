@@ -1,8 +1,11 @@
 package com.finora.observability;
 
+import com.finora.transactions.QuickSortDto;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.stereotype.Component;
+
+import java.util.Locale;
 
 /**
  * How Quick sort is used, so its 80% / 10-question cut can be judged on evidence rather than on the
@@ -17,19 +20,30 @@ public class QuickSortMetrics {
         this.registry = registry;
     }
 
-    /** A batch was fetched, with this many questions in it. */
-    public void batchShown(int questions) {
-        counter("finora.quick_sort.batches_shown", "A Quick sort batch was shown").increment();
-        counter("finora.quick_sort.questions_shown", "Questions in the Quick sort batches shown").increment(questions);
+    /** A batch was fetched, with this many questions in it, where it was shown. */
+    public void batchShown(int questions, QuickSortDto.Source source) {
+        sourced("finora.quick_sort.batches_shown", "A Quick sort batch was shown", source).increment();
+        sourced("finora.quick_sort.questions_shown", "Questions in the Quick sort batches shown", source)
+                .increment(questions);
     }
 
     /** A question was answered; {@code kind} is the question's kind (PERSON_PAID, SHOP, GUESS, MONEY_IN). */
-    public void answered(String kind) {
+    public void answered(String kind, QuickSortDto.Source source) {
         Counter.builder("finora.quick_sort.answered")
                 .description("A Quick sort question was answered")
                 .tag("kind", kind)
+                .tag("source", sourceTag(source))
                 .register(registry)
                 .increment();
+    }
+
+    /** Every registration of a sourced counter carries the tag: Prometheus wants one tag-key set per name. */
+    private Counter sourced(String name, String description, QuickSortDto.Source source) {
+        return Counter.builder(name).description(description).tag("source", sourceTag(source)).register(registry);
+    }
+
+    private static String sourceTag(QuickSortDto.Source source) {
+        return source.name().toLowerCase(Locale.ROOT);
     }
 
     /** "Sort 10 more" was taken: one batch was not enough. */

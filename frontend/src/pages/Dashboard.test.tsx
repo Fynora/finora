@@ -66,7 +66,14 @@ vi.mock('../api/endpoints', () => ({
     overview: vi.fn().mockResolvedValue({ enabled: false, savePasswordAvailable: false, updatable: [], needsPassword: [] }),
   },
   accountsApi: { list: vi.fn(), update: vi.fn() },
-  transactionsApi: { search: vi.fn(), create: vi.fn(), confirmNotDuplicate: vi.fn() },
+  transactionsApi: {
+    search: vi.fn(), create: vi.fn(), confirmNotDuplicate: vi.fn(),
+    // The Dashboard's Quick sort card: nothing waiting by default, so it renders nothing.
+    quickSort: vi.fn().mockResolvedValue({
+      questions: [], waitingTotal: 0, rest: { questions: 0, payments: 0, amount: 0, transactionIds: [] },
+    }),
+    quickSortAnswer: vi.fn(),
+  },
   categoriesApi: { list: vi.fn() },
   goalsApi: { list: vi.fn() },
   insightsApi: { get: vi.fn() },
@@ -267,6 +274,22 @@ describe('Dashboard — Financial Health Score', () => {
       month: '2026-08', income: 80000, expense: 45000, categories: [],
     });
     vi.mocked(recurringApi.list).mockReset().mockResolvedValue([]);
+  });
+
+  it('asks a few Quick sort questions on the Dashboard when payees are waiting', async () => {
+    vi.mocked(transactionsApi.quickSort).mockResolvedValueOnce({
+      questions: [{
+        id: 'vpa:sample|EXPENSE', anchorTransactionId: 'txn-1', kind: 'SHOP', payee: 'SAMPLE STORE', payments: 3,
+        total: 1240, latestDate: '2026-09-12', largeOneOff: false, currentCategory: 'Other',
+        answers: ['Groceries'], samples: [],
+      }],
+      waitingTotal: 1240,
+      rest: { questions: 0, payments: 0, amount: 0, transactionIds: [] },
+    });
+    renderDashboard();
+    expect(await screen.findByText('Sort a few payments')).toBeInTheDocument();
+    expect(screen.getByText('SAMPLE STORE')).toBeInTheDocument();
+    expect(transactionsApi.quickSort).toHaveBeenCalledWith(0, false, 'DASHBOARD');
   });
 
   it('shows the score and label the backend already computed', async () => {

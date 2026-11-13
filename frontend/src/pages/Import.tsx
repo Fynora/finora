@@ -3012,8 +3012,12 @@ function ImportSummaryScreen({
       {/* Above Quick sort: these answers change the headline Income figure. */}
       <ImportMoneyInCard statementImportIds={summary.statementImportId ? [summary.statementImportId] : []} />
 
-      {/* Shown once per person, on an import that saved rows; the server decides (InvitePromptService). */}
-      <InviteFriendCard statementImportIds={summary.statementImportId ? [summary.statementImportId] : []} />
+      {/* Shown once per person, on an import that saved rows; the server decides (InvitePromptService).
+          Not under warnings (rows left out, a missing period): "Fynora sorted your statement" would
+          clash with them, and the one showing waits for a clean import instead (Sid, 2026-11-13). */}
+      {summary.warnings.length === 0 && (
+        <InviteFriendCard statementImportIds={summary.statementImportId ? [summary.statementImportId] : []} />
+      )}
 
       <div className="flex flex-wrap gap-3">
         <QuickSortCta />
@@ -3101,7 +3105,10 @@ function MultiImportSummaryScreen({
 
       <ImportMoneyInCard statementImportIds={summaries.map((s) => s.statementImportId).filter(Boolean)} />
 
-      <InviteFriendCard statementImportIds={summaries.map((s) => s.statementImportId).filter(Boolean)} />
+      {/* Not when any account's summary has warnings -- see ImportSummaryScreen. */}
+      {summaries.every((s) => s.warnings.length === 0) && (
+        <InviteFriendCard statementImportIds={summaries.map((s) => s.statementImportId).filter(Boolean)} />
+      )}
 
       <div className="flex flex-wrap gap-3">
         <QuickSortCta />

@@ -90,6 +90,11 @@ jest.mock('../api/endpoints', () => ({
   },
   transactionsApi: {
     search: jest.fn(), needsReview: jest.fn(), needsReviewGroups: jest.fn(), confirmNotDuplicate: jest.fn(),
+    // The Dashboard's Quick sort card: nothing waiting by default, so the review nudge shows as before.
+    quickSort: jest.fn().mockResolvedValue({
+      questions: [], waitingTotal: 0, rest: { questions: 0, payments: 0, amount: 0, transactionIds: [] },
+    }),
+    quickSortAnswer: jest.fn(),
   },
   goalsApi: { list: jest.fn() },
   insightsApi: { get: jest.fn() },
@@ -970,6 +975,35 @@ describe('categorization review nudge', () => {
     renderScreen();
 
     expect(await screen.findByText('5 transactions need a quick look')).toBeTruthy();
+  });
+
+  it('shows Quick sort questions in place of the nudge when payees are waiting', async () => {
+    transactions.needsReview.mockResolvedValue([{ id: 't-1' }, { id: 't-2' }] as never);
+    transactions.quickSort.mockResolvedValueOnce({
+      questions: [{
+        id: 'vpa:sample|EXPENSE', anchorTransactionId: 't-1', kind: 'SHOP', payee: 'SAMPLE STORE', payments: 2,
+        total: 800, latestDate: '2026-09-12', largeOneOff: false, currentCategory: 'Other', answers: ['Groceries'],
+        samples: [],
+      }],
+      waitingTotal: 800,
+      rest: { questions: 0, payments: 0, amount: 0, transactionIds: [] },
+    });
+
+    renderScreen();
+
+    expect(await screen.findByText('Sort a few payments')).toBeTruthy();
+    expect(screen.getByText('SAMPLE STORE')).toBeTruthy();
+    expect(screen.queryByText(/need a quick look/)).toBeNull();
+    expect(transactions.quickSort).toHaveBeenCalledWith(0, false, 'DASHBOARD');
+  });
+
+  it('brings the nudge back when Quick sort has nothing to ask', async () => {
+    transactions.needsReview.mockResolvedValue([{ id: 't-1' }, { id: 't-2' }] as never);
+
+    renderScreen();
+
+    expect(await screen.findByText('2 transactions need a quick look')).toBeTruthy();
+    expect(screen.queryByText('Sort a few payments')).toBeNull();
   });
 
   it('uses the singular for a backlog of one', async () => {

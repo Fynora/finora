@@ -41,6 +41,7 @@ import {
 } from '../api/endpoints';
 import { BrandMark } from '../components/BrandMark';
 import { useAuth } from '../context/AuthContext';
+import { QuickSortPanel } from '../components/QuickSortPanel';
 import { useToast } from '../context/ToastContext';
 import { CHART_PALETTE, bucketTopSlices } from '../lib/chartGeometry';
 import {
@@ -115,8 +116,15 @@ export function DashboardScreen() {
   const largeText = useLargeFontScale();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
-  const { fullName } = useAuth();
+  const { fullName, email } = useAuth();
   const navigation = useNavigation<BottomTabNavigationProp<AppTabParamList>>();
+  // The Dashboard's Quick sort card: null while it checks, true while it asks, false when it has
+  // nothing to show -- only then does the review nudge appear, so the two never stack.
+  const [quickSortShowing, setQuickSortShowing] = useState<boolean | null>(null);
+  const openCategoryReview = () => {
+    trackNavigation('review-categories', 'contextual');
+    navigation.navigate('More', { screen: 'CategoryReview' });
+  };
   const queryClient = useQueryClient();
   const route = useRoute<RouteProp<AppTabParamList, 'Home'>>();
   const { showToast } = useToast();
@@ -541,9 +549,18 @@ export function DashboardScreen() {
           state, and rendering the latter as a wedge in the spending donut is an admission of not
           knowing dressed up as information about their money. So it lives here, above the numbers
           it would otherwise quietly distort, as a nudge with somewhere to go. */}
-      {reviewCountKnown && reviewCount > 0 ? (
+      {/* A few Quick sort questions per visit (spec 2026-11-13-dashboard-quick-sort-design.md), in
+          the nudge's place: people answer when the question is in front of them. When it has
+          nothing to show (nothing waiting, failed, "Not now" today, finished) the nudge returns. */}
+      <QuickSortPanel
+        variant="dashboard"
+        accountEmail={email ?? null}
+        onLoaded={(questions) => setQuickSortShowing(questions > 0)}
+        onOpenFull={openCategoryReview}
+      />
+      {quickSortShowing === false && reviewCountKnown && reviewCount > 0 ? (
         <Pressable
-          onPress={() => { trackNavigation('review-categories', 'contextual'); navigation.navigate('More', { screen: 'CategoryReview' }); }}
+          onPress={openCategoryReview}
           accessibilityRole="button"
           accessibilityLabel={reviewNudgeLabel(reviewCount)}
           accessibilityHint="Opens the category review queue"

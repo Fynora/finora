@@ -8,6 +8,10 @@ import { transactionsApi } from '../api/endpoints';
 import { fmtCurrency, fmtDate } from '../lib/format';
 import { hapticError, hapticSuccess } from '../lib/haptics';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
+import { safeStorage } from '../lib/safeStorage';
+import {
+  DASHBOARD_QUESTION_LIMIT, DASHBOARD_QUICK_SORT_KEY, isHiddenToday, notNowValue,
+} from '../lib/dashboardQuickSort';
 import { spacing, useTheme } from '../theme';
 import type { QuickSortBatch, QuickSortKind, QuickSortQuestion } from '../types';
 
@@ -25,8 +29,25 @@ const PROMPT: Record<QuickSortKind, string> = {
  * progress bar, the saved answer is named above the next question, and "Skip for now" sits apart
  * from the answer chips. {@code onLoaded} tells the screen how many questions the first batch
  * has, so it can keep its full review lists one tap away while there are questions to answer.
+ *
+ * variant "dashboard" (spec docs/superpowers/specs/2026-11-13-dashboard-quick-sort-design.md): the
+ * same questions, at most DASHBOARD_QUESTION_LIMIT per visit, then how many payees are still
+ * waiting and {@code onOpenFull} to the full Quick sort. No progress bar, no "Sort 10 more", never
+ * "Stop asking about these". "Not now" hides it until tomorrow for accountEmail on this device.
+ * {@code onLoaded(0)} also fires whenever it stops showing (hidden today, failed, Not now, nothing
+ * left), so the Dashboard can bring its review nudge back.
  */
-export function QuickSortPanel({ onLoaded }: { onLoaded?: (questions: number) => void }) {
+export function QuickSortPanel({ onLoaded, variant = 'full', accountEmail = null, onOpenFull }: {
+  onLoaded?: (questions: number) => void;
+  variant?: 'full' | 'dashboard';
+  /** The signed-in account, for the dashboard variant's "Not now". */
+  accountEmail?: string | null;
+  /** Dashboard variant: open the full Quick sort. */
+  onOpenFull?: () => void;
+}) {
+  const dashboard = variant === 'dashboard';
+  // Dashboard: null until the stored "Not now" is read (SecureStore is async), so nothing flashes.
+  const [hidden, setHidden] = useState<boolean | null>(dashboard ? null : false);
   const c = useTheme();
   const queryClient = useQueryClient();
   const [batch, setBatch] = useState<QuickSortBatch | null>(null);
@@ -45,7 +66,7 @@ export function QuickSortPanel({ onLoaded }: { onLoaded?: (questions: number) =>
   const [lastSaved, setLastSaved] = useState<{ category: string; payee: string } | null>(null);
 
   function load(skip: number, first: boolean) {
-    transactionsApi.quickSort(skip)
+    (dashboard ? transactionsApi.quickSort(skip, false, 'DASHBOARD') : transactionsApi.quickSort(skip))
       .then((b) => {
         setBatch(b);
         setIndex(0);
@@ -65,14 +86,43 @@ export function QuickSortPanel({ onLoaded }: { onLoaded?: (questions: number) =>
         }
       });
   }
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- loads once, on mount
-  useEffect(() => load(0, true), []);
+  // Loads once, on mount. Dashboard: reads "Not now" first and skips the fetch if it was taken today.
+  useEffect(() => {
+    if (!dashboard) {
+      load(0, true);
+      return;
+    }
+    let cancelled = false;
+    safeStorage.getItem(DASHBOARD_QUICK_SORT_KEY)
+      .catch(() => null)
+      .then((stored) => {
+        if (cancelled) return;
+        if (isHiddenToday(stored, accountEmail, new Date())) {
+          setHidden(true);
+          onLoaded?.(0);
+        } else {
+          setHidden(false);
+          load(0, true);
+        }
+      });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount only: props and load are fixed for this visit
+  }, []);
+
+  // The dashboard asks the batch's first few, in the server's order. Still waiting once they are
+  // done: the unasked rest of the batch, the ones skipped here (skipping files nothing), and every
+  // payee after the batch.
+  const asked = batch ? (dashboard ? Math.min(batch.questions.length, DASHBOARD_QUESTION_LIMIT) : batch.questions.length) : 0;
+  const stillWaiting = batch ? batch.questions.length - asked + skipped + batch.rest.questions : 0;
+  const dashboardFinished = dashboard && batch !== null && index >= asked && stillWaiting === 0;
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- onLoaded is the screen's callback, not state
+  useEffect(() => { if (dashboardFinished && index > 0) onLoaded?.(0); }, [dashboardFinished]);
 
   // Hidden only when the first batch found nothing waiting; a later empty batch (everything left
   // was skipped) still shows the end of the run.
-  if (!batch || !startTotal) return null;
+  if (hidden !== false || !batch || !startTotal) return null;
 
-  const current: QuickSortQuestion | undefined = batch.questions[index];
+  const current: QuickSortQuestion | undefined = index < asked ? batch.questions[index] : undefined;
   const restOffered = batch.rest.questions > 0 && !restStopped;
   // Nothing left to ask, offer or come back to.
   const allSorted = !current && !restOffered && skipped === 0;
@@ -91,7 +141,9 @@ export function QuickSortPanel({ onLoaded }: { onLoaded?: (questions: number) =>
     setError(null);
     setLastSaved(null);
     try {
-      await transactionsApi.quickSortAnswer(q.anchorTransactionId, category, q.kind);
+      await (dashboard
+        ? transactionsApi.quickSortAnswer(q.anchorTransactionId, category, q.kind, 'DASHBOARD')
+        : transactionsApi.quickSortAnswer(q.anchorTransactionId, category, q.kind));
       hapticSuccess();
       setAnsweredInBatch((n) => n + q.total);
       setIndex((i) => i + 1);
@@ -161,6 +213,83 @@ export function QuickSortPanel({ onLoaded }: { onLoaded?: (questions: number) =>
       <Text style={[styles.chipText, { color: primary ? c.onPrimary : c.ink }]}>{label}</Text>
     </Pressable>
   );
+
+  function notNow() {
+    void safeStorage.setItem(DASHBOARD_QUICK_SORT_KEY, notNowValue(accountEmail, new Date()));
+    setHidden(true);
+    onLoaded?.(0);
+  }
+
+  if (dashboard) {
+    if (!current && stillWaiting === 0) return null;
+    return (
+      <Card style={styles.card}>
+        <SectionHeading
+          title="Sort a few payments"
+          action={current ? (
+            <Text
+              style={[styles.counter, { color: c.mutedInk }]}
+              accessibilityLabel={`Question ${index + 1} of ${asked}`}
+            >
+              {index + 1} of {asked}
+            </Text>
+          ) : undefined}
+        />
+        {lastSaved && current ? (
+          <Text style={[styles.saved, { color: c.successInk }]} accessibilityLiveRegion="polite">
+            Saved {lastSaved.category} for {lastSaved.payee}
+          </Text>
+        ) : null}
+        {current ? (
+          <View>
+            <Text style={[styles.payee, { color: c.ink }]}>{current.payee}</Text>
+            <Text style={[styles.meta, { color: c.mutedInk }]}>
+              {current.payments} {current.payments === 1 ? 'payment' : 'payments'} · {fmtCurrency(current.total)}
+            </Text>
+            <Text style={[styles.body, { color: c.ink }]}>
+              {current.kind === 'GUESS' ? `Fynora thinks: ${current.currentCategory}` : PROMPT[current.kind]}
+            </Text>
+            <View style={styles.chips} testID="quick-sort-answers">
+              {current.kind === 'GUESS' && current.currentCategory
+                ? chip('Correct', () => void answer(current, current.currentCategory!))
+                : null}
+              {current.answers
+                .filter((a) => !(current.kind === 'GUESS' && a === current.currentCategory))
+                .map((a) => chip(a, () => void answer(current, a)))}
+              {chip(current.kind === 'GUESS' ? 'Change' : 'More…', () => setPickerOpen(true))}
+            </View>
+            <View style={styles.dashboardActions}>
+              <Pressable onPress={skip} disabled={saving} accessibilityRole="button" style={[styles.skip, saving && styles.dimmed]}>
+                <Text style={[styles.skipText, { color: c.mutedInk }]}>Skip</Text>
+              </Pressable>
+              <Pressable onPress={notNow} disabled={saving} accessibilityRole="button" style={[styles.skip, saving && styles.dimmed]}>
+                <Text style={[styles.skipText, { color: c.mutedInk }]}>Not now</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : (
+          <View>
+            <Text style={[styles.body, { color: c.ink }]}>
+              {stillWaiting} {stillWaiting === 1 ? 'payee' : 'payees'} still waiting
+            </Text>
+            <View style={styles.chips}>{chip('Open Quick sort', () => onOpenFull?.())}</View>
+          </View>
+        )}
+        {error ? <Text style={[styles.body, { color: c.dangerInk }]}>{error}</Text> : null}
+        <CategoryPickerModal
+          visible={pickerOpen}
+          title="Choose a category"
+          silent
+          selectedName={null}
+          onSelect={(category) => {
+            setPickerOpen(false);
+            if (current) void answer(current, category.name);
+          }}
+          onClose={() => setPickerOpen(false)}
+        />
+      </Card>
+    );
+  }
 
   return (
     <Card style={styles.card}>
@@ -274,4 +403,6 @@ const styles = StyleSheet.create({
   dimmed: { opacity: 0.5 },
   skip: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center', marginTop: spacing.xs },
   skipText: { fontSize: 13, fontWeight: '600' },
+  // Skip and Not now side by side, apart from the answers; wraps at the largest text sizes.
+  dashboardActions: { flexDirection: 'row', flexWrap: 'wrap', columnGap: spacing.lg, marginTop: spacing.xs },
 });

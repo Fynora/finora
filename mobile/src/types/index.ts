@@ -815,6 +815,8 @@ export interface UnresolvedSender {
 
 // Mirrors QuickSortDto (backend) -- a few payee questions in place of every waiting row.
 export type QuickSortKind = 'PERSON_PAID' | 'SHOP' | 'GUESS' | 'MONEY_IN';
+/** Where a question was asked; only a tag on the server's usage counters. */
+export type QuickSortSource = NonNullable<components['schemas']['AnswerRequest']['source']>;
 
 export interface QuickSortSample {
   id: string;

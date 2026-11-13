@@ -1,0 +1,81 @@
+package com.finora.observability.jobs;
+
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import java.sql.Timestamp;
+import java.time.Instant;
+
+/**
+ * Reads and writes the two background-job tables (V317).
+ *
+ * <p>Plain SQL rather than JPA entities: a run's record is an upsert whose counters
+ * ({@code consecutive_failures}, {@code broken_since}) must be computed from the row as it stands,
+ * atomically, when two backend instances run the same job. Each write runs in its own transaction
+ * ({@code REQUIRES_NEW}), so it is never part of, or rolled back with, a job's own transaction.
+ */
+@Component
+public class BackgroundJobStore {
+
+    private final JdbcTemplate jdbc;
+    private final TransactionTemplate ownTransaction;
+
+    public BackgroundJobStore(JdbcTemplate jdbc, PlatformTransactionManager transactionManager) {
+        this.jdbc = jdbc;
+        this.ownTransaction = new TransactionTemplate(transactionManager);
+        this.ownTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+    }
+
+    public void started(String jobKey, String instance, Instant at) {
+        ownTransaction.executeWithoutResult(status -> jdbc.update("""
+                INSERT INTO background_job_status (job_key, last_started_at, last_instance, updated_at)
+                VALUES (?, ?, ?, now())
+                ON CONFLICT (job_key) DO UPDATE SET
+                    last_started_at = EXCLUDED.last_started_at,
+                    last_instance = EXCLUDED.last_instance,
+                    updated_at = now()
+                """, jobKey, Timestamp.from(at), instance));
+    }
+
+    /**
+     * Records a finished run. OK and OFF are successes (they set {@code last_success_at} and clear the
+     * failure streak); CRASHED and PARTLY_FAILED extend the streak, keep the first {@code broken_since},
+     * and add a failure row.
+     */
+    public void finished(String jobKey, String instance, Instant at, JobOutcome outcome,
+                         int failedItems, int handled, String errorSummary) {
+        boolean failing = outcome == JobOutcome.CRASHED || outcome == JobOutcome.PARTLY_FAILED;
+        Timestamp when = Timestamp.from(at);
+        ownTransaction.executeWithoutResult(status -> {
+            jdbc.update("""
+                    INSERT INTO background_job_status (job_key, last_finished_at, last_outcome,
+                        last_failed_items, last_handled, last_success_at, consecutive_failures,
+                        broken_since, last_instance, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, now())
+                    ON CONFLICT (job_key) DO UPDATE SET
+                        last_finished_at = EXCLUDED.last_finished_at,
+                        last_outcome = EXCLUDED.last_outcome,
+                        last_failed_items = EXCLUDED.last_failed_items,
+                        last_handled = EXCLUDED.last_handled,
+                        last_success_at = COALESCE(EXCLUDED.last_success_at, background_job_status.last_success_at),
+                        consecutive_failures = CASE WHEN EXCLUDED.consecutive_failures > 0
+                            THEN background_job_status.consecutive_failures + 1 ELSE 0 END,
+                        broken_since = CASE WHEN EXCLUDED.consecutive_failures > 0
+                            THEN COALESCE(background_job_status.broken_since, EXCLUDED.broken_since) ELSE NULL END,
+                        last_instance = EXCLUDED.last_instance,
+                        updated_at = now()
+                    """,
+                    jobKey, when, outcome.name(), failedItems, handled,
+                    failing ? null : when, failing ? 1 : 0, failing ? when : null, instance);
+            if (failing) {
+                jdbc.update("""
+                        INSERT INTO background_job_failures (job_key, occurred_at, outcome, failed_items, error_summary)
+                        VALUES (?, ?, ?, ?, ?)
+                        """, jobKey, when, outcome.name(), failedItems, errorSummary);
+            }
+        });
+    }
+}

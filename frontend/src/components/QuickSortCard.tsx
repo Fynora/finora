@@ -7,6 +7,7 @@ import { CategoryCreateEditPanel } from './CategoryCreateEditPanel';
 import { Link } from 'react-router-dom';
 import type { QuickSortBatch, QuickSortKind, QuickSortQuestion } from '../types';
 import { formatDate } from '../utils/date';
+import { trackNavigation } from '../lib/trackNavigation';
 import { safeStorage } from '../lib/safeStorage';
 import {
   DASHBOARD_QUESTION_LIMIT, DASHBOARD_QUICK_SORT_KEY, isHiddenToday, notNowValue,
@@ -244,7 +245,8 @@ export function QuickSortCard({ variant = 'full', accountEmail = null }: {
             <p className="text-sm text-ink">
               {stillWaiting} {stillWaiting === 1 ? 'payee' : 'payees'} still waiting
             </p>
-            <Link to="/app/transactions" className="text-sm font-medium text-primary underline">
+            <Link to="/app/transactions" onClick={() => trackNavigation('transactions', 'contextual')}
+              className="text-sm font-medium text-primary underline">
               Open Quick sort
             </Link>
           </div>

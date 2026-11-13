@@ -8,6 +8,9 @@ import type { QuickSortBatch, QuickSortQuestion } from '../types';
 import { formatDate } from '../utils/date';
 import { MemoryRouter } from 'react-router-dom';
 import { DASHBOARD_QUICK_SORT_KEY, notNowValue } from '../lib/dashboardQuickSort';
+import { trackNavigation } from '../lib/trackNavigation';
+
+vi.mock('../lib/trackNavigation', () => ({ trackNavigation: vi.fn() }));
 
 vi.mock('../api/endpoints', () => ({
   transactionsApi: {
@@ -316,6 +319,16 @@ describe('QuickSortCard on the Dashboard', () => {
     expect(screen.getByRole('link', { name: 'Open Quick sort' })).toHaveAttribute('href', '/app/transactions');
     expect(screen.queryByText('SHOP 4')).not.toBeInTheDocument();
     expect(transactionsApi.quickSortAnswer).toHaveBeenCalledTimes(3);
+  });
+
+  it('records the way to the full Quick sort as a contextual navigation', async () => {
+    vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch(shops(1), {
+      rest: { questions: 2, payments: 4, amount: 400, transactionIds: [] },
+    }));
+    renderDashboardCard();
+    await userEvent.click(await screen.findByRole('button', { name: 'Groceries' }));
+    await userEvent.click(await screen.findByRole('link', { name: 'Open Quick sort' }));
+    expect(trackNavigation).toHaveBeenCalledWith('transactions', 'contextual');
   });
 
   it('sends the Dashboard source with the batch and the answer', async () => {

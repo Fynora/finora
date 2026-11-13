@@ -51,6 +51,33 @@ export function jobSummary(job: BackgroundJobDto): string {
   }
 }
 
+/** "under a second", "4 s", "2 min 5 s", "1 h 3 min". */
+export function formatDuration(ms: number): string {
+  if (ms < 1000) return 'under a second';
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds} s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) {
+    const rest = seconds % 60;
+    return rest === 0 ? `${minutes} min` : `${minutes} min ${rest} s`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const restMinutes = minutes % 60;
+  return restMinutes === 0 ? `${hours} h` : `${hours} h ${restMinutes} min`;
+}
+
+/**
+ * How long the job's last finished run took, from its last start and finish; null while it is
+ * running, when it is switched off (an off run only checks its switch), or when either time is
+ * missing or out of order. Shown so the jobs that hold the shared scheduler thread longest stand out.
+ */
+export function lastRunDuration(job: BackgroundJobDto): string | null {
+  if (job.running || job.state === 'OFF' || !job.lastStartedAt || !job.lastFinishedAt) return null;
+  const ms = Date.parse(job.lastFinishedAt) - Date.parse(job.lastStartedAt);
+  if (Number.isNaN(ms) || ms < 0) return null;
+  return formatDuration(ms);
+}
+
 function FailureHistory({ jobKey }: { jobKey: string }) {
   const { data, error, isLoading } = useQuery({
     queryKey: ['admin-background-job-failures', jobKey],
@@ -79,6 +106,7 @@ function FailureHistory({ jobKey }: { jobKey: string }) {
 function JobRow({ job, open, onToggle }: { job: BackgroundJobDto; open: boolean; onToggle: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const state = STATE_LABEL[job.state];
+  const duration = lastRunDuration(job);
   return (
     <div data-testid="background-job" ref={ref} id={`job-${job.key}`}
       className="bg-card border border-border rounded-xl2 shadow-card">
@@ -90,7 +118,9 @@ function JobRow({ job, open, onToggle }: { job: BackgroundJobDto; open: boolean;
             <span data-testid="job-name" className="font-semibold text-ink">{job.name}</span>
             <span className={`text-xs font-semibold rounded-full px-2.5 py-0.5 ${state.className}`}>{state.label}</span>
           </span>
-          <span className="block text-sm text-muted mt-0.5">{jobSummary(job)}</span>
+          <span className="block text-sm text-muted mt-0.5">
+            {jobSummary(job)}{duration && ` · took ${duration}`}
+          </span>
         </span>
       </button>
       {open && (

@@ -3,7 +3,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import BackgroundJobs from './BackgroundJobs';
+import BackgroundJobs, { formatDuration, lastRunDuration } from './BackgroundJobs';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { mockAdminAuthState } from '../test/mockAdminAuth';
 import { adminBackgroundJobsApi } from '../api/endpoints';
@@ -168,5 +168,48 @@ describe('BackgroundJobs', () => {
     vi.mocked(adminBackgroundJobsApi.list).mockResolvedValue(JOBS);
     renderPage();
     expect(screen.queryByTestId('background-job')).toBeNull();
+  });
+});
+
+describe('lastRunDuration', () => {
+  it('formatsHowLongTheLastRunTook', () => {
+    expect(formatDuration(400)).toBe('under a second');
+    expect(formatDuration(4_200)).toBe('4 s');
+    expect(formatDuration(59_999)).toBe('59 s');
+    expect(formatDuration(125_000)).toBe('2 min 5 s');
+    expect(formatDuration(120_000)).toBe('2 min');
+    expect(formatDuration(3_780_000)).toBe('1 h 3 min');
+  });
+
+  it('isTheGapBetweenTheLastStartAndFinish', () => {
+    expect(lastRunDuration(job({ lastStartedAt: '2026-11-13T08:30:00Z', lastFinishedAt: '2026-11-13T08:30:04Z' })))
+      .toBe('4 s');
+  });
+
+  it('isNothingWhileRunning_whenOff_orWhenTimesAreMissingOrOutOfOrder', () => {
+    expect(lastRunDuration(job({ running: true }))).toBeNull();
+    expect(lastRunDuration(job({ state: 'OFF' }))).toBeNull();
+    expect(lastRunDuration(job({ lastStartedAt: null }))).toBeNull();
+    expect(lastRunDuration(job({ lastFinishedAt: null }))).toBeNull();
+    expect(lastRunDuration(job({ lastStartedAt: '2026-11-13T08:31:00Z', lastFinishedAt: '2026-11-13T08:30:00Z' })))
+      .toBeNull();
+  });
+});
+
+describe('BackgroundJobs durations', () => {
+  beforeEach(() => {
+    vi.mocked(adminBackgroundJobsApi.list).mockReset();
+    vi.mocked(adminBackgroundJobsApi.failures).mockReset();
+    mockAuth(['PLATFORM_DIAGNOSTICS_VIEW']);
+  });
+
+  it('showsHowLongEachJobsLastRunTookOnItsRow', async () => {
+    vi.mocked(adminBackgroundJobsApi.list).mockResolvedValue([
+      job({ key: 'ImportJobWorker.poll', name: 'Statement import worker',
+        lastStartedAt: '2026-11-13T08:30:00Z', lastFinishedAt: '2026-11-13T08:32:05Z' }),
+    ]);
+    renderPage();
+    const row = await screen.findByTestId('background-job');
+    expect(within(row).getByText(/took 2 min 5 s/)).toBeInTheDocument();
   });
 });

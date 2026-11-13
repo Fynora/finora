@@ -18,9 +18,11 @@ public final class SupportTicketDto {
 
     private SupportTicketDto() {}
 
-    /** List-row shape: everything a "My Tickets" row or an admin queue row needs, and nothing that
-     *  requires a second query to produce. Deliberately excludes {@code description} — the same
-     *  reason {@code HeldImportDto}'s list shape excludes the raw parser error. */
+    /** The admin list-row shape (claim, unclaim, mark duplicate, a status change): everything a queue
+     *  row needs, and nothing that requires a second query to produce. Deliberately excludes
+     *  {@code description} — the same reason {@code HeldImportDto}'s list shape excludes the raw
+     *  parser error. Never sent to a customer: it carries {@code claimedByAdminId}, a staff
+     *  account's id — the customer's "My Tickets" list is {@link OwnSummary}. */
     @Schema(name = "SupportTicketSummary")
     public record Summary(
             UUID id,
@@ -43,9 +45,33 @@ public final class SupportTicketDto {
         }
     }
 
-    /** Single-ticket shape, including the attachment list. Served by one route to two audiences —
-     *  see {@code SupportTicketService.getDetail}'s own doc for why there is no separate admin
-     *  detail endpoint. */
+    /** The customer's own list row ("My Tickets"): {@link Summary} without {@code claimedByAdminId}.
+     *  Who on the staff holds a ticket is Fynora's own working detail, and the id is a staff
+     *  account's — it used to reach the customer here (break-test 2026-11-13). */
+    @Schema(name = "SupportTicketOwnSummary")
+    public record OwnSummary(
+            UUID id,
+            String ticketNumber,
+            UUID userId,
+            SupportTicket.Category category,
+            String subject,
+            SupportTicket.Status status,
+            Instant createdAt,
+            Instant updatedAt,
+            UUID duplicateOfTicketId,
+            String duplicateOfTicketNumber
+    ) {
+        public static OwnSummary from(SupportTicket ticket) {
+            return new OwnSummary(ticket.getId(), ticket.getTicketNumber(), ticket.getUserId(),
+                    ticket.getCategory(), ticket.getSubject(), ticket.getStatus(),
+                    ticket.getCreatedAt(), ticket.getUpdatedAt(),
+                    ticket.getDuplicateOfTicketId(), ticket.getDuplicateOfTicketNumber());
+        }
+    }
+
+    /** Single-ticket shape for the customer, including the attachment list: the ticket detail and
+     *  create routes, and {@code support_tickets.json} in the data export. No staff account's id —
+     *  who holds the ticket is on {@link AdminDetail} only (break-test 2026-11-13). */
     @Schema(name = "SupportTicketDetail")
     public record Detail(
             UUID id,
@@ -57,7 +83,6 @@ public final class SupportTicketDto {
             SupportTicket.Status status,
             ClientPlatform source,
             String appVersion,
-            UUID claimedByAdminId,
             Instant resolvedAt,
             Instant closedAt,
             Instant createdAt,
@@ -69,7 +94,7 @@ public final class SupportTicketDto {
         public static Detail from(SupportTicket ticket, List<AttachmentSummary> attachments) {
             return new Detail(ticket.getId(), ticket.getTicketNumber(), ticket.getUserId(),
                     ticket.getCategory(), ticket.getSubject(), ticket.getDescription(), ticket.getStatus(),
-                    ticket.getSource(), ticket.getAppVersion(), ticket.getClaimedByAdminId(),
+                    ticket.getSource(), ticket.getAppVersion(),
                     ticket.getResolvedAt(), ticket.getClosedAt(), ticket.getCreatedAt(), ticket.getUpdatedAt(),
                     attachments, ticket.getDuplicateOfTicketId(), ticket.getDuplicateOfTicketNumber());
         }

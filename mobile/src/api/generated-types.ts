@@ -7815,8 +7815,6 @@ export interface components {
             /** @enum {string} */
             source?: "WEB" | "MOBILE_ANDROID" | "MOBILE_IOS";
             appVersion?: string;
-            /** Format: uuid */
-            claimedByAdminId?: string;
             /** Format: date-time */
             resolvedAt?: string;
             /** Format: date-time */
@@ -10625,10 +10623,10 @@ export interface components {
             /** Format: int32 */
             windowMonths?: number;
         };
-        ApiResponsePagedResponseSupportTicketSummary: {
+        ApiResponsePagedResponseSupportTicketOwnSummary: {
             success?: boolean;
             message?: string;
-            data?: components["schemas"]["PagedResponseSupportTicketSummary"];
+            data?: components["schemas"]["PagedResponseSupportTicketOwnSummary"];
             /** Format: date-time */
             timestamp?: string;
             errorCode?: string;
@@ -10637,8 +10635,8 @@ export interface components {
                 [key: string]: unknown;
             };
         };
-        PagedResponseSupportTicketSummary: {
-            content?: components["schemas"]["SupportTicketSummary"][];
+        PagedResponseSupportTicketOwnSummary: {
+            content?: components["schemas"]["SupportTicketOwnSummary"][];
             /** Format: int32 */
             page?: number;
             /** Format: int32 */
@@ -10647,6 +10645,25 @@ export interface components {
             totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
+        };
+        SupportTicketOwnSummary: {
+            /** Format: uuid */
+            id?: string;
+            ticketNumber?: string;
+            /** Format: uuid */
+            userId?: string;
+            /** @enum {string} */
+            category?: "STATEMENT_IMPORT" | "CATEGORIZATION" | "ACCOUNT_LINKING" | "DATA_ACCURACY" | "TECHNICAL_ISSUE" | "OTHER" | "SUSPENSION_APPEAL" | "SUSPENSION_DELETION_REQUEST";
+            subject?: string;
+            /** @enum {string} */
+            status?: "OPEN" | "IN_PROGRESS" | "RESOLVED" | "CLOSED";
+            /** Format: date-time */
+            createdAt?: string;
+            /** Format: date-time */
+            updatedAt?: string;
+            /** Format: uuid */
+            duplicateOfTicketId?: string;
+            duplicateOfTicketNumber?: string;
         };
         ApiResponseRefreshOverview: {
             success?: boolean;
@@ -16800,7 +16817,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponsePagedResponseSupportTicketSummary"];
+                    "*/*": components["schemas"]["ApiResponsePagedResponseSupportTicketOwnSummary"];
                 };
             };
         };

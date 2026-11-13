@@ -17,7 +17,6 @@ function detail(overrides: Partial<SupportTicketDetail> = {}): SupportTicketDeta
     category: 'STATEMENT_IMPORT',
     subject: 'Import stuck',
     status: 'OPEN',
-    claimedByAdminId: null,
     createdAt: '2026-09-04T10:00:00Z',
     updatedAt: '2026-09-04T10:00:00Z',
     description: 'Progress bar froze at 60%.',

@@ -2126,7 +2126,8 @@ export interface SupportTicketSummary {
   category: SupportTicketCategory;
   subject: string;
   status: SupportTicketStatus;
-  claimedByAdminId: string | null;
+  // No claimedByAdminId: which staff account holds a ticket is not the customer's to know, and the
+  // server no longer sends it (break-test 2026-11-13).
   createdAt: string;
   updatedAt: string;
   /** Set when our team closed this ticket as a duplicate of another ticket the customer raised. */

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import userEvent from '@testing-library/user-event';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { Link, MemoryRouter, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -187,6 +188,64 @@ describe('HeldStatementDetail', () => {
     expect(screen.getByText('80')).toBeInTheDocument();
     expect(screen.getByText('parsedCreditCount')).toBeInTheDocument();
     expect(screen.getByText('79')).toBeInTheDocument();
+  });
+
+  /** On a phone the decision sat behind every rule card, most of which found nothing: the checks
+   *  that passed or did not apply fold under a toggle, the ones that explain the hold stay. */
+  describe('checks that passed or did not apply', () => {
+    const finding = (rule: string, outcome: string) =>
+      ({ sectionIndex: 0, rule, outcome, details: {}, createdAt: '2026-09-01T07:59:00Z' });
+
+    it('are folded behind a toggle, and shown on request', async () => {
+      vi.mocked(adminHeldStatementApi.get).mockResolvedValue({
+        ...detail,
+        findings: [finding('BALANCE_CHAIN', 'FAILED'), finding('COLUMN_AMBIGUITY', 'VERIFIED'),
+          finding('CREDIT_CARD_FLOW_RECONCILIATION', 'NOT_APPLICABLE'), finding('ROW_ACCOUNTING', 'WARNING')],
+      });
+      mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);
+      const user = userEvent.setup();
+      renderPage();
+
+      expect(await screen.findByText('BALANCE_CHAIN')).toBeInTheDocument();
+      expect(screen.getByText('ROW_ACCOUNTING')).toBeInTheDocument();
+      expect(screen.queryByText('COLUMN_AMBIGUITY')).not.toBeInTheDocument();
+      expect(screen.queryByText('CREDIT_CARD_FLOW_RECONCILIATION')).not.toBeInTheDocument();
+
+      const toggle = screen.getByRole('button', { name: 'Show 2 more checks (passed or did not apply)' });
+      expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      await user.click(toggle);
+
+      expect(screen.getByText('COLUMN_AMBIGUITY')).toBeInTheDocument();
+      expect(screen.getByText('CREDIT_CARD_FLOW_RECONCILIATION')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Hide the 2 checks that passed or did not apply' }))
+        .toHaveAttribute('aria-expanded', 'true');
+    });
+
+    it('all show, with no toggle, when none of them explains the hold', async () => {
+      vi.mocked(adminHeldStatementApi.get).mockResolvedValue({
+        ...detail,
+        findings: [finding('COLUMN_AMBIGUITY', 'VERIFIED'), finding('CREDIT_CARD_FLOW_RECONCILIATION', 'NOT_APPLICABLE')],
+      });
+      mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);
+      renderPage();
+
+      expect(await screen.findByText('COLUMN_AMBIGUITY')).toBeInTheDocument();
+      expect(screen.getByText('CREDIT_CARD_FLOW_RECONCILIATION')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /more check/ })).not.toBeInTheDocument();
+    });
+
+    it('an outcome this page does not know stays in view', async () => {
+      vi.mocked(adminHeldStatementApi.get).mockResolvedValue({
+        ...detail,
+        findings: [finding('NEW_RULE', 'INCONCLUSIVE'), finding('COLUMN_AMBIGUITY', 'VERIFIED')],
+      });
+      mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);
+      renderPage();
+
+      expect(await screen.findByText('NEW_RULE')).toBeInTheDocument();
+      expect(screen.queryByText('COLUMN_AMBIGUITY')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Show 1 more check (passed or did not apply)' })).toBeInTheDocument();
+    });
   });
 
   /** ROW_ACCOUNTING's droppedTransactionCandidateReasons detail is a nested reason-code-to-count

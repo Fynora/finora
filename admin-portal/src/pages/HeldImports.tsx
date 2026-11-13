@@ -21,6 +21,15 @@ const PAGE_SIZE = 25;
 /** Mirrors AdminHeldImportService.MAX_MESSAGE_LENGTH; the server refuses anything longer. */
 const MAX_MESSAGE_LENGTH = 500;
 
+
+/** A held import's id: the job's UUID, as hold emails link it (?job=). */
+const JOB_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Shaped like an API error so the panel's usual LoadError says it. */
+const MALFORMED_LINK = {
+  response: { data: { message: "the link's import id is incomplete or mistyped. Open it from the held-imports list instead." } },
+};
+
 /**
  * The held-imports triage queue.
  *
@@ -72,10 +81,13 @@ function HeldImportsContent() {
   // pushed it back off screen (seen at 375px wide, 2026-11-12).
   const panelRef = useRef<HTMLDivElement>(null);
   const scrolledFor = useRef<string | null>(null);
+  // A link whose job id is not an id at all (cut short, mistyped) is answered here rather than
+  // sent to the server, whose answer names a request parameter instead of saying what is wrong.
+  const malformedLink = selectedId !== null && !JOB_ID.test(selectedId);
   const detail = useQuery({
     queryKey: ['held-imports-detail', selectedId],
     queryFn: () => adminHeldImportApi.get(selectedId as string),
-    enabled: selectedId !== null,
+    enabled: selectedId !== null && !malformedLink,
   });
 
   const everythingLoaded = !summary.isLoading && !list.isLoading && !detail.isLoading;
@@ -258,7 +270,7 @@ function HeldImportsContent() {
           key={selectedId}
           detail={detail.data}
           loading={detail.isLoading}
-          error={detail.error}
+          error={malformedLink ? MALFORMED_LINK : detail.error}
           actionError={actionError}
           busy={reprocess.isPending || resolve.isPending}
           onReprocess={() => reprocess.mutate(selectedId)}

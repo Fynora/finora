@@ -579,6 +579,15 @@ describe('HeldImports — opened from a hold email', () => {
     expect(screen.queryByTestId('held-import-panel')).not.toBeInTheDocument();
   });
 
+  it('says a link with a mangled job id is mistyped, without asking the server', async () => {
+    renderPage('/held-imports?job=not-a-uuid');
+
+    expect(await screen.findByText(
+      "Couldn't load this held import: the link's import id is incomplete or mistyped. Open it from the held-imports list instead.",
+    )).toBeInTheDocument();
+    expect(adminHeldImportApi.get).not.toHaveBeenCalled();
+  });
+
   it('says why when the linked hold cannot be opened', async () => {
     vi.mocked(adminHeldImportApi.get).mockRejectedValue({
       response: { data: { message: 'This import is no longer held for review.' } },

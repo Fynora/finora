@@ -6,8 +6,12 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.sql.Timestamp;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.util.List;
 
 /**
  * Reads and writes the two background-job tables (V317).
@@ -37,7 +41,7 @@ public class BackgroundJobStore {
                     last_started_at = EXCLUDED.last_started_at,
                     last_instance = EXCLUDED.last_instance,
                     updated_at = now()
-                """, jobKey, Timestamp.from(at), instance));
+                """, jobKey, utc(at), instance));
     }
 
     /**
@@ -48,7 +52,7 @@ public class BackgroundJobStore {
     public void finished(String jobKey, String instance, Instant at, JobOutcome outcome,
                          int failedItems, int handled, String errorSummary) {
         boolean failing = outcome == JobOutcome.CRASHED || outcome == JobOutcome.PARTLY_FAILED;
-        Timestamp when = Timestamp.from(at);
+        OffsetDateTime when = utc(at);
         ownTransaction.executeWithoutResult(status -> {
             jdbc.update("""
                     INSERT INTO background_job_status (job_key, last_finished_at, last_outcome,
@@ -77,5 +81,40 @@ public class BackgroundJobStore {
                         """, jobKey, when, outcome.name(), failedItems, errorSummary);
             }
         });
+    }
+
+    public List<BackgroundJobStatus> findAll() {
+        return jdbc.query("SELECT * FROM background_job_status", (rs, i) -> statusOf(rs));
+    }
+
+    /** A job's failure rows since {@code since}, newest first. */
+    public List<BackgroundJobFailure> failuresSince(String jobKey, Instant since) {
+        return jdbc.query("""
+                SELECT occurred_at, outcome, failed_items, error_summary FROM background_job_failures
+                WHERE job_key = ? AND occurred_at >= ? ORDER BY occurred_at DESC
+                """,
+                (rs, i) -> new BackgroundJobFailure(rs.getObject("occurred_at", OffsetDateTime.class).toInstant(),
+                        JobOutcome.valueOf(rs.getString("outcome")), rs.getInt("failed_items"),
+                        rs.getString("error_summary")),
+                jobKey, utc(since));
+    }
+
+    private static BackgroundJobStatus statusOf(ResultSet rs) throws SQLException {
+        String outcome = rs.getString("last_outcome");
+        return new BackgroundJobStatus(rs.getString("job_key"),
+                instant(rs, "last_started_at"), instant(rs, "last_finished_at"),
+                outcome == null ? null : JobOutcome.valueOf(outcome),
+                rs.getInt("last_failed_items"), rs.getInt("last_handled"), instant(rs, "last_success_at"),
+                rs.getInt("consecutive_failures"), instant(rs, "broken_since"), rs.getString("last_email_kind"),
+                instant(rs, "last_email_at"), instant(rs, "last_broken_email_at"), rs.getString("last_instance"));
+    }
+
+    private static Instant instant(ResultSet rs, String column) throws SQLException {
+        OffsetDateTime t = rs.getObject(column, OffsetDateTime.class);
+        return t == null ? null : t.toInstant();
+    }
+
+    private static OffsetDateTime utc(Instant at) {
+        return at.atOffset(ZoneOffset.UTC);
     }
 }

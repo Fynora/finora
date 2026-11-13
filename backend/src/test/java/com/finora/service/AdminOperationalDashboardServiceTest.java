@@ -56,11 +56,13 @@ class AdminOperationalDashboardServiceTest {
     private HeldStatementRepository heldStatementRepository;
     private ImportJobRepository importJobRepository;
     private UserActivityDayRepository userActivityDayRepository;
+    private com.finora.observability.jobs.BackgroundJobsService backgroundJobsService;
     private AdminOperationalDashboardService service;
 
     @BeforeEach
     void setUp() {
         userRepository = mock(UserRepository.class);
+        backgroundJobsService = mock(com.finora.observability.jobs.BackgroundJobsService.class);
         transactionRepository = mock(TransactionRepository.class);
         statementImportRepository = mock(StatementImportRepository.class);
         budgetRepository = mock(BudgetRepository.class);
@@ -72,7 +74,7 @@ class AdminOperationalDashboardServiceTest {
         userActivityDayRepository = mock(UserActivityDayRepository.class);
         service = new AdminOperationalDashboardService(userRepository, transactionRepository,
                 statementImportRepository, budgetRepository, goalRepository, auditLogRepository, healthRegistryService,
-                heldStatementRepository, importJobRepository, userActivityDayRepository);
+                heldStatementRepository, importJobRepository, userActivityDayRepository, backgroundJobsService);
 
         when(userRepository.countByEmailNot(BootstrapService.BOOTSTRAP_IDENTIFIER)).thenReturn(0L);
         when(userActivityDayRepository.countByActivityDate(any())).thenReturn(0L);

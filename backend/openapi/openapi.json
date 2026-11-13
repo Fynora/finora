@@ -14217,6 +14217,56 @@
                 }
             }
         },
+        "/api/v1/admin/background-jobs": {
+            "get": {
+                "tags": [
+                    "admin-background-jobs-controller"
+                ],
+                "operationId": "list_32",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseListBackgroundJobDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/background-jobs/{key}/failures": {
+            "get": {
+                "tags": [
+                    "admin-background-jobs-controller"
+                ],
+                "operationId": "failures",
+                "parameters": [
+                    {
+                        "name": "key",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseListBackgroundJobFailure"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/audit-logs": {
             "get": {
                 "tags": [
@@ -35194,6 +35244,10 @@
                     },
                     "importHoldsOverdue": {
                         "$ref": "#/components/schemas/OverdueHoldsDto"
+                    },
+                    "backgroundJobsNeedingAttention": {
+                        "type": "integer",
+                        "format": "int64"
                     }
                 }
             },
@@ -35552,6 +35606,151 @@
                     "totalPages": {
                         "type": "integer",
                         "format": "int32"
+                    }
+                }
+            },
+            "ApiResponseListBackgroundJobDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/BackgroundJobDto"
+                        }
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "BackgroundJobDto": {
+                "type": "object",
+                "properties": {
+                    "key": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "purpose": {
+                        "type": "string"
+                    },
+                    "schedule": {
+                        "type": "string"
+                    },
+                    "state": {
+                        "type": "string",
+                        "enum": [
+                            "OK",
+                            "PARTLY_FAILED",
+                            "CRASHED",
+                            "OVERDUE",
+                            "OFF"
+                        ]
+                    },
+                    "lastStartedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "lastFinishedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "lastSuccessAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "lastFailedItems": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "lastHandled": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "consecutiveFailures": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "brokenSince": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "running": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "ApiResponseListBackgroundJobFailure": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/BackgroundJobFailure"
+                        }
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "BackgroundJobFailure": {
+                "type": "object",
+                "properties": {
+                    "occurredAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "outcome": {
+                        "type": "string",
+                        "enum": [
+                            "OK",
+                            "PARTLY_FAILED",
+                            "CRASHED",
+                            "OFF"
+                        ]
+                    },
+                    "failedItems": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "errorSummary": {
+                        "type": "string"
                     }
                 }
             },

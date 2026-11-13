@@ -29,6 +29,14 @@ public interface ReferralCodeRepository extends JpaRepository<ReferralCode, UUID
 
     Optional<ReferralCode> findByCode(String code);
 
+    /** Stores this user's code unless a row conflicts on any unique key: the user already has one
+     *  (a concurrent first request stored it), or the code was taken. Never throws on either, so
+     *  the caller's transaction stays usable; the caller reads back what is stored. */
+    @Modifying
+    @Query(value = "INSERT INTO referral_codes (user_id, code) VALUES (:userId, :code) ON CONFLICT DO NOTHING",
+            nativeQuery = true)
+    int insertIfAbsent(@Param("userId") UUID userId, @Param("code") String code);
+
     boolean existsByCode(String code);
 
     /** AccountPurgeSweepService. */

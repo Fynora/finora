@@ -98,19 +98,28 @@ public class ReferralService {
         this.referralChargeRepository = referralChargeRepository;
     }
 
-    /** Lazily creates the user's own shareable code on first request -- there is no natural
-     *  earlier moment (registration itself is the one time we can't hand out "your own" code, since
-     *  the account doesn't exist yet). */
+    /**
+     * Lazily creates the user's own shareable code on first request -- there is no natural
+     * earlier moment (registration itself is the one time we can't hand out "your own" code, since
+     * the account doesn't exist yet).
+     *
+     * <p>Safe when two first requests arrive together (the invite card, the Referrals page, two
+     * devices). It was a read-then-save, and the slower request's insert hit the unique key on
+     * {@code user_id} and answered 409. Now the insert does nothing on any conflict and the code is
+     * read back, so both requests answer with whichever code was stored first. A conflict on
+     * {@code code} instead (another user drew the same code between the check and the insert)
+     * leaves no row for this user, and a fresh code is tried.
+     */
     @Transactional
     public String myCode(UUID userId) {
-        return referralCodeRepository.findByUserId(userId)
-                .map(ReferralCode::getCode)
-                .orElseGet(() -> {
-                    ReferralCode created = new ReferralCode();
-                    created.setUserId(userId);
-                    created.setCode(generateUniqueCode());
-                    return referralCodeRepository.save(created).getCode();
-                });
+        Optional<ReferralCode> existing = referralCodeRepository.findByUserId(userId);
+        if (existing.isPresent()) return existing.get().getCode();
+        for (int attempt = 0; attempt < 5; attempt++) {
+            referralCodeRepository.insertIfAbsent(userId, generateUniqueCode());
+            Optional<ReferralCode> stored = referralCodeRepository.findByUserId(userId);
+            if (stored.isPresent()) return stored.get().getCode();
+        }
+        throw new IllegalStateException("Could not store a referral code after 5 attempts.");
     }
 
     /** 8 uppercase hex characters -- same SecureRandom + hex convention as

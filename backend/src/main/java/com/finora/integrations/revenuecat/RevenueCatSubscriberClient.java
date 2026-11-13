@@ -3,7 +3,6 @@ package com.finora.integrations.revenuecat;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.time.Instant;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.Optional;
 
@@ -46,8 +45,8 @@ public interface RevenueCatSubscriberClient {
         JsonNode subscriptions = body == null ? null : body.path("subscriber").path("subscriptions");
         if (subscriptions == null || !subscriptions.isObject()) return Optional.empty();
         if (originalTransactionId != null && !originalTransactionId.isBlank()) {
-            for (Iterator<Map.Entry<String, JsonNode>> it = subscriptions.fields(); it.hasNext(); ) {
-                JsonNode entry = it.next().getValue();
+            for (Map.Entry<String, JsonNode> property : subscriptions.properties()) {
+                JsonNode entry = property.getValue();
                 String storeId = entry.path("store_transaction_id").asText("");
                 if (storeId.equals(originalTransactionId) || storeId.startsWith(originalTransactionId + "..")) {
                     return Optional.of(of(entry));

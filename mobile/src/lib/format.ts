@@ -115,6 +115,14 @@ export function monthLabel(monthStr: string): string {
   return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
 }
 
+/** "2026-10" -> "Oct 2026": a month named in a caption or a label beside the dashboard's day ranges,
+ *  where "Oct 26" next to "1–15 Oct" read as the 26th of October (break-test 2026-11-13). The chart
+ *  axis keeps monthLabel's short form. */
+export function monthYearLabel(monthStr: string): string {
+  const [y, m] = monthStr.split('-').map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+}
+
 /**
  * "2026-08" -> "August 2026". Same explicit y/m/1 construction as monthLabel above, not
  * `new Date(monthStr)` -- a bare "YYYY-MM" parses as UTC midnight, which renders as the PRIOR

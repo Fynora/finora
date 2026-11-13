@@ -1975,10 +1975,14 @@ describe('Dashboard — This Month default', () => {
     }));
     renderDashboard();
 
-    expect(await screen.findByText('Income · Aug 26')).toBeInTheDocument();
-    expect(screen.getByLabelText('Dashboard period')).toHaveDisplayValue('Latest month (Aug 26)');
-    expect(screen.getAllByText('vs the month before Aug 26')).toHaveLength(3);
-    expect(screen.getByText('as of Aug 26')).toBeInTheDocument();
+    // "Aug 2026", never "Aug 26": beside the cards' day ranges ("1–15 Aug") a two-digit year read
+    // as the 26th of the month (break-test 2026-11-13).
+    expect(await screen.findByText('Income · Aug 2026')).toBeInTheDocument();
+    expect(screen.getByLabelText('Dashboard period')).toHaveDisplayValue('Latest month (Aug 2026)');
+    expect(screen.getAllByText('vs the month before Aug 2026')).toHaveLength(3);
+    expect(screen.getByText('as of Aug 2026')).toBeInTheDocument();
+    expect(screen.getByText('Aug 2026', { selector: 'span' })).toBeInTheDocument();
+    expect(screen.queryByText(/\bAug 26\b/)).not.toBeInTheDocument();
     expect(screen.queryByText(/This Month/)).not.toBeInTheDocument();
   });
 
@@ -2102,6 +2106,8 @@ describe('Dashboard — cards name their days and show money not counted', () =>
     expect(line).toHaveTextContent('Mostly money received from people');
     expect(screen.getByRole('link', { name: 'Tell us what it is' }))
       .toHaveAttribute('href', '/app/money-review?start=2026-11-01&end=2026-11-30');
+    // A tap target a thumb can hit (it measured 16px tall in the break-test).
+    expect(screen.getByRole('link', { name: 'Tell us what it is' }).className).toContain('min-h-[44px]');
     expect(screen.queryByTestId('unresolved-inflow-banner')).not.toBeInTheDocument();
   });
 

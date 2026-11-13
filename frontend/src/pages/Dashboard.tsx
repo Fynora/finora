@@ -241,9 +241,17 @@ function monthBounds(month: string): [string, string] {
   return [`${month}-01`, `${month}-${String(lastDay).padStart(2, '0')}`];
 }
 
+/** "2026-08" -> "Aug 26": the cash-flow chart's month axis only, where every tick is a month. */
 function monthLabel(monthStr: string) {
   const [y, m] = monthStr.split('-').map(Number);
   return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+}
+
+/** "2026-10" -> "Oct 2026": a month named in a caption or a sentence. "Oct 26" there, next to the
+ *  cards' "1–15 Oct", read as the 26th of October (break-test 2026-11-13). */
+function monthYearLabel(monthStr: string) {
+  const [y, m] = monthStr.split('-').map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 }
 
 // "Mar 1 - Aug 31" -- dateStr is a plain ISO date (YYYY-MM-DD) from the backend, parsed with an
@@ -513,7 +521,7 @@ export default function Dashboard() {
   const periodIsCurrent = summary.reportingMonthIsCurrent || !summary.reportingMonth;
   const periodLabel = periodIsCurrent
     ? 'this month'
-    : monthLabel(summary.reportingMonth!);
+    : monthYearLabel(summary.reportingMonth!);
   const categoryEntries = Object.entries(summary.spendByCategory).sort((a, b) => b[1] - a[1]);
   const totalSpend = categoryEntries.reduce((s, [, v]) => s + v, 0);
   const donutColors = ['#3b82f6', '#16a34a', '#f59e0b', '#8b5cf6', '#ef4444', '#94a3b8'];
@@ -570,15 +578,15 @@ export default function Dashboard() {
   // The days the figures cover ("1–8 Nov"), so a month whose statements stop on the 8th is not read
   // as the whole month. Falls back to the old label when the server sends no figuresThrough.
   const monthCardSuffix = monthCardLabel(summary.reportingMonth, summary.figuresThrough,
-    periodIsCurrent ? 'This Month' : monthLabel(summary.reportingMonth!), !periodIsCurrent, summary.figuresFrom);
-  const monthDeltaLabel = periodIsCurrent ? 'vs last month' : `vs the month before ${monthLabel(summary.reportingMonth!)}`;
+    periodIsCurrent ? 'This Month' : monthYearLabel(summary.reportingMonth!), !periodIsCurrent, summary.figuresFrom);
+  const monthDeltaLabel = periodIsCurrent ? 'vs last month' : `vs the month before ${monthYearLabel(summary.reportingMonth!)}`;
   const monthGateReasonText = monthComparisonGateText(summary.comparisonGateReason, summary.comparisonGateMinTransactions);
   const monthKpis = [
     {
       label: 'Net worth',
       value: fmt(summary.netWorth),
       // A card whose amount owed is not known is left out of this figure (lib/amountOwed.ts); say so.
-      caption: [periodIsCurrent ? 'as of today' : `as of ${monthLabel(summary.reportingMonth!)}`,
+      caption: [periodIsCurrent ? 'as of today' : `as of ${monthYearLabel(summary.reportingMonth!)}`,
         unknownCardsNote(summary.cardsWithUnknownAmountOwed)].filter(Boolean).join('. '),
       delta: null as number | null, deltaLabel: '',
       icon: Wallet, iconBg: 'bg-accent-blue-bg', iconColor: 'text-accent-blue', gateReasonText: null as string | null,
@@ -619,7 +627,8 @@ export default function Dashboard() {
       {unresolved.bounds && (
         <Link
           to={`/app/money-review?start=${unresolved.bounds[0]}&end=${unresolved.bounds[1]}`}
-          className="text-xs text-primary font-medium mt-1 inline-block"
+          /* 44px tall: a tap target a thumb can hit on a phone (it measured 16px). */
+          className="text-xs text-primary font-medium inline-flex items-center min-h-[44px]"
         >
           Tell us what it is
         </Link>
@@ -1129,7 +1138,7 @@ export default function Dashboard() {
               {/* Named after the month the summary reports on: "This Month" only when it is the
                   current one, so the option never claims a month the cards are not showing. */}
               <option value="THIS_MONTH">
-                {periodIsCurrent ? 'This Month' : `Latest month (${monthLabel(summary.reportingMonth!)})`}
+                {periodIsCurrent ? 'This Month' : `Latest month (${monthYearLabel(summary.reportingMonth!)})`}
               </option>
               <option value="LAST_3_MONTHS">Last 3 Months</option>
               <option value="LAST_6_MONTHS">Last 6 Months</option>

@@ -997,6 +997,26 @@ describe('categorization review nudge', () => {
     expect(transactions.quickSort).toHaveBeenCalledWith(0, false, 'DASHBOARD');
   });
 
+  it('asks again each time the Dashboard tab comes back into focus', async () => {
+    // Bottom tabs keep the screen mounted, so a "visit" is a focus, not a mount. The shared mock
+    // runs a focus effect once; this test keeps the screen's latest focus effect to fire it again.
+    const nav = jest.requireMock('@react-navigation/native');
+    const sharedUseFocusEffect = nav.useFocusEffect;
+    let refocus: (() => void) | null = null;
+    nav.useFocusEffect = (effect: () => void) => {
+      refocus = effect;
+      sharedUseFocusEffect(effect);
+    };
+    try {
+      renderScreen();
+      await waitFor(() => expect(transactions.quickSort).toHaveBeenCalledTimes(1));
+      act(() => { refocus?.(); });
+      await waitFor(() => expect(transactions.quickSort).toHaveBeenCalledTimes(2));
+    } finally {
+      nav.useFocusEffect = sharedUseFocusEffect;
+    }
+  });
+
   it('brings the nudge back when Quick sort has nothing to ask', async () => {
     transactions.needsReview.mockResolvedValue([{ id: 't-1' }, { id: 't-2' }] as never);
 

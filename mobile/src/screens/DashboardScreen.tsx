@@ -1,10 +1,10 @@
-import { useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View, type ScrollViewInstance,
 } from 'react-native';
 import { AppRefreshControl } from '../components/AppRefreshControl';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigation, useRoute, useScrollToTop, type RouteProp } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute, useScrollToTop, type RouteProp } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { hapticError, hapticSelectionIfChanged, hapticSuccess } from '../lib/haptics';
@@ -121,6 +121,13 @@ export function DashboardScreen() {
   // The Dashboard's Quick sort card: null while it checks, true while it asks, false when it has
   // nothing to show -- only then does the review nudge appear, so the two never stack.
   const [quickSortShowing, setQuickSortShowing] = useState<boolean | null>(null);
+  // Bottom tabs keep this screen mounted, so each focus is a new visit: the card is keyed on it and
+  // asks afresh. 0 until the first focus, so the first visit fetches once, not twice.
+  const [quickSortVisit, setQuickSortVisit] = useState(0);
+  useFocusEffect(useCallback(() => {
+    setQuickSortShowing(null);
+    setQuickSortVisit((v) => v + 1);
+  }, []));
   const openCategoryReview = () => {
     trackNavigation('review-categories', 'contextual');
     navigation.navigate('More', { screen: 'CategoryReview' });
@@ -552,12 +559,15 @@ export function DashboardScreen() {
       {/* A few Quick sort questions per visit (spec 2026-11-13-dashboard-quick-sort-design.md), in
           the nudge's place: people answer when the question is in front of them. When it has
           nothing to show (nothing waiting, failed, "Not now" today, finished) the nudge returns. */}
-      <QuickSortPanel
-        variant="dashboard"
-        accountEmail={email ?? null}
-        onLoaded={(questions) => setQuickSortShowing(questions > 0)}
-        onOpenFull={openCategoryReview}
-      />
+      {quickSortVisit > 0 ? (
+        <QuickSortPanel
+          key={quickSortVisit}
+          variant="dashboard"
+          accountEmail={email ?? null}
+          onLoaded={(questions) => setQuickSortShowing(questions > 0)}
+          onOpenFull={openCategoryReview}
+        />
+      ) : null}
       {quickSortShowing === false && reviewCountKnown && reviewCount > 0 ? (
         <Pressable
           onPress={openCategoryReview}

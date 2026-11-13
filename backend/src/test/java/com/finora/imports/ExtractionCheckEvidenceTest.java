@@ -195,4 +195,88 @@ class ExtractionCheckEvidenceTest {
         assertThat(e.getDetails().get("transactionShapedLines")).isEqualTo(0);
         assertThat(looksLikeAStatement(e)).isFalse();
     }
+
+    // ------------------------------------------------------------------ a ledger header
+
+    private static ApiException rejectionWithHeaders(List<String> headers, UnparseableRow... recovered) {
+        DocumentContext ctx = new DocumentContext("PDF", "test");
+        ctx.recordTables(1);
+        ctx.recordHeaders(headers);
+        StagingResponse empty = new StagingResponse(List.of(), 0, 0, null, List.of(recovered), null);
+        try {
+            ExtractionCheck.rejectIfNothingWasExtracted(empty, ctx);
+        } catch (ApiException e) {
+            return e;
+        }
+        throw new AssertionError("expected a rejection");
+    }
+
+    @Test
+    void aLocatedLedgerHeaderWithUnreadLinesUnderItIsEvidenceOfAStatement() {
+        // The real scanned HSBC savings statement's shape: its header located, its dates unread by
+        // OCR, so nothing it set aside carries a date and an amount together.
+        ApiException e = rejectionWithHeaders(
+                List.of("Date", "Transaction Details", "Deposits", "Withdrawals", "Balance"),
+                row("Transaction Turnover 50,000.00 1,500.00"), row("Sample Area Office"));
+
+        assertThat(e.getCode()).isEqualTo(com.finora.exception.ErrorCode.IMPORT_NO_TRANSACTIONS_FOUND);
+        assertThat(e.getDetails().get("transactionShapedLines")).isEqualTo(0);
+        assertThat(e.getDetails().get("ledgerHeader")).isEqualTo(true);
+        assertThat(looksLikeAStatement(e)).isTrue();
+    }
+
+    @Test
+    void aLedgerHeaderWithNothingUnderItIsNotEvidence() {
+        ApiException e = rejectionWithHeaders(List.of("Date", "Narration", "Debit", "Credit", "Balance"));
+
+        assertThat(e.getDetails().get("ledgerHeader")).isEqualTo(false);
+        assertThat(looksLikeAStatement(e)).isFalse();
+    }
+
+    @Test
+    void anInvoicesTableHeaderIsNotEvidence() {
+        ApiException e = rejectionWithHeaders(List.of("Date", "Description", "Qty", "Rate", "Amount"),
+                row("Web hosting 1 4,500.00 4,500.00"), row("Total Due 5,310.00"));
+
+        assertThat(e.getDetails().get("ledgerHeader")).isEqualTo(false);
+        assertThat(looksLikeAStatement(e)).isFalse();
+    }
+
+    @Test
+    void ledgerHeadersAsBanksPrintThem() {
+        assertThat(ExtractionCheck.namesALedger(List.of("Date", "Transaction Details", "Deposits", "Withdrawals", "Balance"))).isTrue();
+        assertThat(ExtractionCheck.namesALedger(List.of("Date", "Narration", "Chq./Ref.No.", "Value Dt",
+                "Withdrawal Amt.", "Deposit Amt.", "Closing Balance"))).isTrue();
+        assertThat(ExtractionCheck.namesALedger(List.of("Txn Date", "Description", "Debit", "Credit"))).isTrue();
+        assertThat(ExtractionCheck.namesALedger(List.of("Date", "Instrument ID", "Amount(INR)", "Type (DR/CR)", "Balance"))).isTrue();
+        assertThat(ExtractionCheck.namesALedger(List.of("Date", "Particulars", "Amount", "Balance"))).isTrue();
+    }
+
+    @Test
+    void headersThatAreNotALedger() {
+        // A card statement's single amount column, a date with a balance and no money column, money
+        // both ways with no date, and nothing at all.
+        assertThat(ExtractionCheck.namesALedger(List.of("Date", "Transaction Details", "Amount"))).isFalse();
+        assertThat(ExtractionCheck.namesALedger(List.of("Date", "Balance"))).isFalse();
+        assertThat(ExtractionCheck.namesALedger(List.of("Description", "Debit", "Credit", "Balance"))).isFalse();
+        assertThat(ExtractionCheck.namesALedger(List.of("Date", "Deposits"))).isFalse();
+        assertThat(ExtractionCheck.namesALedger(List.of())).isFalse();
+        assertThat(ExtractionCheck.namesALedger(null)).isFalse();
+    }
+
+    @Test
+    void noLocatedTableMeansNoLedgerHeader() {
+        DocumentContext ctx = new DocumentContext("PDF", "test");
+        ctx.recordHeaders(List.of("Date", "Narration", "Debit", "Credit", "Balance"));
+        StagingResponse empty = new StagingResponse(List.of(), 0, 0, null, List.of(row("Sample text")), null);
+        ApiException e;
+        try {
+            ExtractionCheck.rejectIfNothingWasExtracted(empty, ctx);
+            throw new AssertionError("expected a rejection");
+        } catch (ApiException thrown) {
+            e = thrown;
+        }
+        assertThat(e.getCode()).isEqualTo(com.finora.exception.ErrorCode.IMPORT_NO_HEADER_DETECTED);
+        assertThat(e.getDetails().get("ledgerHeader")).isEqualTo(false);
+    }
 }

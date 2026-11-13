@@ -44,7 +44,7 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { CHART_PALETTE, bucketTopSlices } from '../lib/chartGeometry';
 import {
-  fmtCurrency, fromLocalDateString, greeting, monthDateRange, monthLabel, monthLabelLong, withSep,
+  fmtCurrency, fromLocalDateString, greeting, monthDateRange, monthLabel, monthLabelLong, monthYearLabel, withSep,
 } from '../lib/format';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { usePrefetchAdjacentScreens } from '../lib/prefetchAdjacentScreens';
@@ -662,7 +662,7 @@ export function DashboardScreen() {
                   navigation.navigate('Transactions', {
                     filters: {
                       categoryName, dateFrom, dateTo,
-                      label: `${categoryName} · ${monthLabel(summary!.reportingMonth!)}`,
+                      label: `${categoryName} · ${monthYearLabel(summary!.reportingMonth!)}`,
                       nonce: Date.now(),
                     },
                   });

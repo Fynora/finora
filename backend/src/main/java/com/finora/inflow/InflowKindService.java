@@ -169,15 +169,20 @@ public class InflowKindService {
             // Quick sort leaves unanswered credits to this question, so nothing else would clear
             // the flag, and the "Needs Review" badge would stay on payments the user answered.
             // Only the payments the choice can decide: the same test the choice itself passed.
+            // Each one remembers that this answer cleared its flag, so Undo gives back exactly that.
             for (Transaction waiting : transactions.findByUserIdAndCounterpartyKeyAndNeedsCategoryReviewTrue(userId, key)) {
                 if (notChoosableReason(waiting) != null) continue;
                 waiting.setNeedsCategoryReview(false);
+                waiting.setReviewClearedByInflowAnswer(true);
                 transactions.save(waiting);
             }
         } else {
             t.setInflowKindId(kind.getId());
             // Saying what this payment was is its review (see the sender branch above).
-            t.setNeedsCategoryReview(false);
+            if (t.isNeedsCategoryReview()) {
+                t.setNeedsCategoryReview(false);
+                t.setReviewClearedByInflowAnswer(true);
+            }
             transactions.save(t);
         }
         return countsAs(userId, txnId);
@@ -190,7 +195,11 @@ public class InflowKindService {
         if (scope == InflowChoices.Scope.SENDER) {
             String key = t.getCounterpartyKey();
             if (key != null && !key.isBlank()) rules.findByUserIdAndCounterpartyKey(userId, key).ifPresent(rules::delete);
-            touched = key == null || key.isBlank() ? List.of(t) : transactions.findByUserIdAndCounterpartyKey(userId, key);
+            // A key that names no one sender (missing, masked, cut, a gateway's own id) is shared by
+            // different people: setChoice never makes a sender answer for it, so an Undo for it is
+            // about this payment only -- never every stranger who shares the key.
+            touched = com.finora.util.CounterpartyIdentity.identifiesOnePayee(key)
+                    ? transactions.findByUserIdAndCounterpartyKey(userId, key) : List.of(t);
         } else {
             if (t.getInflowKindId() != null) {
                 t.setInflowKindId(null);
@@ -198,14 +207,23 @@ public class InflowKindService {
             }
             touched = List.of(t);
         }
-        // Undo puts each payment back as it was: answering cleared its review flag (setChoice), so a
-        // payment that is not counted again waits for review again. A category the user chose by
-        // hand is theirs and stays reviewed.
+        // Undo puts each payment back as it was: a payment whose review flag the answer cleared
+        // (reviewClearedByInflowAnswer, set by setChoice) waits for review again once it is not
+        // counted again. A payment that came in without the flag gets none (break-test 2026-11-13).
+        // A category the user chose by hand since is theirs and stays reviewed. A payment still
+        // decided another way -- its own answer, under a sender Undo -- keeps the mark for the Undo
+        // of that answer.
         FlowTotals.Context ctx = inflowChoices.contextFor(userId, accounts.findByUserId(userId), categories.findByUserId(userId));
         for (Transaction row : touched) {
-            if (row.isNeedsCategoryReview() || row.isCategoryManuallySet() || notChoosableReason(row) != null) continue;
+            if (!row.isReviewClearedByInflowAnswer()) continue;
+            if (row.isNeedsCategoryReview() || row.isCategoryManuallySet() || notChoosableReason(row) != null) {
+                row.setReviewClearedByInflowAnswer(false);
+                transactions.save(row);
+                continue;
+            }
             if (!FlowTotals.isUnresolvedInflow(row, ctx)) continue;
             row.setNeedsCategoryReview(true);
+            row.setReviewClearedByInflowAnswer(false);
             transactions.save(row);
         }
         return countsAs(userId, txnId);

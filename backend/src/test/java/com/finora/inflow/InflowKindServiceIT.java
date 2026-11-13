@@ -278,6 +278,103 @@ class InflowKindServiceIT extends AbstractIntegrationTest {
         assertThat(transactions.findById(chosenByHand.getId()).orElseThrow().isNeedsCategoryReview()).isFalse();
     }
 
+    // Break-test 2026-11-13: credits often arrive without the flag (a confident "Personal Transfer").
+    // Undo used to flag every credit that was uncounted again, so answer-then-Undo left "Needs
+    // Review" badges that were never there. Undo now gives back only the flags the answer took.
+    @Test
+    void answerThenUndoForASenderGivesBackOnlyTheFlagsTheAnswerTook() {
+        UUID userId = newUser();
+        UUID account = newAccount(userId);
+        String key = "vpa:exact-undo-" + UUID.randomUUID();
+        Transaction flagged = waiting(credit(userId, account, key));
+        Transaction unflagged = imported(credit(userId, account, key));
+        Transaction alsoUnflagged = imported(credit(userId, account, key));
+        service.setChoice(userId, flagged.getId(), new InflowDtos.SetChoiceRequest(builtIn(userId, "INCOME"),
+                com.finora.service.InflowChoices.Scope.SENDER));
+        assertThat(transactions.findById(flagged.getId()).orElseThrow().isReviewClearedByInflowAnswer()).isTrue();
+        assertThat(transactions.findById(unflagged.getId()).orElseThrow().isReviewClearedByInflowAnswer()).isFalse();
+
+        service.clearChoice(userId, unflagged.getId(), com.finora.service.InflowChoices.Scope.SENDER);
+
+        Transaction f = transactions.findById(flagged.getId()).orElseThrow();
+        assertThat(f.isNeedsCategoryReview()).as("the flag the answer took").isTrue();
+        assertThat(f.isReviewClearedByInflowAnswer()).as("given back, so forgotten").isFalse();
+        assertThat(transactions.findById(unflagged.getId()).orElseThrow().isNeedsCategoryReview())
+                .as("came in without the flag").isFalse();
+        assertThat(transactions.findById(alsoUnflagged.getId()).orElseThrow().isNeedsCategoryReview()).isFalse();
+    }
+
+    @Test
+    void answerThenUndoForOnePaymentThatCameInWithoutTheFlagLeavesItWithout() {
+        UUID userId = newUser();
+        UUID account = newAccount(userId);
+        Transaction row = imported(credit(userId, account, "vpa:exact-row-" + UUID.randomUUID()));
+        service.setChoice(userId, row.getId(), new InflowDtos.SetChoiceRequest(builtIn(userId, "INCOME"),
+                com.finora.service.InflowChoices.Scope.ROW));
+        assertThat(transactions.findById(row.getId()).orElseThrow().isReviewClearedByInflowAnswer()).isFalse();
+
+        service.clearChoice(userId, row.getId(), com.finora.service.InflowChoices.Scope.ROW);
+
+        assertThat(transactions.findById(row.getId()).orElseThrow().isNeedsCategoryReview()).isFalse();
+    }
+
+    /** A payment with its own answer stays decided under a sender Undo, so it keeps the mark: the
+     *  Undo of its own answer later gives its flag back. */
+    @Test
+    void aPaymentStillDecidedByItsOwnAnswerKeepsItsFlagForThatAnswersUndo() {
+        UUID userId = newUser();
+        UUID account = newAccount(userId);
+        String key = "vpa:own-answer-" + UUID.randomUUID();
+        Transaction viaSender = waiting(credit(userId, account, key));
+        Transaction ownAnswer = waiting(credit(userId, account, key));
+        service.setChoice(userId, ownAnswer.getId(), new InflowDtos.SetChoiceRequest(builtIn(userId, "INCOME"),
+                com.finora.service.InflowChoices.Scope.ROW));
+        service.setChoice(userId, viaSender.getId(), new InflowDtos.SetChoiceRequest(builtIn(userId, "FAMILY_SUPPORT"),
+                com.finora.service.InflowChoices.Scope.SENDER));
+
+        service.clearChoice(userId, viaSender.getId(), com.finora.service.InflowChoices.Scope.SENDER);
+        Transaction stillDecided = transactions.findById(ownAnswer.getId()).orElseThrow();
+        assertThat(stillDecided.isNeedsCategoryReview()).as("still decided by its own answer").isFalse();
+        assertThat(stillDecided.isReviewClearedByInflowAnswer()).isTrue();
+        assertThat(transactions.findById(viaSender.getId()).orElseThrow().isNeedsCategoryReview()).isTrue();
+
+        service.clearChoice(userId, ownAnswer.getId(), com.finora.service.InflowChoices.Scope.ROW);
+        assertThat(transactions.findById(ownAnswer.getId()).orElseThrow().isNeedsCategoryReview()).isTrue();
+    }
+
+    /** A masked UPI id is shared by different people. A sender Undo on one of their payments (the
+     *  apps never send one -- setChoice refuses a sender answer there -- but the API takes it) used to
+     *  reach every payment with that id; now only the one asked about. */
+    @Test
+    void aSenderUndoOnAnIdThatNamesNoOneTouchesOnlyThatPayment() {
+        UUID userId = newUser();
+        UUID account = newAccount(userId);
+        String shared = "masked:" + (1000 + new java.util.Random().nextInt(9000)) + "@ybl";
+        Transaction mine = waiting(credit(userId, account, shared));
+        service.setChoice(userId, mine.getId(), new InflowDtos.SetChoiceRequest(builtIn(userId, "INCOME"),
+                com.finora.service.InflowChoices.Scope.ROW));
+        Transaction stranger = waiting(credit(userId, account, shared));
+        service.setChoice(userId, stranger.getId(), new InflowDtos.SetChoiceRequest(builtIn(userId, "INCOME"),
+                com.finora.service.InflowChoices.Scope.ROW));
+        // The stranger's own answer is gone but its mark stays, so a sender Undo that reached it
+        // would flag it.
+        Transaction s = transactions.findById(stranger.getId()).orElseThrow();
+        s.setInflowKindId(null);
+        transactions.save(s);
+
+        service.clearChoice(userId, mine.getId(), com.finora.service.InflowChoices.Scope.SENDER);
+
+        assertThat(transactions.findById(stranger.getId()).orElseThrow().isNeedsCategoryReview())
+                .as("another person's payment sharing the masked id").isFalse();
+    }
+
+    /** Imported without the review flag: a credit the categorizer was confident about. */
+    private Transaction imported(Transaction t) {
+        t.setSource(Transaction.Source.CSV_IMPORT);
+        t.setNeedsCategoryReview(false);
+        return transactions.save(t);
+    }
+
     /** Imported and waiting for review, as a statement's credits arrive. The default source, MANUAL,
      *  is a hand-entered row, which counts as income on the user's word and is never "not counted". */
     private Transaction waiting(Transaction t) {

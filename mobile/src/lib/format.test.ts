@@ -1,6 +1,6 @@
 import {
   currentYearMonth, fmtCurrency, fmtDate, fmtForeignAmount, fmtStatementBalance, fmtMonthYear, fmtRelativeFutureTime, fmtRelativeTime,
-  fromLocalDateString, initials, monthDateRange, monthDayRangeLabel, monthLabel, monthLabelLong,
+  fromLocalDateString, initials, monthDateRange, monthDayRangeLabel, monthLabel, monthLabelLong, monthYearLabel,
   latestTransactionDay, toLocalDateString, withSep,
 } from './format';
 
@@ -218,6 +218,15 @@ describe('monthLabel', () => {
   it('shortens a YYYY-MM to month and 2-digit year', () => {
     expect(monthLabel('2026-08')).toBe('Aug 26');
     expect(monthLabel('2026-01')).toBe('Jan 26');
+  });
+});
+
+describe('monthYearLabel', () => {
+  // A month named in a caption, beside the dashboard's day ranges: a four-digit year, so "Oct 26"
+  // never reads as the 26th of October (break-test 2026-11-13).
+  it('names a YYYY-MM as short month and four-digit year', () => {
+    expect(monthYearLabel('2026-10')).toBe('Oct 2026');
+    expect(monthYearLabel('2025-01')).toBe('Jan 2025');
   });
 });
 

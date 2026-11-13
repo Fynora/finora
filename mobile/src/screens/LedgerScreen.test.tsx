@@ -1752,7 +1752,8 @@ describe('LedgerScreen "This Month" summary', () => {
     } as never);
     renderScreen();
 
-    expect(await screen.findByText('Aug 26')).toBeTruthy();
+    // "Aug 2026", not "Aug 26", which read as the 26th of August (break-test 2026-11-13).
+    expect(await screen.findByText('Aug 2026')).toBeTruthy();
     expect(screen.queryByText('This Month')).toBeNull();
   });
 

@@ -222,6 +222,12 @@ public class Transaction extends BaseEntity {
     @Column(name = "needs_category_review", nullable = false)
     private boolean needsCategoryReview = false;
 
+    // V317. True when saying what this credit was (InflowKindService.setChoice) is what cleared
+    // needsCategoryReview, so an Undo of that answer gives back exactly that flag and no other: a
+    // credit that came in without the flag never gains one from answer-then-Undo.
+    @Column(name = "review_cleared_by_inflow_answer", nullable = false)
+    private boolean reviewClearedByInflowAnswer = false;
+
     // Plan 6, Track B -- see V204's migration comment. Distinct from needsCategoryReview: this
     // means "the bank's own reported value for this row may have changed or the row may have
     // vanished on a later re-fetch," never "the category guess is unconfirmed." Set only by
@@ -460,6 +466,8 @@ public class Transaction extends BaseEntity {
     public void setSource(Source source) { this.source = source; }
     public boolean isNeedsCategoryReview() { return needsCategoryReview; }
     public void setNeedsCategoryReview(boolean needsCategoryReview) { this.needsCategoryReview = needsCategoryReview; }
+    public boolean isReviewClearedByInflowAnswer() { return reviewClearedByInflowAnswer; }
+    public void setReviewClearedByInflowAnswer(boolean cleared) { this.reviewClearedByInflowAnswer = cleared; }
     public boolean isPendingBankCorrection() { return pendingBankCorrection; }
     public void setPendingBankCorrection(boolean pendingBankCorrection) { this.pendingBankCorrection = pendingBankCorrection; }
     public boolean isCategoryManuallySet() { return categoryManuallySet; }

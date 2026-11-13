@@ -97,6 +97,9 @@ public final class AdminReadAuditPolicy {
             entry(A + "/app-icon/current", Rule.none()),
             entry(A + "/app-icon/icons", Rule.none()),
             entry(A + "/app-icon/schedule", Rule.none()),               // admins' own edits
+            // Job names, schedules, counts and error type + code location only (no messages).
+            entry(A + "/background-jobs", Rule.none()),
+            entry(A + "/background-jobs/{key}/failures", Rule.none()),
             entry(A + "/banks", Rule.none()),
             entry(A + "/banks/{id}/audit", Rule.none()),                // admins' edits to a bank
             entry(A + "/billing-offers", Rule.none()),

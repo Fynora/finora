@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { Route, Routes, useLocation, MemoryRouter } from 'react-router-dom';
+import { Route, Routes, useLocation, useNavigate, MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Ledger from './Ledger';
 import { peopleApi, transactionsApi, categoriesApi, accountsApi, budgetsApi, onboardingApi, dashboardApi } from '../api/endpoints';
@@ -1531,6 +1531,60 @@ describe("Ledger — Quick sort's See all (one payee)", () => {
 
     expect(screen.queryByText('Payments to RAVI K')).not.toBeInTheDocument();
     await waitFor(() => expect(searched()[searched().length - 1]?.payeeOf).toBeUndefined());
+  });
+
+  // Quick sort sits on this page too, so its See all can be clicked with a search typed and filters
+  // set. The list must still be exactly that payee's payments, or "See all 14" shows fewer.
+  function LedgerWithSeeAll() {
+    const navigate = useNavigate();
+    return (
+      <>
+        <Ledger />
+        <button type="button" onClick={() => navigate(`/app/transactions?payee=${PAYEE_ROW}`, { state: { payee: 'RAVI K' } })}>
+          Test see all
+        </button>
+      </>
+    );
+  }
+  function renderWithSeeAll() {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/app/transactions']}>
+          <Routes>
+            <Route path="/app/transactions" element={<LedgerWithSeeAll />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+  }
+  const lastList = () => searched().filter((r) => r.size === 10).slice(-1)[0];
+
+  it('a See all clicked on this page drops the search and filters already set', async () => {
+    renderWithSeeAll();
+    await userEvent.type(await screen.findByPlaceholderText(/Search description/), 'swiggy');
+    await userEvent.selectOptions(screen.getByDisplayValue('All Types'), 'INCOME');
+    await waitFor(() => expect(lastList()).toMatchObject({ keyword: 'swiggy', type: 'INCOME' }));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Test see all' }));
+
+    await waitFor(() => expect(lastList()?.payeeOf).toBe(PAYEE_ROW));
+    expect(lastList()?.keyword).toBeUndefined();
+    expect(lastList()?.type).toBeUndefined();
+    expect(searched().filter((r) => r.payeeOf === PAYEE_ROW).every((r) => !r.keyword && !r.type)).toBe(true);
+    expect(screen.getByPlaceholderText(/Search description/)).toHaveValue('');
+  });
+
+  it('the same See all clicked again after Show all payments narrows the list again', async () => {
+    renderWithSeeAll();
+    await userEvent.click(await screen.findByRole('button', { name: 'Test see all' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Show all payments' }));
+    await waitFor(() => expect(lastList()?.payeeOf).toBeUndefined());
+
+    await userEvent.click(screen.getByRole('button', { name: 'Test see all' }));
+
+    expect(await screen.findByText('Payments to RAVI K')).toBeInTheDocument();
+    await waitFor(() => expect(lastList()?.payeeOf).toBe(PAYEE_ROW));
   });
 
   it('says "from" for money that came in', async () => {

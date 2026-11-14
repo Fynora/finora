@@ -292,7 +292,8 @@ export default function Ledger() {
   });
   // Quick sort's "See all" names its payee in the link's state (never the URL). A reload or a pasted
   // link has none, and the list is still that one payee's.
-  const seeAll = useLocation().state as Partial<SeeAllState> | null;
+  const location = useLocation();
+  const seeAll = location.state as Partial<SeeAllState> | null;
   const payeeHeading = typeof seeAll?.payee === 'string' && seeAll.payee.trim()
     ? `Payments ${seeAll.incoming ? 'from' : 'to'} ${seeAll.payee.trim()}`
     : "One payee's payments";
@@ -363,7 +364,9 @@ export default function Ledger() {
     // above, so it never needs `filters` itself in this array.
   }, [debouncedKeyword]);
 
-  const activeFilters = { ...filters, keyword: debouncedKeyword || undefined };
+  // An emptied box applies at once: waiting out the typing pause would send one request with the
+  // old search still on (a wrong list after Clear or a See all).
+  const activeFilters = { ...filters, keyword: keywordInput.trim() ? debouncedKeyword || undefined : undefined };
   const hasActiveFilters = !!(activeFilters.type || activeFilters.status || activeFilters.categoryId
     || activeFilters.international !== undefined
     || activeFilters.dateFrom || activeFilters.dateTo || activeFilters.keyword || activeFilters.payeeOf);
@@ -406,10 +409,21 @@ export default function Ledger() {
       dateTo: urlFilters.dateTo ?? f.dateTo,
       // No matching category (a report's catch-all "Uncategorized") means no category filter.
       categoryId: (urlFilters.categoryName && categoryIdByName(categories, urlFilters.categoryName)) || f.categoryId,
-      payeeOf: urlFilters.payeeOf ?? f.payeeOf,
       page: 0,
     }));
   }, [urlFilters, urlSignature, appliedUrlSignature, categories, categoriesFailed]);
+
+  // Quick sort's See all promises exactly one payee's N payments. Quick sort sits on this page too,
+  // so it can be clicked with a search typed or filters set, which would narrow the list below N:
+  // every arrival starts from that payee alone. Keyed on the navigation, not the URL, so the same
+  // link clicked again after "Show all payments" applies again.
+  const [appliedSeeAll, setAppliedSeeAll] = useState<string | null>(null);
+  useEffect(() => {
+    if (!urlFilters.payeeOf || appliedSeeAll === location.key) return;
+    setAppliedSeeAll(location.key);
+    setKeywordInput('');
+    setFilters((f) => ({ page: 0, size: f.size, sortField: f.sortField, sortDir: f.sortDir, payeeOf: urlFilters.payeeOf }));
+  }, [urlFilters.payeeOf, location.key, appliedSeeAll]);
 
   const listRequest = requestFor(activeFilters, pageAnchors);
   const { data: listData, isLoading: listPending, isFetching, isPlaceholderData } = useQuery({

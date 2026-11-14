@@ -165,7 +165,10 @@ function TimelineEntry({
           <span className="block text-xs text-muted mt-0.5 truncate">
             {log.entityType ?? 'No entity'}
             {doneBy && ` · by ${doneBy}`}
-            {` · ${subject ?? (log.userId ? `account ${log.userId.slice(0, 8)}` : 'no account')}`}
+            {/* An admin's act on a held statement, a rule, a bank... is about that entity, not an
+                account: say who did it and stop there, rather than "· no account". */}
+            {(subject || log.userId || !doneBy)
+              && ` · ${subject ?? (log.userId ? `account ${log.userId.slice(0, 8)}` : 'no account')}`}
           </span>
         </span>
         <span className="text-xs text-muted flex-shrink-0 whitespace-nowrap" title={formatIst(log.createdAt)}>

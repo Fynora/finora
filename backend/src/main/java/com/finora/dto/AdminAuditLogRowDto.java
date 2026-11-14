@@ -14,6 +14,11 @@ import java.util.UUID;
  * for itself or no admin was recorded. {@code systemActor} names a background job that acted
  * ({@code metadata.actor}), when one did.
  *
+ * <p>Many admin-side writes put the acting admin in the row's account slot and name no actor. Such a
+ * row (a staff account, no actor key, no job) is read as that admin's act: {@code actorId} is the
+ * admin and {@code userId} is null -- the row is about its entity -- or, for a read audit
+ * (ADMIN_USER_DATA_VIEWED), the customer whose data was opened (AdminAuditLogService.toRow).
+ *
  * <p>Names and emails are null when the account no longer exists, and the customer's are also null
  * when the caller lacks USER_VIEW: AUDIT_VIEW alone (the FINANCE and OPS presets) never revealed who
  * a customer is, and naming them here must not change that. Staff accounts are always named.

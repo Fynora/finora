@@ -362,4 +362,21 @@ describe('AuditLog', () => {
     expect(screen.queryByRole('rowheader', { name: 'actor' })).not.toBeInTheDocument();
     expect(screen.getByRole('rowheader', { name: 'newName' })).toBeInTheDocument();
   });
+
+  // An admin's act on a held statement, a rule, a bank... is about that entity: the row says who
+  // did it and stops, rather than ending in "· no account" (break-test 2026-11-14).
+  it('says who did an admin action about no account, without "no account"', async () => {
+    mockAuth(['AUDIT_VIEW', 'USER_VIEW']);
+    vi.mocked(adminAuditApi.global).mockResolvedValue(pagedResponse([row({
+      action: 'TRUST_REVIEW_APPROVED', entityType: 'HeldStatement', userId: null,
+      actorId: 'admin-0000', actorName: 'Ops Admin', actorEmail: 'ops@example.com',
+    }), row({ id: 'log-2', action: 'SYSTEM_SWEEP', entityType: null, userId: null })]));
+    renderPage();
+
+    const approved = await screen.findByRole('button', { name: /TRUST_REVIEW_APPROVED/ });
+    expect(approved).toHaveTextContent('HeldStatement · by Ops Admin (ops@example.com)');
+    expect(approved).not.toHaveTextContent('no account');
+    // With nobody to name at all, it still says so.
+    expect(screen.getByRole('button', { name: /SYSTEM_SWEEP/ })).toHaveTextContent('No entity · no account');
+  });
 });

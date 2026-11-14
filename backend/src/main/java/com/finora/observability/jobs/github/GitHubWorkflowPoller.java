@@ -62,6 +62,7 @@ public class GitHubWorkflowPoller {
         if (run == null) return;
         if (!"completed".equals(run.status())) {
             store.recordExternalRun(workflow.key(), run.id(), run.htmlUrl(), run.runStartedAt(), null, null, null);
+            noteLastSuccess(workflow, runs);
             return;
         }
         List<String> failedSteps = FAILED.contains(run.conclusion())
@@ -72,6 +73,13 @@ public class GitHubWorkflowPoller {
                 : null;
         store.recordExternalRun(workflow.key(), run.id(), run.htmlUrl(), run.runStartedAt(), run.updatedAt(),
                 outcome, summary);
+        noteLastSuccess(workflow, runs);
+    }
+
+    /** The newest successful run in the list, so a failing workflow still shows when it last passed. */
+    private void noteLastSuccess(GitHubWorkflow workflow, List<GitHubRunsClient.Run> runs) {
+        runs.stream().filter(r -> "success".equals(r.conclusion())).findFirst()
+                .ifPresent(r -> store.noteExternalSuccess(workflow.key(), r.updatedAt()));
     }
 
     /**

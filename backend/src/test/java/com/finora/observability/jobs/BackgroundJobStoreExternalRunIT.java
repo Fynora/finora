@@ -79,4 +79,21 @@ class BackgroundJobStoreExternalRunIT extends AbstractIntegrationTest {
         assertThat(row().get("last_external_url")).isEqualTo("u2");
         assertThat(failures()).isEqualTo(1);
     }
+
+    @Test
+    void anEarlierSuccessIsKept_onlyANewerOneReplacesIt() {
+        Instant day2 = Instant.parse("2026-11-14T03:00:00Z");
+        store.recordExternalRun(KEY, 401L, "u", day2, day2.plusSeconds(60), JobOutcome.CRASHED, "Failed: X");
+        Instant yesterday = Instant.parse("2026-11-13T03:10:00Z");
+
+        store.noteExternalSuccess(KEY, yesterday);
+        assertThat(((java.time.OffsetDateTime) jdbc.queryForObject(
+                "SELECT last_success_at FROM background_job_status WHERE job_key = ?", java.time.OffsetDateTime.class, KEY))
+                .toInstant()).isEqualTo(yesterday);
+
+        store.noteExternalSuccess(KEY, yesterday.minusSeconds(86_400));
+        assertThat(jdbc.queryForObject("SELECT last_success_at FROM background_job_status WHERE job_key = ?",
+                java.time.OffsetDateTime.class, KEY).toInstant()).isEqualTo(yesterday);
+        assertThat(row().get("last_outcome")).isEqualTo("CRASHED");
+    }
 }

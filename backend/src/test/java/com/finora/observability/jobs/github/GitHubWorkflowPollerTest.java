@@ -110,4 +110,25 @@ class GitHubWorkflowPollerTest {
                 .extracting(GitHubWorkflow::file).containsExactly("fix.yml");
         assertThat(E2E.outcomeSteps()).isEqualTo(Set.of());
     }
+
+    @Test
+    void theMostRecentSuccessInTheListIsNoted_evenWhenTheLatestRunFailed() {
+        GitHubRunsClient.Run failed = run(9, "completed", "failure");
+        GitHubRunsClient.Run yesterday = new GitHubRunsClient.Run(8, "completed", "success",
+                T0.minusSeconds(86_400), T0.minusSeconds(86_000), "https://github.com/r/8");
+        when(client.runs("Fynora/finora", "e2e-nightly.yml", "main")).thenReturn(List.of(failed, yesterday));
+        when(client.failedSteps("Fynora/finora", 9)).thenReturn(List.of("Run Playwright"));
+
+        poller.read(E2E);
+
+        verify(store).noteExternalSuccess(E2E.key(), T0.minusSeconds(86_000));
+    }
+
+    @Test
+    void noSuccessInTheList_notesNothing() {
+        when(client.runs("Fynora/finora", "e2e-nightly.yml", "main")).thenReturn(List.of(run(9, "completed", "failure")));
+        when(client.failedSteps("Fynora/finora", 9)).thenReturn(List.of("Run Playwright"));
+        poller.read(E2E);
+        verify(store, never()).noteExternalSuccess(anyString(), any());
+    }
 }

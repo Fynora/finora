@@ -48,6 +48,7 @@ export function jobSummary(job: BackgroundJobDto): string {
     case 'OFF':
       return job.offReason ?? 'Switched off on purpose';
     case 'OK':
+      if (job.running) return `Running since ${formatIst(job.lastStartedAt)}`;
       return job.lastFinishedAt ? `Last run ${formatIst(job.lastFinishedAt)}` : 'Not run yet since the server started';
   }
 }
@@ -79,7 +80,7 @@ export function lastRunDuration(job: BackgroundJobDto): string | null {
   return formatDuration(ms);
 }
 
-function FailureHistory({ jobKey }: { jobKey: string }) {
+function FailureHistory({ jobKey, github }: { jobKey: string; github: boolean }) {
   const { data, error, isLoading } = useQuery({
     queryKey: ['admin-background-job-failures', jobKey],
     queryFn: () => adminBackgroundJobsApi.failures(jobKey),
@@ -94,7 +95,7 @@ function FailureHistory({ jobKey }: { jobKey: string }) {
       {data.map((f) => (
         <li key={f.occurredAt + (f.errorSummary ?? '')} className="text-sm border border-border rounded-lg px-3 py-2">
           <p className="font-medium text-ink">
-            {formatIst(f.occurredAt)} · {f.outcome === 'CRASHED' ? 'Crashed' : `${f.failedItems} ${f.failedItems === 1 ? 'item' : 'items'} failed`}
+            {formatIst(f.occurredAt)} · {f.outcome === 'CRASHED' ? (github ? 'Failed' : 'Crashed') : `${f.failedItems} ${f.failedItems === 1 ? 'item' : 'items'} failed`}
           </p>
           {f.errorSummary && <p className="text-muted break-words font-mono text-xs mt-0.5">{f.errorSummary}</p>}
         </li>
@@ -146,7 +147,7 @@ function JobRow({ job, open, onToggle }: { job: BackgroundJobDto; open: boolean;
           )}
           <div>
             <h3 className="text-xs font-semibold text-muted uppercase tracking-wide mb-2">Failures, last 30 days</h3>
-            <FailureHistory jobKey={job.key} />
+            <FailureHistory jobKey={job.key} github={github} />
           </div>
         </div>
       )}

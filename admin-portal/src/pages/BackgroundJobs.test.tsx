@@ -226,7 +226,9 @@ describe('BackgroundJobs GitHub rows', () => {
       job({ key: 'github:Fynora/finora/e2e-nightly.yml', name: 'Web app tests (nightly)', state: 'CRASHED',
         source: 'GITHUB', runUrl: 'https://github.com/Fynora/finora/actions/runs/42', consecutiveFailures: 1 }),
     ]);
-    vi.mocked(adminBackgroundJobsApi.failures).mockResolvedValue([]);
+    vi.mocked(adminBackgroundJobsApi.failures).mockResolvedValue([
+      { occurredAt: '2026-11-14T05:45:00Z', outcome: 'CRASHED', failedItems: 0, errorSummary: 'Failed: Run Playwright' },
+    ]);
     renderPage('/background-jobs?job=' + encodeURIComponent('github:Fynora/finora/e2e-nightly.yml'));
 
     const row = await screen.findByTestId('background-job');
@@ -237,6 +239,8 @@ describe('BackgroundJobs GitHub rows', () => {
     const link = within(row).getByRole('link', { name: /Open this run on GitHub/ });
     expect(link).toHaveAttribute('href', 'https://github.com/Fynora/finora/actions/runs/42');
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(await within(row).findByText('14 Nov 2026, 11:15 IST · Failed')).toBeInTheDocument();
+    expect(within(row).queryByText(/· Crashed/)).toBeNull();
   });
 
   it('offGitHubRowShowsItsReason', async () => {
@@ -256,5 +260,23 @@ describe('BackgroundJobs GitHub rows', () => {
     const row = await screen.findByTestId('background-job');
     expect(within(row).queryByText('GitHub')).toBeNull();
     expect(within(row).queryByRole('link', { name: /GitHub/ })).toBeNull();
+  });
+});
+
+describe('BackgroundJobs running rows', () => {
+  beforeEach(() => {
+    vi.mocked(adminBackgroundJobsApi.list).mockReset();
+    mockAuth(['PLATFORM_DIAGNOSTICS_VIEW']);
+  });
+
+  it('aRunningJobSaysSince_notNotRunYet', async () => {
+    vi.mocked(adminBackgroundJobsApi.list).mockResolvedValue([
+      job({ key: 'github:Fynora/finora/maestro-nightly.yml', name: 'Phone app tests (nightly)', source: 'GITHUB',
+        running: true, lastStartedAt: '2026-11-14T03:15:00Z', lastFinishedAt: null, lastSuccessAt: null }),
+    ]);
+    renderPage();
+    const row = await screen.findByTestId('background-job');
+    expect(within(row).getByText(/^Running since 14 Nov 2026, 08:45 IST/)).toBeInTheDocument();
+    expect(within(row).queryByText(/Not run yet/)).toBeNull();
   });
 });

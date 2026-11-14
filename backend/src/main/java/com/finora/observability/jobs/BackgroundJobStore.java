@@ -136,6 +136,19 @@ public class BackgroundJobStore {
     }
 
     /**
+     * Notes the most recent successful run a GitHub poll saw, so a workflow whose latest run failed
+     * still shows when it last passed. Keeps the newer of the stored and the noted time; never
+     * creates a row or changes the outcome.
+     */
+    public void noteExternalSuccess(String jobKey, Instant successAt) {
+        ownTransaction.executeWithoutResult(status -> jdbc.update("""
+                UPDATE background_job_status
+                SET last_success_at = GREATEST(COALESCE(last_success_at, ?), ?), updated_at = now()
+                WHERE job_key = ?
+                """, utc(successAt), utc(successAt), jobKey));
+    }
+
+    /**
      * Claims the right to send {@code kind} for a job: succeeds (returns 1) only if the job's last
      * email is still {@code expectedKind}, so when two instances decide the same email at once, one
      * sends it and the other gets 0 and stays quiet.

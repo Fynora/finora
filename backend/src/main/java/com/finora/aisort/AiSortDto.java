@@ -1,6 +1,12 @@
 package com.finora.aisort;
 
+import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.UUID;
 
 /** The AI sorting card's API (spec docs/superpowers/specs/2026-11-14-ai-sort-after-import-design.md). */
 public final class AiSortDto {
@@ -17,6 +23,26 @@ public final class AiSortDto {
     public record Offer(boolean show, Mode mode, int payments, BigDecimal amount, int payees) {
         public static Offer none() {
             return new Offer(false, null, 0, BigDecimal.ZERO, 0);
+        }
+    }
+
+    /** SORT: a yes customer's tap. TURN_ON_AND_SORT / NO_THANKS: the one-more question's two answers. */
+    public enum Choice { SORT, TURN_ON_AND_SORT, NO_THANKS }
+
+    public record StartRequest(@NotEmpty @Size(max = AiSortService.MAX_IDS) List<UUID> statementImportIds,
+                               @NotNull Choice choice) {}
+
+    /**
+     * A run's progress, in this import's payments: {@code paymentsDone} looked at, {@code paymentsSorted}
+     * filed with the AI's category. {@code paymentsLeft} is what the AI did not sort, once finished (0
+     * while running).
+     */
+    public record Run(UUID id, AiSortRun.RunStatus status, int paymentsTotal, int paymentsDone, int paymentsSorted,
+                      int paymentsLeft) {
+        static Run of(AiSortRun r) {
+            boolean finished = r.getStatus() != AiSortRun.RunStatus.RUNNING;
+            return new Run(r.getId(), r.getStatus(), r.getPaymentsTotal(), r.getPaymentsDone(), r.getPaymentsSorted(),
+                    finished ? Math.max(0, r.getPaymentsTotal() - r.getPaymentsSorted()) : 0);
         }
     }
 }

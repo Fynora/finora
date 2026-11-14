@@ -94,6 +94,26 @@ public class BackgroundWorkConfig {
      * Not waited for on shutdown: the dry run writes nothing but previews, one per statement in its
      * own transaction, and an interrupted batch simply resumes on the next deploy's run.
      */
+    /**
+     * AI sorting runs after an import (com.finora.aisort.AiSortRunner): each is a run of model calls,
+     * seconds per payee, so it has its own threads and never the request thread. A full queue is
+     * refused (AbortPolicy) and the runner marks that run STOPPED -- CallerRunsPolicy would run it on
+     * the customer's request. Not waited for on shutdown: a cut-off run reads as STOPPED after ten
+     * minutes (AiSortService.run), and every payee it finished is already committed.
+     */
+    @Bean("aiSortExecutor")
+    public Executor aiSortExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(2);
+        executor.setQueueCapacity(20);
+        executor.setThreadNamePrefix("ai-sort-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+        executor.setWaitForTasksToCompleteOnShutdown(false);
+        executor.initialize();
+        return executor;
+    }
+
     @Bean("statementRefreshDryRunExecutor")
     public Executor statementRefreshDryRunExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();

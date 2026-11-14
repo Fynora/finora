@@ -37,6 +37,19 @@ public class QuickSortMetrics {
                 .increment();
     }
 
+    /**
+     * A question whose row the AI filed (AI_FALLBACK) was answered: {@code kept} when the customer chose
+     * the AI's category, else changed. How AI sorting after an import is judged (spec
+     * docs/superpowers/specs/2026-11-14-ai-sort-after-import-design.md, "Measuring").
+     */
+    public void aiGuessAnswered(boolean kept) {
+        Counter.builder("finora.quick_sort.ai_guess_answered")
+                .description("A Quick sort question on an AI-filed row was answered")
+                .tag("outcome", kept ? "kept" : "changed")
+                .register(registry)
+                .increment();
+    }
+
     /** Every registration of a sourced counter carries the tag: Prometheus wants one tag-key set per name. */
     private Counter sourced(String name, String description, QuickSortDto.Source source) {
         return Counter.builder(name).description(description).tag("source", sourceTag(source)).register(registry);

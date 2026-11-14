@@ -108,6 +108,12 @@ public class QuickSortService {
                         .forEach(t -> otherWaiting.add(t.getId()));
             }
         }
+        // Read before the answer re-files the row: was it the AI's guess, and did the customer keep it?
+        if (anchor.getDecisionSource() == Transaction.DecisionSource.AI_FALLBACK && anchor.getCategoryId() != null) {
+            String guessed = categoryRepository.findById(anchor.getCategoryId()).map(com.finora.entity.Category::getName)
+                    .orElse(null);
+            metrics.aiGuessAnswered(guessed != null && guessed.equalsIgnoreCase(req.category().trim()));
+        }
         transactionService.updateCategory(userId, anchor.getId(), req.category(),
                 onePayee ? null : TransactionDto.CategoryScope.ONLY_THIS);
         transactionService.fileWithChosenCategory(userId, otherWaiting, req.category());

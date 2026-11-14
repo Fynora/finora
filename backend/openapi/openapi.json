@@ -5389,6 +5389,36 @@
                 }
             }
         },
+        "/api/v1/ai-sort/runs": {
+            "post": {
+                "tags": [
+                    "ai-sort-controller"
+                ],
+                "operationId": "start",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StartRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseRun"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/users": {
             "get": {
                 "tags": [
@@ -11642,6 +11672,71 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiResponseAdvancedReportDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/ai-sort/runs/{id}": {
+            "get": {
+                "tags": [
+                    "ai-sort-controller"
+                ],
+                "operationId": "run",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseRun"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/ai-sort/offer": {
+            "get": {
+                "tags": [
+                    "ai-sort-controller"
+                ],
+                "operationId": "offer",
+                "parameters": [
+                    {
+                        "name": "statementImportIds",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "format": "uuid"
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseOffer"
                                 }
                             }
                         }
@@ -22022,6 +22117,95 @@
                     "idToken"
                 ]
             },
+            "StartRequest": {
+                "type": "object",
+                "properties": {
+                    "statementImportIds": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "maxItems": 20,
+                        "minItems": 0
+                    },
+                    "choice": {
+                        "type": "string",
+                        "enum": [
+                            "SORT",
+                            "TURN_ON_AND_SORT",
+                            "NO_THANKS"
+                        ]
+                    }
+                },
+                "required": [
+                    "choice",
+                    "statementImportIds"
+                ]
+            },
+            "ApiResponseRun": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/Run"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "Run": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "RUNNING",
+                            "DONE",
+                            "STOPPED_LIMIT",
+                            "STOPPED_AI_OFF",
+                            "STOPPED"
+                        ]
+                    },
+                    "paymentsTotal": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "paymentsDone": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "paymentsSorted": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "paymentsLeft": {
+                        "type": "integer",
+                        "format": "int32"
+                    }
+                }
+            },
             "RuleCreateRequest": {
                 "type": "object",
                 "properties": {
@@ -30612,6 +30796,60 @@
                     "details": {
                         "type": "object",
                         "additionalProperties": {}
+                    }
+                }
+            },
+            "ApiResponseOffer": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/Offer"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "Offer": {
+                "type": "object",
+                "properties": {
+                    "show": {
+                        "type": "boolean"
+                    },
+                    "mode": {
+                        "type": "string",
+                        "enum": [
+                            "SORT",
+                            "ASK"
+                        ]
+                    },
+                    "payments": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "amount": {
+                        "type": "number"
+                    },
+                    "payees": {
+                        "type": "integer",
+                        "format": "int32"
                     }
                 }
             },

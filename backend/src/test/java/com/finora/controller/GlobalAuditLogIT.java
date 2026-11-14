@@ -380,6 +380,122 @@ class GlobalAuditLogIT extends AbstractIntegrationTest {
         assertThat(feed(admin, "action=" + action + "&actorId=" + other.getId())).hasSize(1);
     }
 
+    /** Trust review and held imports put the admin in the account slot and as actorId, and the
+     *  customer as subjectUserId; the Claude fix job puts no account at all. Each is about the
+     *  customer: listed under them, and the admin's rows under the admin (re-check of 2026-11-14). */
+    @Test
+    void aTrustReviewOrJobRowNamingACustomer_isListedUnderThatCustomer() throws Exception {
+        User admin = createNamedUser("ADMIN", "Acting Admin");
+        User customer = createNamedUser("USER", "Asha Rao");
+        String action = "ZTEST_TRUST_REVIEW_" + UUID.randomUUID();
+        com.finora.entity.AuditLog review = new com.finora.entity.AuditLog();
+        review.setUserId(admin.getId());
+        review.setAction(action);
+        review.setEntityType("HeldStatement");
+        review.setEntityId(UUID.randomUUID());
+        review.setMetadata(java.util.Map.of("actorId", admin.getId().toString(),
+                "subjectUserId", customer.getId().toString(), "heldId", "HS-1"));
+        auditLogRepository.save(review);
+        com.finora.entity.AuditLog job = new com.finora.entity.AuditLog();
+        job.setAction(action);
+        job.setEntityType("HeldStatement");
+        job.setEntityId(UUID.randomUUID());
+        job.setMetadata(java.util.Map.of("actor", "claude-fix", "subjectUserId", customer.getId().toString()));
+        auditLogRepository.save(job);
+
+        JsonNode aboutCustomer = feed(admin, "action=" + action + "&userId=" + customer.getId());
+        assertThat(aboutCustomer).hasSize(2).allSatisfy(r -> {
+            assertThat(r.get("userId").asText()).isEqualTo(customer.getId().toString());
+            assertThat(r.get("userName").asText()).isEqualTo("Asha Rao");
+        });
+        JsonNode byAdmin = feed(admin, "action=" + action + "&actorId=" + admin.getId());
+        assertThat(byAdmin).hasSize(1);
+        assertThat(byAdmin.get(0).get("actorName").asText()).isEqualTo("Acting Admin");
+        assertThat(feed(admin, "action=" + action + "&userId=" + admin.getId()))
+                .as("not about the admin who did it").isEmpty();
+    }
+
+    /** Layout curation stamps actorId with the same admin it puts in the account slot, and names no
+     *  customer: by that admin, about the layout -- not under the admin's account. */
+    @Test
+    void anActorIdThatIsTheAccountItself_isThatAdminsAct_notAboutThem() throws Exception {
+        User admin = createNamedUser("ADMIN", "Acting Admin");
+        String action = "ZTEST_LAYOUT_" + UUID.randomUUID();
+        com.finora.entity.AuditLog layout = new com.finora.entity.AuditLog();
+        layout.setUserId(admin.getId());
+        layout.setAction(action);
+        layout.setEntityType("LayoutProfile");
+        layout.setEntityId(UUID.randomUUID());
+        layout.setMetadata(java.util.Map.of("actorId", admin.getId().toString(), "name", "HDFC v3"));
+        auditLogRepository.save(layout);
+
+        JsonNode row = feed(admin, "action=" + action).get(0);
+        assertThat(row.get("actorId").asText()).isEqualTo(admin.getId().toString());
+        assertThat(row.get("userId").isNull()).isTrue();
+        assertThat(feed(admin, "action=" + action + "&actorId=" + admin.getId())).hasSize(1);
+        assertThat(feed(admin, "action=" + action + "&userId=" + admin.getId())).isEmpty();
+    }
+
+    // ---- the user page's own history (GET /admin/users/{id}/audit-logs) ----
+
+    private JsonNode history(User caller, UUID userId) throws Exception {
+        ResponseEntity<String> response = restTemplate.exchange("/api/v1/admin/users/" + userId + "/audit-logs",
+                HttpMethod.GET, new HttpEntity<>(bearerFor(caller)), String.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        return mapper.readTree(response.getBody()).get("data");
+    }
+
+    private static java.util.Set<String> actions(JsonNode rows) {
+        java.util.Set<String> out = new java.util.HashSet<>();
+        rows.forEach(r -> out.add(r.get("action").asText()));
+        return out;
+    }
+
+    /** A customer's page never showed who approved or rejected their statement: those rows are
+     *  recorded under the admin. It does now; nothing it showed goes. Opening the page itself is not
+     *  listed there -- each open writes read audits that would crowd out the account's own activity. */
+    @Test
+    void aCustomersPage_listsTheReviewOfTheirStatement_butNotEachOpeningOfThePage() throws Exception {
+        User admin = createNamedUser("ADMIN", "Acting Admin");
+        User customer = createNamedUser("USER", "Asha Rao");
+        String own = "ZTEST_OWN_" + UUID.randomUUID();
+        saveEntry(customer.getId(), own, null, null);
+        String review = "ZTEST_REVIEW_" + UUID.randomUUID();
+        com.finora.entity.AuditLog r = new com.finora.entity.AuditLog();
+        r.setUserId(admin.getId());
+        r.setAction(review);
+        r.setEntityType("HeldStatement");
+        r.setEntityId(UUID.randomUUID());
+        r.setMetadata(java.util.Map.of("actorId", admin.getId().toString(), "subjectUserId", customer.getId().toString()));
+        auditLogRepository.save(r);
+        restTemplate.exchange("/api/v1/admin/users/" + customer.getId(), HttpMethod.GET,
+                new HttpEntity<>(bearerFor(admin)), String.class);
+
+        java.util.Set<String> page = actions(history(admin, customer.getId()));
+        assertThat(page).contains(own, review).doesNotContain("ADMIN_USER_DATA_VIEWED");
+        // The admin's own page keeps their own acts, as before.
+        assertThat(actions(history(admin, admin.getId()))).contains(review);
+    }
+
+    /** The user page's history needs only AUDIT_VIEW, and the feed shows every account's id: a
+     *  customer's Google email in the details reached a caller who may not know who they are. */
+    @Test
+    void aCustomersGoogleEmail_onTheirPage_isHiddenWithoutUserView() throws Exception {
+        User finance = createNamedUser("FINANCE", "Finance Viewer");
+        User admin = createNamedUser("ADMIN", "Acting Admin");
+        User customer = createNamedUser("USER", "Asha Rao");
+        com.finora.entity.AuditLog g = new com.finora.entity.AuditLog();
+        g.setUserId(customer.getId());
+        g.setAction("ZTEST_GMAIL_" + UUID.randomUUID());
+        g.setMetadata(java.util.Map.of("googleEmail", "asha.personal@example.test"));
+        auditLogRepository.save(g);
+
+        assertThat(history(finance, customer.getId()).toString()).doesNotContain("asha.personal@example.test")
+                .contains("hidden (needs USER_VIEW)");
+        assertThat(history(admin, customer.getId()).toString()).contains("asha.personal@example.test");
+        assertThat(feed(finance, "action=" + g.getAction()).toString()).doesNotContain("asha.personal@example.test");
+    }
+
     /** A row whose entity is the staff account itself happened TO them (an email sent to them, a
      *  failed sign-in on their account): about them, and never listed as their own act. */
     @Test

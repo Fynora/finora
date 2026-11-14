@@ -1,6 +1,7 @@
 # AI sorting after an import — design
 
-Date: 2026-11-14. Status: awaiting Sid's approval. The question wording is a draft for counsel.
+Date: 2026-11-14. Status: approved by Sid on 2026-11-14, with the calls below as written. The
+question wording is a draft for counsel.
 
 Idea 2 of the categorization roadmap (see the "Other" bucket work and Quick sort, #2552, #2558).
 

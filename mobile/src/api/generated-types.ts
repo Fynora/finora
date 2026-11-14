@@ -6196,6 +6196,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/decision-queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_32"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/dashboard/overview": {
         parameters: {
             query?: never;
@@ -6299,7 +6315,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["list_32"];
+        get: operations["list_33"];
         put?: never;
         post?: never;
         delete?: never;
@@ -14379,6 +14395,38 @@ export interface components {
             uptimeSeconds?: number;
             flywayVersion?: string;
             cacheEnabled?: boolean;
+        };
+        ApiResponseListDecisionQueueRow: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["DecisionQueueRow"][];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        DecisionQueueRow: {
+            kind?: string;
+            /** Format: uuid */
+            jobId?: string;
+            heldId?: string;
+            bank?: string;
+            sourceFormat?: string;
+            /** Format: date-time */
+            heldAt?: string;
+            /** Format: date-time */
+            promiseAt?: string;
+            who?: string;
+            whoName?: string;
+            nextStep?: string;
+            /** Format: int32 */
+            prNumber?: number;
+            claudeFix?: components["schemas"]["HeldClaudeFix"];
+            /** Format: int32 */
+            alsoDecides?: number;
         };
         AlertDto: {
             severity?: string;
@@ -25244,6 +25292,26 @@ export interface operations {
             };
         };
     };
+    list_32: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseListDecisionQueueRow"];
+                };
+            };
+        };
+    };
     overview_4: {
         parameters: {
             query?: never;
@@ -25366,7 +25434,7 @@ export interface operations {
             };
         };
     };
-    list_32: {
+    list_33: {
         parameters: {
             query?: never;
             header?: never;

@@ -20,7 +20,7 @@ import type {
   PlatformDiagnosticsDto, PlatformSettingsDto, PlatformStatsDto, ReconciliationStatsDto, RecentImportDto,
   RelationshipDto, RelationshipMergeRequest, RoleDto, RuleDto,
   SearchResultDto, TrustedSenderDto, SubscriptionHealthDto, SubscriptionSummaryDto, SystemHealthDto,
-  BackgroundJobDto, BackgroundJobFailureDto,
+  BackgroundJobDto, BackgroundJobFailureDto, DecisionQueueRow,
   TestMerchantTemplateRequest, TestMerchantTemplateResult, TestRuleRequest, TestRuleResult,
   TopCategoryPoint, TopMerchantPoint, TransactionDto, TrendPoint,
   UpdateBankRequest, UpdateFeatureFlagRequest, UpdateMerchantTemplateRequest,
@@ -423,6 +423,10 @@ export const adminReferralsApi = {
 };
 
 // Background jobs page -- every scheduled job's state, and one job's failures in the last 30 days.
+export const adminDecisionQueueApi = {
+  list: () => api.get<DecisionQueueRow[]>('/admin/decision-queue').then((r) => r.data),
+};
+
 export const adminBackgroundJobsApi = {
   list: () => api.get<BackgroundJobDto[]>('/admin/background-jobs').then((r) => r.data),
   failures: (key: string) =>

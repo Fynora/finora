@@ -112,7 +112,7 @@ describe('NotificationBell', () => {
 
   // The bell is on every admin page, so an open hold is visible wherever the admin is -- the email
   // alert alone was missed in October 2026 while holds sat for days.
-  it('badges an open trust-review hold and links straight to the queue', () => {
+  it('badges an open trust-review hold and links to Needs a decision', () => {
     vi.mocked(useDashboardOverview).mockReturnValue({
       data: overview({
         needsAttention: { importsWithSkippedRowsToday: 0, lockedAccounts: 0, transactionsNeedingCategoryReview: 0, transactionsFlaggedAsDuplicates: 0, statementsHeldForTrustReview: 1, importsHeldForReview: 0 },
@@ -123,7 +123,7 @@ describe('NotificationBell', () => {
     fireEvent.click(screen.getByRole('button', { name: '1 item needs attention' }));
 
     expect(screen.getByText(/statement is waiting for trust review/)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Open Held Statements/i })).toHaveAttribute('href', '/held-statements');
+    expect(screen.getByRole('link', { name: /Open Needs a decision/i })).toHaveAttribute('href', '/needs-a-decision');
   });
 
   // Gate 1 spec §4: a hold past its 48-hour promise is the first needs-attention row, wherever the
@@ -149,7 +149,7 @@ describe('NotificationBell', () => {
     // Shown distinctly: the overdue row in the danger style, the ordinary waiting row not.
     expect(overdue.closest('[data-overdue]')).toHaveClass('bg-danger-bg');
     expect(waiting.closest('[data-overdue]')).toBeNull();
-    expect(screen.getAllByRole('link', { name: /Open Held Statements/i })[0]).toHaveAttribute('href', '/held-statements');
+    expect(screen.getAllByRole('link', { name: /Open Needs a decision/i })[0]).toHaveAttribute('href', '/needs-a-decision');
   });
 
   it('lists critical alerts, then needs-attention rows, then warnings', () => {

@@ -396,6 +396,13 @@ public class HeldStatementService {
         return openReviewCovering(job).isPresent();
     }
 
+    /** The open review that decides this record-less job, if one does -- for the "Needs a decision"
+     *  list, which shows such a re-upload on its review's row rather than as a row of its own. Plain
+     *  reads, like {@link #isCoveredByOpenReview}. */
+    public Optional<HeldStatement> openReviewCoveringJob(ImportJob job) {
+        return openReviewCovering(job);
+    }
+
     private Optional<HeldStatement> openReviewCovering(UUID sessionId, UUID excludingJobId) {
         if (sessionId == null) return Optional.empty();
         List<UUID> others = importJobRepository.findByImportSessionId(sessionId).stream()

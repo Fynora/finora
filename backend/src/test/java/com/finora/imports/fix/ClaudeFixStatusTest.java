@@ -90,4 +90,30 @@ class ClaudeFixStatusTest {
         assertThat(lookup.forJob(id).reason()).isEqualTo("OFF");
         assertThat(lookup.forJob(id).emailLine()).isEqualTo("not tried (it was off when this was held)");
     }
+    @Test
+    void theBatchLookupAgreesWithTheSingleOneForEveryCase() {
+        ClaudeFixJobRepository jobs = mock(ClaudeFixJobRepository.class);
+        UUID none = UUID.randomUUID();
+        UUID recordedOff = UUID.randomUUID();
+        UUID sent = UUID.randomUUID();
+        ClaudeFixJob offRow = ClaudeFixJob.notStarted(recordedOff, ClaudeFixJob.Reason.OFF, NOW);
+        ClaudeFixJob sentRow = ClaudeFixJob.sent(sent, "abc123", NOW);
+        when(jobs.findById(none)).thenReturn(Optional.empty());
+        when(jobs.findById(recordedOff)).thenReturn(Optional.of(offRow));
+        when(jobs.findById(sent)).thenReturn(Optional.of(sentRow));
+        when(jobs.findAllById(any())).thenReturn(java.util.List.of(offRow, sentRow));
+        ClaudeFixProperties properties = new ClaudeFixProperties();
+        ClaudeFixStatusLookup lookup = new ClaudeFixStatusLookup(jobs, properties);
+        java.util.List<UUID> ids = java.util.List.of(none, recordedOff, sent);
+
+        for (boolean on : new boolean[] {false, true}) {
+            properties.setEnabled(on);
+            java.util.Map<UUID, ClaudeFixStatusLookup.Entry> batch = lookup.forJobs(ids);
+            for (UUID id : ids) {
+                ClaudeFixStatusLookup.Entry entry = batch.get(id);
+                assertThat(entry == null ? null : entry.status()).as("switch %s, job %s", on, id).isEqualTo(lookup.forJob(id));
+            }
+            assertThat(batch.get(sent).updatedAt()).isEqualTo(sentRow.getUpdatedAt());
+        }
+    }
 }

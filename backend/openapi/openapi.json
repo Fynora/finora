@@ -14109,6 +14109,26 @@
                 }
             }
         },
+        "/api/v1/admin/decision-queue": {
+            "get": {
+                "tags": [
+                    "admin-decision-queue-controller"
+                ],
+                "operationId": "list_32",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseListDecisionQueueRow"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/dashboard/overview": {
             "get": {
                 "tags": [
@@ -14244,7 +14264,7 @@
                 "tags": [
                     "admin-background-jobs-controller"
                 ],
-                "operationId": "list_32",
+                "operationId": "list_33",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -35268,6 +35288,86 @@
                     },
                     "cacheEnabled": {
                         "type": "boolean"
+                    }
+                }
+            },
+            "ApiResponseListDecisionQueueRow": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/DecisionQueueRow"
+                        }
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "DecisionQueueRow": {
+                "type": "object",
+                "properties": {
+                    "kind": {
+                        "type": "string"
+                    },
+                    "jobId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "heldId": {
+                        "type": "string"
+                    },
+                    "bank": {
+                        "type": "string"
+                    },
+                    "sourceFormat": {
+                        "type": "string"
+                    },
+                    "heldAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "promiseAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "who": {
+                        "type": "string"
+                    },
+                    "whoName": {
+                        "type": "string"
+                    },
+                    "nextStep": {
+                        "type": "string"
+                    },
+                    "prNumber": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "claudeFix": {
+                        "$ref": "#/components/schemas/HeldClaudeFix"
+                    },
+                    "alsoDecides": {
+                        "type": "integer",
+                        "format": "int32"
                     }
                 }
             },

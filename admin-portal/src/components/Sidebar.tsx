@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Users, ShieldCheck, ScrollText, HeartPulse, LogOut, Landmark, Settings,
   ListFilter, Store, FileCode, Sparkles, GitMerge, BarChart3, Stethoscope, FileSearch, ListRestart , BadgeCheck, Fingerprint, Route,
   CreditCard, Gift, Plug, Waypoints, Lightbulb, ListOrdered, ChevronDown, ChevronRight, Bell, Clock, ShieldAlert,
-  LifeBuoy, MessageSquare, MailCheck, Megaphone, Footprints, Smartphone, BadgePercent, Activity, ServerCrash } from 'lucide-react';
+  LifeBuoy, MessageSquare, MailCheck, Megaphone, Footprints, Smartphone, BadgePercent, Activity, ServerCrash, Inbox } from 'lucide-react';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { BrandMark } from './BrandMark';
 import { initials } from '../lib/initials';
@@ -17,6 +17,14 @@ import { initials } from '../lib/initials';
 // under section headers instead of one long flat list. A link's group here has no bearing on
 // which permission gates it or which page it points to.
 const DASHBOARD_LINK = { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true, permission: null } as const;
+
+/** Every open hold of both kinds, in the order the 48-hour promise runs out -- first after the
+ *  dashboard, not in a group, because a customer is waiting on each row
+ *  (docs/superpowers/specs/2026-11-14-needs-a-decision-design.md). Either hold permission opens it. */
+const DECISIONS_LINK = {
+  to: '/needs-a-decision', label: 'Needs a decision', icon: Inbox, end: false,
+  permission: ['IMPORT_TRIAGE_MANAGE', 'TRUST_REVIEW_MANAGE'],
+} as const;
 
 /** A link gated on one permission, or on holding any of several. */
 function holdsAny(permissions: readonly (string | null)[], required: string | null | readonly string[]) {
@@ -203,6 +211,22 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
           <DASHBOARD_LINK.icon size={18} strokeWidth={2} />
           {DASHBOARD_LINK.label}
         </NavLink>
+
+        {holdsAny(permissions, DECISIONS_LINK.permission) && (
+          <NavLink
+            to={DECISIONS_LINK.to}
+            end={DECISIONS_LINK.end}
+            onClick={onNavigate}
+            className={({ isActive }) =>
+              `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                isActive ? 'bg-primary text-on-primary' : 'text-gray-400 hover:bg-sidebar-hover hover:text-gray-200'
+              }`
+            }
+          >
+            <DECISIONS_LINK.icon size={18} strokeWidth={2} />
+            {DECISIONS_LINK.label}
+          </NavLink>
+        )}
 
         {visibleGroups.map((group) => {
           const isOpen = !collapsedGroups.has(group.label);

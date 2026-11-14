@@ -1475,6 +1475,27 @@ export interface HeldClaudeFix {
   monthlyCap: number;
 }
 
+/** One open hold on the "Needs a decision" page -- mirrors the backend's `DecisionQueueRowDto`. No
+ *  statement content, file name or user id. */
+export interface DecisionQueueRow {
+  kind: 'IMPORT' | 'STATEMENT' | 'NO_RECORD';
+  jobId: string;
+  heldId: string | null;
+  bank: string | null;
+  sourceFormat: string | null;
+  heldAt: string;
+  promiseAt: string;
+  who: 'ADMIN' | 'CLAUDE' | 'NOBODY';
+  whoName: string | null;
+  nextStep: 'OPEN_REVIEW' | 'APPROVE_RERUN_PASSED' | 'MERGE_PR' | 'CLAUDE_WORKING' | 'CLAUDE_REREADING'
+    | 'CLAUDE_NOT_STARTED' | 'CLAUDE_DID_NOT_START' | 'CLAUDE_STALLED' | 'ADMIN_LOOKING' | 'FIX_AND_REPROCESS'
+    | 'CHECK_AND_DECIDE';
+  prNumber: number | null;
+  claudeFix: HeldClaudeFix | null;
+  /** Re-uploads of this statement that deciding this review decides too; `heldAt` is the earliest. */
+  alsoDecides: number;
+}
+
 /** A held import plus the diagnostics an engineer needs. Every fetch of this is audited. */
 export interface HeldImportDetail {
   job: HeldImportRow;

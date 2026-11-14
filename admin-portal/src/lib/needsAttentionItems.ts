@@ -24,21 +24,22 @@ export function needsAttentionItems(data: NeedsAttentionDto, now: number = Date.
   const importOverdue = data.importHoldsOverdue ?? NONE_OVERDUE;
   return [
     // Holds past the 48-hour promise lead everything (Gate 1 spec §4): the user was given a time
-    // and it has passed. Each kind links to the queue it sits in, and says how late the oldest is.
+    // and it has passed. Each says how late the oldest is. Every hold row opens "Needs a decision",
+    // which lists both kinds in promise order with who is on each and its next step.
     {
       count: trustOverdue.count,
       icon: AlarmClock,
       label: overdueLabel(trustOverdue, 'held statement', now),
-      to: '/held-statements',
-      linkLabel: 'Open Held Statements',
+      to: '/needs-a-decision',
+      linkLabel: 'Open Needs a decision',
       overdue: true,
     },
     {
       count: importOverdue.count,
       icon: AlarmClock,
       label: overdueLabel(importOverdue, 'held import', now),
-      to: '/held-imports',
-      linkLabel: 'Open Held Imports',
+      to: '/needs-a-decision',
+      linkLabel: 'Open Needs a decision',
       overdue: true,
     },
     // The two holds come first: each is a user waiting on a person, after being told they will
@@ -51,8 +52,8 @@ export function needsAttentionItems(data: NeedsAttentionDto, now: number = Date.
       label: data.statementsHeldForTrustReview === 1
         ? 'statement is waiting for trust review'
         : 'statements are waiting for trust review',
-      to: '/held-statements',
-      linkLabel: 'Open Held Statements',
+      to: '/needs-a-decision',
+      linkLabel: 'Open Needs a decision',
     },
     {
       count: data.importsHeldForReview,
@@ -60,8 +61,8 @@ export function needsAttentionItems(data: NeedsAttentionDto, now: number = Date.
       label: data.importsHeldForReview === 1
         ? 'import is held for review'
         : 'imports are held for review',
-      to: '/held-imports',
-      linkLabel: 'Open Held Imports',
+      to: '/needs-a-decision',
+      linkLabel: 'Open Needs a decision',
     },
     // A scheduled job that crashed, partly failed or missed its schedule fails customers quietly
     // (a deletion not done, a notification not sent), so it reads in the danger style too.

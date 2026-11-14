@@ -61,7 +61,7 @@ describe('needsAttentionItems', () => {
   describe('holds past the 48-hour promise', () => {
     const NOW = Date.parse('2026-10-09T12:00:00Z');
 
-    it('leads the list, one row per kind, each linked to its own queue with the oldest age', () => {
+    it('leads the list, one row per kind, each linked to Needs a decision with the oldest age', () => {
       const items = needsAttentionItems(data({
         statementsHeldForTrustReview: 3,
         importsHeldForReview: 1,
@@ -74,12 +74,12 @@ describe('needsAttentionItems', () => {
         expect.objectContaining({
           count: 2,
           label: 'held statements are past the 48-hour promise — oldest waiting 3 days',
-          to: '/held-statements', linkLabel: 'Open Held Statements',
+          to: '/needs-a-decision', linkLabel: 'Open Needs a decision',
         }),
         expect.objectContaining({
           count: 1,
           label: 'held import is past the 48-hour promise — oldest waiting 2 days',
-          to: '/held-imports', linkLabel: 'Open Held Imports',
+          to: '/needs-a-decision', linkLabel: 'Open Needs a decision',
         }),
       ]);
       expect(items.map((i) => i.count)).toEqual([2, 1, 3, 1, 2]);
@@ -109,16 +109,16 @@ describe('needsAttentionItems', () => {
     });
   });
 
-  it('points each hold count at its own queue', () => {
+  it('points each hold count at the Needs a decision list', () => {
     const items = needsAttentionItems(data({ statementsHeldForTrustReview: 3, importsHeldForReview: 2 }));
 
     expect(items).toEqual([
       expect.objectContaining({
         count: 3, label: 'statements are waiting for trust review',
-        to: '/held-statements', linkLabel: 'Open Held Statements',
+        to: '/needs-a-decision', linkLabel: 'Open Needs a decision',
       }),
       expect.objectContaining({
-        count: 2, label: 'imports are held for review', to: '/held-imports', linkLabel: 'Open Held Imports',
+        count: 2, label: 'imports are held for review', to: '/needs-a-decision', linkLabel: 'Open Needs a decision',
       }),
     ]);
   });

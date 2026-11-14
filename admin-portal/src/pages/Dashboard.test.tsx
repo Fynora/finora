@@ -330,7 +330,7 @@ describe('Dashboard — needs attention: open holds', () => {
 
   // Each of these is a user who was told they would hear back within 48 hours. The home screen is
   // where an admin who missed the alert email still sees them.
-  it('shows each open hold count with a link to its queue', async () => {
+  it('shows each open hold count with a link to Needs a decision', async () => {
     vi.mocked(adminDashboardApi.overview).mockReset().mockResolvedValue(overview({
       needsAttention: {
         importsWithSkippedRowsToday: 0, lockedAccounts: 0, transactionsNeedingCategoryReview: 0,
@@ -342,8 +342,10 @@ describe('Dashboard — needs attention: open holds', () => {
 
     expect(await screen.findByText(/statements are waiting for trust review/)).toBeInTheDocument();
     expect(screen.getByText(/import is held for review/)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Open Held Statements/i })).toHaveAttribute('href', '/held-statements');
-    expect(screen.getByRole('link', { name: /Open Held Imports/i })).toHaveAttribute('href', '/held-imports');
+    // Both kinds open the one list of every hold, in promise order.
+    const links = screen.getAllByRole('link', { name: /Open Needs a decision/i });
+    expect(links).toHaveLength(2);
+    for (const link of links) expect(link).toHaveAttribute('href', '/needs-a-decision');
     expect(screen.queryByText('Nothing needs attention right now.')).not.toBeInTheDocument();
   });
 

@@ -53,6 +53,7 @@ const Referrals = lazy(() => import('./pages/Referrals'));
 const AuditLog = lazy(() => import('./pages/AuditLog'));
 const SystemHealth = lazy(() => import('./pages/SystemHealth'));
 const BackgroundJobs = lazy(() => import('./pages/BackgroundJobs'));
+const NeedsADecision = lazy(() => import('./pages/NeedsADecision'));
 const Integrations = lazy(() => import('./pages/Integrations'));
 const Diagnostics = lazy(() => import('./pages/Diagnostics'));
 const LayoutIntelligence = lazy(() => import('./pages/LayoutIntelligence'));
@@ -135,6 +136,7 @@ export default function App() {
               <Route path="/audit" element={<ProtectedRoute><AuditLog /></ProtectedRoute>} />
               <Route path="/health" element={<ProtectedRoute><SystemHealth /></ProtectedRoute>} />
               <Route path="/background-jobs" element={<ProtectedRoute><BackgroundJobs /></ProtectedRoute>} />
+              <Route path="/needs-a-decision" element={<ProtectedRoute><NeedsADecision /></ProtectedRoute>} />
               <Route path="/integrations" element={<ProtectedRoute><Integrations /></ProtectedRoute>} />
               <Route path="/diagnostics" element={<ProtectedRoute><Diagnostics /></ProtectedRoute>} />
               <Route path="/layout-intelligence" element={<ProtectedRoute><LayoutIntelligence /></ProtectedRoute>} />

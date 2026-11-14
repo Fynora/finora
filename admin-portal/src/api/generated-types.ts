@@ -14425,6 +14425,8 @@ export interface components {
             /** Format: int32 */
             prNumber?: number;
             claudeFix?: components["schemas"]["HeldClaudeFix"];
+            /** Format: int32 */
+            alsoDecides?: number;
         };
         AlertDto: {
             severity?: string;

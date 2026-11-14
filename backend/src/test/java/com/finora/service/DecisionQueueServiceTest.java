@@ -38,7 +38,7 @@ class DecisionQueueServiceTest {
 
     private final List<ImportJob> held = new ArrayList<>();
     private final List<HeldStatement> reviews = new ArrayList<>();
-    private final Map<UUID, ClaudeFixStatus> claudeByJob = new HashMap<>();
+    private final Map<UUID, ClaudeFixStatusLookup.Entry> claudeByJob = new HashMap<>();
     private final List<User> admins = new ArrayList<>();
 
     private DecisionQueueService service;
@@ -49,7 +49,9 @@ class DecisionQueueServiceTest {
         when(statements.findAllById(any())).thenAnswer(inv -> reviews);
         when(claude.forJobs(anyCollection())).thenAnswer(inv -> claudeByJob);
         when(users.findAllById(any())).thenAnswer(inv -> admins);
-        service = new DecisionQueueService(jobs, statements, heldStatementService, claude, users);
+        when(heldStatementService.openReviewCoveringJob(any())).thenReturn(java.util.Optional.empty());
+        service = new DecisionQueueService(jobs, statements, heldStatementService, claude, users,
+                java.time.Clock.fixed(NOW, java.time.ZoneOffset.UTC));
     }
 
     // ------------------------------------------------------------------ builders
@@ -87,11 +89,23 @@ class DecisionQueueServiceTest {
     }
 
     private void claude(ImportJob job, String state, String reason, Integer pr) {
-        claudeByJob.put(job.getId(), new ClaudeFixStatus(state, reason, pr, null, 1, 50));
+        claude(job, state, reason, pr, NOW.minus(Duration.ofMinutes(10)));
+    }
+
+    private void claude(ImportJob job, String state, String reason, Integer pr, Instant updatedAt) {
+        claudeByJob.put(job.getId(), new ClaudeFixStatusLookup.Entry(
+                new ClaudeFixStatus(state, reason, pr, null, 1, 50), updatedAt));
     }
 
     private void claudeOffFor(ImportJob job) {
-        claudeByJob.put(job.getId(), ClaudeFixStatus.off(50));
+        claudeByJob.put(job.getId(), new ClaudeFixStatusLookup.Entry(ClaudeFixStatus.off(50), null));
+    }
+
+    /** A record-less trust hold that the given review covers: a re-upload riding on it. */
+    private ImportJob reuploadCoveredBy(HeldStatement review, Duration heldFor) {
+        ImportJob job = job(ImportJob.Status.HELD_FOR_TRUST_REVIEW, heldFor);
+        when(heldStatementService.openReviewCoveringJob(job)).thenReturn(java.util.Optional.of(review));
+        return job;
     }
 
     private User admin(UUID id, String name) {
@@ -152,6 +166,61 @@ class DecisionQueueServiceTest {
         assertThat(row.who()).isEqualTo("CLAUDE");
         assertThat(row.nextStep()).isEqualTo("CLAUDE_NOT_STARTED");
         assertThat(row.claudeFix()).isNull();
+    }
+
+    @Test
+    void noClaudeRowLongAfterTheHoldMeansClaudeDidNotStart() {
+        importHold(Duration.ofMinutes(16)); // past CLAUDE_START_GRACE, still no row
+
+        DecisionQueueRowDto row = only();
+        assertThat(row.who()).isEqualTo("NOBODY");
+        assertThat(row.nextStep()).isEqualTo("CLAUDE_DID_NOT_START");
+    }
+
+    @Test
+    void noClaudeRowOnAnAssignedHoldSaysTheAdminHasIt() {
+        UUID asha = UUID.randomUUID();
+        statementHold(Duration.ofHours(3), HeldStatement.Status.ASSIGNED, asha);
+        admin(asha, "Asha Admin");
+
+        DecisionQueueRowDto row = only();
+        assertThat(row.who()).isEqualTo("ADMIN");
+        assertThat(row.nextStep()).isEqualTo("ADMIN_LOOKING");
+    }
+
+    @Test
+    void noClaudeRowJustInsideTheGraceIsStillClaude() {
+        importHold(Duration.ofMinutes(14).plusSeconds(59));
+
+        assertThat(only().nextStep()).isEqualTo("CLAUDE_NOT_STARTED");
+    }
+
+    @Test
+    void aSentRunThatStoppedReportingIsNobodys() {
+        ImportJob job = importHold(Duration.ofHours(10));
+        claude(job, "SENT", null, null, NOW.minus(ClaudeFixStatusLookup.SENT_STALLED_AFTER));
+
+        DecisionQueueRowDto row = only();
+        assertThat(row.who()).isEqualTo("NOBODY");
+        assertThat(row.nextStep()).isEqualTo("CLAUDE_STALLED");
+    }
+
+    @Test
+    void aSentRunJustUnderTheLimitIsStillWorking() {
+        ImportJob job = importHold(Duration.ofHours(10));
+        claude(job, "SENT", null, null, NOW.minus(ClaudeFixStatusLookup.SENT_STALLED_AFTER).plusSeconds(1));
+
+        assertThat(only().who()).isEqualTo("CLAUDE");
+    }
+
+    @Test
+    void aStepForAPersonIsNeverClaudes() {
+        statementHold(Duration.ofHours(4), HeldStatement.Status.READY_FOR_IMPORT, null);
+        claude(held.get(0), "SENT", null, null);
+
+        DecisionQueueRowDto row = only();
+        assertThat(row.nextStep()).isEqualTo("APPROVE_RERUN_PASSED");
+        assertThat(row.who()).isEqualTo("NOBODY");
     }
 
     @Test
@@ -229,8 +298,7 @@ class DecisionQueueServiceTest {
 
     @Test
     void noRecordHoldSaysOpenReview() {
-        ImportJob job = job(ImportJob.Status.HELD_FOR_TRUST_REVIEW, Duration.ofHours(1));
-        when(heldStatementService.isCoveredByOpenReview(job)).thenReturn(false);
+        job(ImportJob.Status.HELD_FOR_TRUST_REVIEW, Duration.ofHours(1));
 
         DecisionQueueRowDto row = only();
         assertThat(row.kind()).isEqualTo("NO_RECORD");
@@ -240,11 +308,29 @@ class DecisionQueueServiceTest {
     }
 
     @Test
-    void coveredReuploadIsNotListed() {
-        ImportJob job = job(ImportJob.Status.HELD_FOR_TRUST_REVIEW, Duration.ofHours(1));
-        when(heldStatementService.isCoveredByOpenReview(job)).thenReturn(true);
+    void coveredReuploadIsCountedOnItsReviewsRowNotListed() {
+        HeldStatement review = statementHold(Duration.ofHours(2), HeldStatement.Status.HELD, null);
+        claudeOffFor(held.get(0));
+        reuploadCoveredBy(review, Duration.ofHours(1));
 
-        assertThat(service.list(true, true)).isEmpty();
+        DecisionQueueRowDto row = only();
+        assertThat(row.kind()).isEqualTo("STATEMENT");
+        assertThat(row.alsoDecides()).isEqualTo(1);
+        assertThat(row.heldAt()).isEqualTo(NOW.minus(Duration.ofHours(2)));
+    }
+
+    /** The dashboard counts the re-upload; when it was held before its review began, the review's
+     *  row must carry its clock, or the dashboard says "past the promise" with no red row here. */
+    @Test
+    void anEarlierCoveredReuploadSetsTheReviewsClock() {
+        HeldStatement review = statementHold(Duration.ofHours(5), HeldStatement.Status.HELD, null);
+        claudeOffFor(held.get(0));
+        reuploadCoveredBy(review, Duration.ofHours(50));
+
+        DecisionQueueRowDto row = only();
+        assertThat(row.heldAt()).isEqualTo(NOW.minus(Duration.ofHours(50)));
+        assertThat(row.promiseAt()).isBefore(NOW);
+        assertThat(row.alsoDecides()).isEqualTo(1);
     }
 
     @Test
@@ -288,8 +374,7 @@ class DecisionQueueServiceTest {
         claudeOffFor(importHold(Duration.ofHours(1)));
         statementHold(Duration.ofHours(1), HeldStatement.Status.HELD, null);
         claudeOffFor(held.get(1));
-        ImportJob orphan = job(ImportJob.Status.HELD_FOR_TRUST_REVIEW, Duration.ofHours(1));
-        when(heldStatementService.isCoveredByOpenReview(orphan)).thenReturn(false);
+        job(ImportJob.Status.HELD_FOR_TRUST_REVIEW, Duration.ofHours(1));
 
         assertThat(service.list(true, false)).extracting(DecisionQueueRowDto::kind).containsExactly("IMPORT");
         assertThat(service.list(false, true)).extracting(DecisionQueueRowDto::kind)

@@ -108,10 +108,12 @@ class ClaudeFixStatusTest {
 
         for (boolean on : new boolean[] {false, true}) {
             properties.setEnabled(on);
-            java.util.Map<UUID, ClaudeFixStatus> batch = lookup.forJobs(ids);
+            java.util.Map<UUID, ClaudeFixStatusLookup.Entry> batch = lookup.forJobs(ids);
             for (UUID id : ids) {
-                assertThat(batch.get(id)).as("switch %s, job %s", on, id).isEqualTo(lookup.forJob(id));
+                ClaudeFixStatusLookup.Entry entry = batch.get(id);
+                assertThat(entry == null ? null : entry.status()).as("switch %s, job %s", on, id).isEqualTo(lookup.forJob(id));
             }
+            assertThat(batch.get(sent).updatedAt()).isEqualTo(sentRow.getUpdatedAt());
         }
     }
 }

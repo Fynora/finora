@@ -1488,9 +1488,12 @@ export interface DecisionQueueRow {
   who: 'ADMIN' | 'CLAUDE' | 'NOBODY';
   whoName: string | null;
   nextStep: 'OPEN_REVIEW' | 'APPROVE_RERUN_PASSED' | 'MERGE_PR' | 'CLAUDE_WORKING' | 'CLAUDE_REREADING'
-    | 'CLAUDE_NOT_STARTED' | 'ADMIN_LOOKING' | 'FIX_AND_REPROCESS' | 'CHECK_AND_DECIDE';
+    | 'CLAUDE_NOT_STARTED' | 'CLAUDE_DID_NOT_START' | 'CLAUDE_STALLED' | 'ADMIN_LOOKING' | 'FIX_AND_REPROCESS'
+    | 'CHECK_AND_DECIDE';
   prNumber: number | null;
   claudeFix: HeldClaudeFix | null;
+  /** Re-uploads of this statement that deciding this review decides too; `heldAt` is the earliest. */
+  alsoDecides: number;
 }
 
 /** A held import plus the diagnostics an engineer needs. Every fetch of this is audited. */

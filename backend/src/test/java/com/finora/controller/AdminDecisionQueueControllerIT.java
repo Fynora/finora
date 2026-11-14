@@ -95,26 +95,34 @@ class AdminDecisionQueueControllerIT extends AbstractIntegrationTest {
     }
 
     private HeldStatement statementHold(Duration heldFor) {
+        return statementHold(heldFor, null);
+    }
+
+    private HeldStatement statementHold(Duration heldFor, UUID sessionId) {
         User owner = createUser("USER");
         ImportJob job = new ImportJob(owner.getId(), "sample-july.pdf",
                 "hash-" + UUID.randomUUID(), "objects/key-" + UUID.randomUUID(), "PDF");
         job.markClaimed("worker", Instant.now());
-        job.holdForTrustReview(null, null, Instant.now().minus(heldFor));
+        job.holdForTrustReview(sessionId, null, Instant.now().minus(heldFor));
         importJobRepository.save(job);
         HeldStatement held = heldStatementRepository.save(new HeldStatement(
                 "HLD-IT-" + UUID.randomUUID().toString().substring(0, 8), job.getId(), owner.getId(),
                 job.getObjectKey(), "Printed and parsed transaction count disagree (ROW_GROUPING)"));
-        job.holdForTrustReview(null, held.getId(), Instant.now().minus(heldFor));
+        job.holdForTrustReview(sessionId, held.getId(), Instant.now().minus(heldFor));
         importJobRepository.save(job);
         return held;
     }
 
     private ImportJob holdWithoutRecord(Duration heldFor) {
+        return holdWithoutRecord(heldFor, null);
+    }
+
+    private ImportJob holdWithoutRecord(Duration heldFor, UUID sessionId) {
         User owner = createUser("USER");
         ImportJob job = new ImportJob(owner.getId(), "sample-august.pdf",
                 "hash-" + UUID.randomUUID(), "objects/key-" + UUID.randomUUID(), "PDF");
         job.markClaimed("worker", Instant.now());
-        job.holdForTrustReview(null, null, Instant.now().minus(heldFor));
+        job.holdForTrustReview(sessionId, null, Instant.now().minus(heldFor));
         return importJobRepository.save(job);
     }
 
@@ -145,6 +153,24 @@ class AdminDecisionQueueControllerIT extends AbstractIntegrationTest {
         Instant heldAt = Instant.parse(rows.get(2).path("heldAt").asText());
         Instant promiseAt = Instant.parse(rows.get(2).path("promiseAt").asText());
         assertThat(Duration.between(heldAt, promiseAt)).isEqualTo(Duration.ofHours(48));
+    }
+
+    /** A re-upload riding on an open review (same staged session, no record of its own) is not a
+     *  row: it is counted on the review's row, whose clock starts at the earlier of the two. */
+    @Test
+    void aReuploadRidingOnAReviewIsCountedOnItsRow() throws Exception {
+        UUID session = UUID.randomUUID();
+        HeldStatement review = statementHold(Duration.ofHours(3), session);
+        ImportJob reupload = holdWithoutRecord(Duration.ofHours(30), session);
+
+        ResponseEntity<String> response = get(createUser("SUPER_ADMIN"));
+
+        List<JsonNode> rows = rowsFor(response, review.getImportJobId(), reupload.getId());
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).path("kind").asText()).isEqualTo("STATEMENT");
+        assertThat(rows.get(0).path("alsoDecides").asInt()).isEqualTo(1);
+        Instant heldAt = Instant.parse(rows.get(0).path("heldAt").asText());
+        assertThat(Duration.between(heldAt, Instant.now())).isGreaterThan(Duration.ofHours(29));
     }
 
     @Test

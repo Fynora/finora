@@ -9,10 +9,13 @@ import com.finora.imports.fix.ClaudeFixStatusLookup;
 import com.finora.repository.HeldStatementRepository;
 import com.finora.repository.ImportJobRepository;
 import com.finora.repository.UserRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -21,6 +24,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -42,26 +46,40 @@ public class DecisionQueueService {
     /** The queue is small (none open in production on 2026-11-14); this only bounds a runaway. */
     static final int LIMIT = 500;
 
-    private static final Set<ImportJob.Status> HELD =
-            EnumSet.of(ImportJob.Status.HELD_FOR_REVIEW, ImportJob.Status.HELD_FOR_TRUST_REVIEW);
+    /**
+     * How long after a hold begins "no Claude row yet" still means Claude is about to start. The
+     * starter reserves its row within seconds of the hold ({@code FixJobStarter.decide}); a hold
+     * with no row after this never got one (its queue refused it, the hold predates the job, or
+     * recording its error failed) and needs a person.
+     */
+    static final Duration CLAUDE_START_GRACE = Duration.ofMinutes(15);
 
-    /** Claude states in which Claude, not a person, moves the hold on next. */
-    private static final Set<String> CLAUDE_ACTIVE = Set.of("SENT", "REREADING");
+    /** Next steps Claude takes, not a person: only these put Claude "on it". */
+    private static final Set<String> CLAUDE_STEPS = Set.of("CLAUDE_WORKING", "CLAUDE_REREADING", "CLAUDE_NOT_STARTED");
 
     private final ImportJobRepository jobs;
     private final HeldStatementRepository statements;
     private final HeldStatementService heldStatementService;
     private final ClaudeFixStatusLookup claude;
     private final UserRepository users;
+    private final Clock clock;
 
+    @Autowired
     public DecisionQueueService(ImportJobRepository jobs, HeldStatementRepository statements,
                                 HeldStatementService heldStatementService, ClaudeFixStatusLookup claude,
                                 UserRepository users) {
+        this(jobs, statements, heldStatementService, claude, users, Clock.systemUTC());
+    }
+
+    DecisionQueueService(ImportJobRepository jobs, HeldStatementRepository statements,
+                         HeldStatementService heldStatementService, ClaudeFixStatusLookup claude,
+                         UserRepository users, Clock clock) {
         this.jobs = jobs;
         this.statements = statements;
         this.heldStatementService = heldStatementService;
         this.claude = claude;
         this.users = users;
+        this.clock = clock;
     }
 
     /**
@@ -74,6 +92,7 @@ public class DecisionQueueService {
         Set<ImportJob.Status> wanted = EnumSet.noneOf(ImportJob.Status.class);
         if (includeImports) wanted.add(ImportJob.Status.HELD_FOR_REVIEW);
         if (includeStatements) wanted.add(ImportJob.Status.HELD_FOR_TRUST_REVIEW);
+        Instant now = clock.instant();
 
         List<ImportJob> held = jobs.findByStatusInOrderByFinishedAtAscIdAsc(wanted, PageRequest.of(0, LIMIT))
                 .stream().filter(job -> wanted.contains(job.getStatus())).toList();
@@ -83,16 +102,34 @@ public class DecisionQueueService {
         List<UUID> reviewIds = held.stream().map(ImportJob::getHeldStatementId).filter(Objects::nonNull).toList();
         if (!reviewIds.isEmpty()) statements.findAllById(reviewIds).forEach(r -> reviewById.put(r.getId(), r));
 
-        Map<UUID, ClaudeFixStatus> claudeByJob = claude.forJobs(held.stream().map(ImportJob::getId).toList());
+        Map<UUID, ClaudeFixStatusLookup.Entry> claudeByJob = claude.forJobs(held.stream().map(ImportJob::getId).toList());
 
         Map<UUID, String> names = new HashMap<>();
         List<UUID> assignees = reviewById.values().stream()
                 .map(HeldStatement::getAssignedEngineerId).filter(Objects::nonNull).distinct().toList();
         if (!assignees.isEmpty()) users.findAllById(assignees).forEach(u -> names.put(u.getId(), nameOf(u)));
 
-        List<DecisionQueueRowDto> rows = new ArrayList<>();
+        // Re-uploads an open review decides: not rows of their own, but counted on that review's row,
+        // whose clock starts at the earliest of them -- so this list agrees with the dashboard's
+        // counts, which include them, and with the overdue escalation, which goes by the review.
+        Map<UUID, List<ImportJob>> coveredByReview = new HashMap<>();
+        List<ImportJob> own = new ArrayList<>();
         for (ImportJob job : held) {
-            DecisionQueueRowDto row = rowFor(job, reviewById, claudeByJob, names);
+            if (job.getStatus() == ImportJob.Status.HELD_FOR_TRUST_REVIEW && job.getHeldStatementId() == null) {
+                Optional<HeldStatement> covering = heldStatementService.openReviewCoveringJob(job);
+                if (covering.isPresent()) {
+                    coveredByReview.computeIfAbsent(covering.get().getId(), k -> new ArrayList<>()).add(job);
+                    continue;
+                }
+            }
+            own.add(job);
+        }
+
+        List<DecisionQueueRowDto> rows = new ArrayList<>();
+        for (ImportJob job : own) {
+            List<ImportJob> covered = job.getHeldStatementId() == null
+                    ? List.of() : coveredByReview.getOrDefault(job.getHeldStatementId(), List.of());
+            DecisionQueueRowDto row = rowFor(job, covered, reviewById, claudeByJob, names, now);
             if (row != null) rows.add(row);
         }
         rows.sort(Comparator.comparing((DecisionQueueRowDto r) -> !"NOBODY".equals(r.who()))
@@ -101,33 +138,37 @@ public class DecisionQueueService {
         return rows;
     }
 
-    private DecisionQueueRowDto rowFor(ImportJob job, Map<UUID, HeldStatement> reviewById,
-                                       Map<UUID, ClaudeFixStatus> claudeByJob, Map<UUID, String> names) {
+    private DecisionQueueRowDto rowFor(ImportJob job, List<ImportJob> covered, Map<UUID, HeldStatement> reviewById,
+                                       Map<UUID, ClaudeFixStatusLookup.Entry> claudeByJob, Map<UUID, String> names,
+                                       Instant now) {
         String kind;
         HeldStatement review = null;
         if (job.getStatus() == ImportJob.Status.HELD_FOR_REVIEW) {
             kind = "IMPORT";
         } else if (job.getHeldStatementId() != null) {
             review = reviewById.get(job.getHeldStatementId());
-            // A decided review whose job has not moved yet, or a record that has gone: nothing to decide here.
+            // A decided review: approve and reject move its job in the same transaction, so this is a
+            // read between the two, or a record that has gone. Nothing to decide here.
             if (review == null || review.getStatus().isResolved()) return null;
             kind = "STATEMENT";
         } else {
-            if (heldStatementService.isCoveredByOpenReview(job)) return null;
             kind = "NO_RECORD";
         }
 
-        ClaudeFixStatus fix = claudeByJob.get(job.getId());
-        String claudeState = fix == null ? null : fix.state();
-        boolean claudeActive = fix == null || CLAUDE_ACTIVE.contains(claudeState);
+        Instant heldAt = heldAt(job);
+        for (ImportJob other : covered) {
+            if (heldAt(other).isBefore(heldAt)) heldAt = heldAt(other);
+        }
+        ClaudeFixStatusLookup.Entry entry = claudeByJob.get(job.getId());
+        ClaudeFixStatus fix = entry == null ? null : entry.status();
         UUID assignee = review == null ? null : review.getAssignedEngineerId();
+        String step = nextStep(kind, review, entry, assignee, heldAt(job), now);
 
         String who;
         if (assignee != null) who = "ADMIN";
-        else if (claudeActive && !"NO_RECORD".equals(kind)) who = "CLAUDE";
+        else if (CLAUDE_STEPS.contains(step)) who = "CLAUDE";
         else who = "NOBODY";
 
-        Instant heldAt = job.getFinishedAt() != null ? job.getFinishedAt() : job.getCreatedAt();
         return new DecisionQueueRowDto(
                 kind,
                 job.getId(),
@@ -138,19 +179,37 @@ public class DecisionQueueService {
                 heldAt.plus(ImportJob.HOLD_PROMISE),
                 who,
                 assignee == null ? null : names.get(assignee),
-                nextStep(kind, review, fix, assignee),
+                step,
                 fix == null ? null : fix.publicPr(),
-                fix);
+                fix,
+                covered.size());
     }
 
-    /** The first match of the design's table (docs/superpowers/specs/2026-11-14-needs-a-decision-design.md). */
-    static String nextStep(String kind, HeldStatement review, ClaudeFixStatus fix, UUID assignee) {
+    private static Instant heldAt(ImportJob job) {
+        return job.getFinishedAt() != null ? job.getFinishedAt() : job.getCreatedAt();
+    }
+
+    /**
+     * The first match of the design's table (docs/superpowers/specs/2026-11-14-needs-a-decision-design.md).
+     *
+     * @param ownHeldAt when this job's own hold began: the Claude starter runs on it, not on re-uploads
+     */
+    static String nextStep(String kind, HeldStatement review, ClaudeFixStatusLookup.Entry entry, UUID assignee,
+                           Instant ownHeldAt, Instant now) {
         if ("NO_RECORD".equals(kind)) return "OPEN_REVIEW";
         if (review != null && review.getStatus() == HeldStatement.Status.READY_FOR_IMPORT) return "APPROVE_RERUN_PASSED";
-        if (fix == null) return "CLAUDE_NOT_STARTED";
-        switch (fix.state()) {
+        if (entry == null) {
+            if (now.isBefore(ownHeldAt.plus(CLAUDE_START_GRACE))) return "CLAUDE_NOT_STARTED";
+            // A person already has it: say so, not what Claude failed to do.
+            if (assignee != null) return "ADMIN_LOOKING";
+            return "CLAUDE_DID_NOT_START";
+        }
+        switch (entry.status().state()) {
             case "PR_OPEN": return "MERGE_PR";
-            case "SENT": return "CLAUDE_WORKING";
+            case "SENT":
+                return entry.updatedAt() != null
+                        && !now.isBefore(entry.updatedAt().plus(ClaudeFixStatusLookup.SENT_STALLED_AFTER))
+                        ? "CLAUDE_STALLED" : "CLAUDE_WORKING";
             case "REREADING": return "CLAUDE_REREADING";
             default: break;
         }

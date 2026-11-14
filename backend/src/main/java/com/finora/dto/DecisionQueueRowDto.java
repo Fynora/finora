@@ -15,7 +15,8 @@ import java.util.UUID;
  *                    {@code NO_RECORD} (trust hold the worker could not write a review for)
  * @param heldId      the review's id, for {@code STATEMENT} only
  * @param bank        the review's bank, for {@code STATEMENT} only
- * @param heldAt      when this hold began: {@code import_jobs.finished_at}, the overdue email's clock
+ * @param heldAt      when this hold began: {@code import_jobs.finished_at}, the overdue email's clock;
+ *                    for a review that also decides re-uploads, the earliest of them
  * @param promiseAt   {@code heldAt} plus the 48-hour promise
  * @param who         {@code ADMIN}, {@code CLAUDE} or {@code NOBODY}
  * @param whoName     the assigned admin's name, when {@code who} is {@code ADMIN} and the name is known
@@ -23,6 +24,8 @@ import java.util.UUID;
  * @param prNumber    Claude's public PR, when it opened one
  * @param claudeFix   what the Claude fix did, as the hold pages show it; null while it is switched on
  *                    and has not recorded its decision yet
+ * @param alsoDecides re-uploads of this statement held with no review of their own, which deciding
+ *                    this review decides too; {@code heldAt} is the earliest of them all
  */
 @Schema(name = "DecisionQueueRow")
 public record DecisionQueueRowDto(
@@ -37,5 +40,6 @@ public record DecisionQueueRowDto(
         String whoName,
         String nextStep,
         Integer prNumber,
-        ClaudeFixStatus claudeFix) {
+        ClaudeFixStatus claudeFix,
+        int alsoDecides) {
 }

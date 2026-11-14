@@ -46,8 +46,10 @@ which ones somebody, or Claude, is already handling.
 
 ### Which holds
 
-Every import job with status `HELD_FOR_REVIEW` or `HELD_FOR_TRUST_REVIEW`, minus trust holds with
-no review record that an open review covers. The clock is `import_jobs.finished_at`, set on every
+Every import job with status `HELD_FOR_REVIEW` or `HELD_FOR_TRUST_REVIEW`. A trust hold with no
+review record that an open review covers is a re-upload that review decides: it is not a row of its
+own but is counted on the review's row ("Also decides 1 re-upload"), and that row's clock starts at
+the earliest of them. That keeps the list in step with the dashboard, whose counts include them. The clock is `import_jobs.finished_at`, set on every
 entry into a hold; the promise is `ImportJob.HOLD_PROMISE` (48 h), the same start and length the
 overdue email uses (`ImportJob.isHoldOverdue`).
 
@@ -63,9 +65,15 @@ The endpoint needs either one.
 ### Who's on it
 
 - `ADMIN` with the name: a held statement with an assigned admin (`assigned_engineer_id` set).
-- `CLAUDE`: the Claude fix is working (SENT), re-reading after a deployed fix (REREADING), or is
-  switched on and has not recorded its decision yet.
+- `CLAUDE`: only when the next step is Claude's (working, re-reading, or about to start), so a row
+  never says "On it: Claude" next to a step a person must take.
 - `NOBODY`: everything else, including a Claude PR waiting to be merged, because that needs a person.
+
+Claude is "about to start" only for 15 minutes after the hold: the starter reserves its row within
+seconds, so a hold with no row after that never got one (queue refused, hold older than the job, or
+its error not recorded). Claude is "working" only until its row is 4 hours old (the follow-up's own
+3-hour run limit plus an hour); after that the run has stopped reporting back, for example while
+GitHub cannot be read. (Found in the review of the first build, 2026-11-14.)
 
 Held imports have no assignment field, so they are Claude or nobody until "I'm on it" (idea 3).
 
@@ -80,7 +88,9 @@ One code per row, worked out on the server; the page owns the words. First match
 | Claude PR_OPEN | Review and merge PR #n |
 | Claude SENT | Claude is working on a fix (attempt n of 2, `ClaudeFixJob.MAX_ATTEMPTS`) |
 | Claude REREADING | Fix is live: Claude is re-reading it |
-| Claude switched on, no decision yet | Claude has not started yet |
+| Claude switched on, no decision yet, held under 15 min | Claude has not started yet |
+| Claude switched on, no decision yet, held 15 min or more, no admin assigned | Claude did not start: (the kind's own step) |
+| Claude SENT, row 4 hours old or more | Claude's run stopped reporting back |
 | Statement with an assigned admin | <name> is looking into it |
 | IMPORT, anything else | Fix the reader and reprocess, or resolve with a message |
 | STATEMENT, anything else | Check the evidence, then approve or reject |

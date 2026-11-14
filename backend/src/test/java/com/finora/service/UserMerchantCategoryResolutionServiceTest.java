@@ -6,6 +6,7 @@ import com.finora.integrations.anthropic.LlmClient.LlmCompletion;
 import com.finora.integrations.anthropic.LlmClient.ToolUse;
 import com.finora.repository.AiAuditLogRepository;
 import com.finora.repository.CategoryRepository;
+import com.finora.service.UserMerchantCategoryResolutionService.SavedCategory;
 import com.finora.repository.UserMerchantCategoryResolutionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -61,9 +62,9 @@ class UserMerchantCategoryResolutionServiceTest {
         category.setName("Pet Care");
         when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(category));
 
-        Optional<String> result = service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT PET SUPPLIES PVT LTD/...");
+        Optional<SavedCategory> result = service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT PET SUPPLIES PVT LTD/...");
 
-        assertThat(result).contains("Pet Care");
+        assertThat(result.map(SavedCategory::categoryName)).contains("Pet Care");
         verifyNoInteractions(llmClient);
     }
 
@@ -81,9 +82,10 @@ class UserMerchantCategoryResolutionServiceTest {
         when(categorizationService.resolveOrCreateCategory(userId, "Pet Care", null)).thenReturn(existing);
         when(resolutionRepository.insertIfAbsent(any(), any(), any(), any(), any())).thenReturn(1);
 
-        Optional<String> result = service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT PET SUPPLIES PVT LTD/...");
+        Optional<SavedCategory> result = service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT PET SUPPLIES PVT LTD/...");
 
-        assertThat(result).contains("Pet Care");
+        // The model's fresh answer is the model's, never the user's.
+        assertThat(result).contains(new SavedCategory("Pet Care", false));
         // Model named an EXISTING category, so no reason should be passed through as a create reason.
         verify(categorizationService).resolveOrCreateCategory(userId, "Pet Care", null);
     }
@@ -181,13 +183,13 @@ class UserMerchantCategoryResolutionServiceTest {
         when(categorizationService.resolveOrCreateCategory(userId, "Priya Sharma", null)).thenReturn(personal);
         when(resolutionRepository.insertIfAbsent(any(), any(), any(), any(), any())).thenReturn(1);
 
-        Optional<String> result = service.resolve(userId, "vpa:acmeteashop", Transaction.Type.EXPENSE,
+        Optional<SavedCategory> result = service.resolve(userId, "vpa:acmeteashop", Transaction.Type.EXPENSE,
                 "UPI-ACME TEA SHOP-acmeteashop@okaxis-UPI");
 
         var captor = org.mockito.ArgumentCaptor.forClass(LlmClient.LlmRequest.class);
         verify(llmClient).complete(captor.capture());
         assertThat(captor.getValue().systemPrompt()).contains("Dining, [name-1]").doesNotContain("Priya");
-        assertThat(result).contains("Priya Sharma");
+        assertThat(result.map(SavedCategory::categoryName)).contains("Priya Sharma");
         verify(categorizationService).resolveOrCreateCategory(userId, "Priya Sharma", null);
         // The understanding call's answer is cached for every user: no numbered token may reach it.
         verify(understandingService).understand(eq(userId), eq("vpa:acmeteashop"), eq(Transaction.Type.EXPENSE),
@@ -227,7 +229,7 @@ class UserMerchantCategoryResolutionServiceTest {
         when(resolutionRepository.insertIfAbsent(any(), any(), any(), any(), any())).thenReturn(1);
 
         assertThat(service.resolve(userId, "vpa:acmeteashop", Transaction.Type.EXPENSE,
-                "UPI-ACME TEA SHOP-acmeteashop@okaxis-UPI")).contains("Tea");
+                "UPI-ACME TEA SHOP-acmeteashop@okaxis-UPI").map(SavedCategory::categoryName)).contains("Tea");
     }
 
     /** The gate at the one entry into the model calls, not only at today's caller. */
@@ -235,7 +237,7 @@ class UserMerchantCategoryResolutionServiceTest {
     void resolve_aNamedIndividualTransfer_makesNoModelCallAtAll() {
         when(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(any(), any(), any())).thenReturn(Optional.empty());
 
-        Optional<String> result = service.resolve(userId, "vpa:sampleuser", Transaction.Type.EXPENSE,
+        Optional<SavedCategory> result = service.resolve(userId, "vpa:sampleuser", Transaction.Type.EXPENSE,
                 "UPI-RAJESH KUMAR-sampleuser@ybl-REF881234");
 
         assertThat(result).isEmpty();
@@ -287,9 +289,9 @@ class UserMerchantCategoryResolutionServiceTest {
                 .thenAnswer(inv -> { created.setAiCreationReason(inv.getArgument(2)); return created; });
         when(resolutionRepository.insertIfAbsent(any(), any(), any(), any(), any())).thenReturn(1);
 
-        Optional<String> result = service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT PET SUPPLIES PVT LTD/...");
+        Optional<SavedCategory> result = service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT PET SUPPLIES PVT LTD/...");
 
-        assertThat(result).contains("Pet Care");
+        assertThat(result.map(SavedCategory::categoryName)).contains("Pet Care");
         verify(categorizationService).resolveOrCreateCategory(userId, "Pet Care", "Pet supplies retailer, no existing match");
         verify(resolutionRepository).insertIfAbsent(eq(userId), eq("vpa:headsupfortails"), eq("EXPENSE"), any(), any());
     }
@@ -299,7 +301,7 @@ class UserMerchantCategoryResolutionServiceTest {
         when(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(any(), any(), any())).thenReturn(Optional.empty());
         when(understandingService.understand(any(), any(), any(), any())).thenReturn(Optional.empty());
 
-        Optional<String> result = service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT PET SUPPLIES PVT LTD/...");
+        Optional<SavedCategory> result = service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT PET SUPPLIES PVT LTD/...");
 
         assertThat(result).isEmpty();
         verifyNoInteractions(llmClient);
@@ -313,7 +315,7 @@ class UserMerchantCategoryResolutionServiceTest {
         when(categoryRepository.findByUserId(userId)).thenReturn(List.of());
         when(llmClient.complete(any())).thenThrow(new RuntimeException("upstream error"));
 
-        Optional<String> result = service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT PET SUPPLIES PVT LTD/...");
+        Optional<SavedCategory> result = service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT PET SUPPLIES PVT LTD/...");
 
         assertThat(result).isEmpty();
         verify(aiAuditLogRepository).save(argThat(log -> log.getError() != null));
@@ -399,7 +401,8 @@ class UserMerchantCategoryResolutionServiceTest {
     @Test
     void resolveReadOnly_keyThatNamesNoOnePayee_returnsEmptyWithoutReadingAnySavedAnswer() {
         var index = new com.finora.imports.ResolutionIndex(Map.of(Transaction.Type.EXPENSE,
-                Map.of("vpa:pg.razorpay", "Groceries", "cut:sampleqr1111111", "Groceries")));
+                Map.of("vpa:pg.razorpay", new SavedCategory("Groceries", true),
+                        "cut:sampleqr1111111", new SavedCategory("Groceries", true))));
 
         for (String key : KEYS_NAMING_NO_ONE) {
             assertThat(service.resolveReadOnly(userId, key, Transaction.Type.EXPENSE)).isEmpty();
@@ -420,10 +423,10 @@ class UserMerchantCategoryResolutionServiceTest {
                 "claude-haiku-4-5-20251001", 60, 8, "tool_use"));
         when(categorizationService.resolveOrCreateCategory(userId, "Travel", null)).thenReturn(travel);
 
-        Optional<String> result = service.resolve(userId, "vpa:pg.razorpay", Transaction.Type.INCOME,
+        Optional<SavedCategory> result = service.resolve(userId, "vpa:pg.razorpay", Transaction.Type.INCOME,
                 "UPI-RAZORPAY-PG.RAZORPAY@SAMPLEBANK-SMPL0XXXXXX-111111111111-SAMPLETRAVELREFUNDX1");
 
-        assertThat(result).contains("Travel");
+        assertThat(result.map(SavedCategory::categoryName)).contains("Travel");
         verifyNoInteractions(resolutionRepository);
     }
 
@@ -438,9 +441,31 @@ class UserMerchantCategoryResolutionServiceTest {
         category.setName("Pet Care");
         when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(category));
 
-        Optional<String> result = service.resolveReadOnly(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE);
+        Optional<SavedCategory> result = service.resolveReadOnly(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE);
 
-        assertThat(result).contains("Pet Care");
+        // A row the model wrote (chosen_by_user false, the entity default) comes back as the model's.
+        assertThat(result).contains(new SavedCategory("Pet Care", false));
+    }
+
+    /** A row pin() wrote is the user's own choice, and says so: the waterfall labels it learned. */
+    @Test
+    void resolveReadOnly_cacheHit_aRowTheUserChose_comesBackAsTheUsers() {
+        UUID categoryId = UUID.randomUUID();
+        UserMerchantCategoryResolution cached = new UserMerchantCategoryResolution();
+        cached.setCategoryId(categoryId);
+        cached.setChosenByUser(true);
+        when(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE))
+                .thenReturn(Optional.of(cached));
+        Category category = new Category();
+        category.setName("Pet Care");
+        when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(category));
+
+        assertThat(service.resolveReadOnly(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE))
+                .contains(new SavedCategory("Pet Care", true));
+        // resolve() returns a saved answer as it was saved, without asking the model.
+        assertThat(service.resolve(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT PET SUPPLIES PVT LTD/..."))
+                .contains(new SavedCategory("Pet Care", true));
+        verifyNoInteractions(llmClient);
     }
 
     /**
@@ -454,7 +479,7 @@ class UserMerchantCategoryResolutionServiceTest {
     void resolveReadOnly_cacheMiss_returnsEmptyWithoutCallingTheLlmOrWritingAnything() {
         when(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(any(), any(), any())).thenReturn(Optional.empty());
 
-        Optional<String> result = service.resolveReadOnly(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE);
+        Optional<SavedCategory> result = service.resolveReadOnly(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE);
 
         assertThat(result).isEmpty();
         verifyNoInteractions(llmClient);
@@ -486,6 +511,7 @@ class UserMerchantCategoryResolutionServiceTest {
         zepto.setCounterpartyKey("vpa:zeptosample");
         zepto.setDirection(Transaction.Type.EXPENSE);
         zepto.setCategoryId(diningId);
+        huft.setChosenByUser(true);
         when(resolutionRepository.findAllByUserId(userId)).thenReturn(List.of(huft, zepto));
         Category petCare = new Category();
         petCare.setName("Pet Care");
@@ -499,12 +525,12 @@ class UserMerchantCategoryResolutionServiceTest {
 
         var index = service.indexFor(userId);
 
-        assertThat(index.categoryNameFor("vpa:headsupfortails", Transaction.Type.EXPENSE)).contains("Pet Care");
-        assertThat(index.categoryNameFor("vpa:zeptosample", Transaction.Type.EXPENSE)).contains("Dining");
+        assertThat(index.savedFor("vpa:headsupfortails", Transaction.Type.EXPENSE)).contains(new SavedCategory("Pet Care", true));
+        assertThat(index.savedFor("vpa:zeptosample", Transaction.Type.EXPENSE)).contains(new SavedCategory("Dining", false));
         // Different direction, same key -- must not cross-match; the index is keyed on both.
-        assertThat(index.categoryNameFor("vpa:headsupfortails", Transaction.Type.INCOME)).isEmpty();
+        assertThat(index.savedFor("vpa:headsupfortails", Transaction.Type.INCOME).map(SavedCategory::categoryName)).isEmpty();
         // Never resolved at all.
-        assertThat(index.categoryNameFor("vpa:unrelated", Transaction.Type.EXPENSE)).isEmpty();
+        assertThat(index.savedFor("vpa:unrelated", Transaction.Type.EXPENSE).map(SavedCategory::categoryName)).isEmpty();
     }
 
     @Test
@@ -513,7 +539,7 @@ class UserMerchantCategoryResolutionServiceTest {
 
         var index = service.indexFor(userId);
 
-        assertThat(index.categoryNameFor("vpa:anything", Transaction.Type.EXPENSE)).isEmpty();
+        assertThat(index.savedFor("vpa:anything", Transaction.Type.EXPENSE).map(SavedCategory::categoryName)).isEmpty();
         verifyNoInteractions(categoryRepository);
     }
 
@@ -527,11 +553,11 @@ class UserMerchantCategoryResolutionServiceTest {
     @Test
     void resolveReadOnly_withIndex_cacheHit_returnsTheIndexedNameWithoutQueryingTheRepository() {
         var index = new com.finora.imports.ResolutionIndex(
-                Map.of(Transaction.Type.EXPENSE, Map.of("vpa:headsupfortails", "Pet Care")));
+                Map.of(Transaction.Type.EXPENSE, Map.of("vpa:headsupfortails", new SavedCategory("Pet Care", true))));
 
-        Optional<String> result = service.resolveReadOnly(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, index);
+        Optional<SavedCategory> result = service.resolveReadOnly(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, index);
 
-        assertThat(result).contains("Pet Care");
+        assertThat(result.map(SavedCategory::categoryName)).contains("Pet Care");
         verifyNoInteractions(resolutionRepository);
     }
 
@@ -539,7 +565,7 @@ class UserMerchantCategoryResolutionServiceTest {
     void resolveReadOnly_withIndex_cacheMiss_returnsEmptyWithoutQueryingTheRepository() {
         var index = com.finora.imports.ResolutionIndex.empty();
 
-        Optional<String> result = service.resolveReadOnly(userId, "vpa:brandnewvendor", Transaction.Type.EXPENSE, index);
+        Optional<SavedCategory> result = service.resolveReadOnly(userId, "vpa:brandnewvendor", Transaction.Type.EXPENSE, index);
 
         assertThat(result).isEmpty();
         verifyNoInteractions(resolutionRepository);
@@ -556,9 +582,9 @@ class UserMerchantCategoryResolutionServiceTest {
         category.setName("Pet Care");
         when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(category));
 
-        Optional<String> result = service.resolveReadOnly(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, null);
+        Optional<SavedCategory> result = service.resolveReadOnly(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, null);
 
-        assertThat(result).contains("Pet Care");
+        assertThat(result.map(SavedCategory::categoryName)).contains("Pet Care");
     }
 
     private static Category withId(Category category, UUID id) {

@@ -7,7 +7,8 @@ import java.util.UUID;
 /** Tier 2 of the AI-category-creation design (spec §3/§4) -- per-user resolution of a
  *  merchant to a category. Stores category_id, never a name (spec §6: rename-safe by
  *  construction). One row per (user, counterparty_key, direction), ever -- upserted by AI
- *  resolution, re-upserted (never merged) by a human correction, per spec §8. */
+ *  resolution, re-upserted (never merged) by a human correction, per spec §8; which of the two
+ *  last wrote it is {@link #isChosenByUser()}. */
 @Entity
 @Table(name = "user_merchant_category_resolution")
 public class UserMerchantCategoryResolution {
@@ -32,6 +33,12 @@ public class UserMerchantCategoryResolution {
     @Column(name = "resolved_at", nullable = false)
     private Instant resolvedAt = Instant.now();
 
+    /** True when the user chose this category (a confirmed or corrected transaction, via
+     *  {@code UserMerchantCategoryResolutionService.pin}); false when the model answered for the
+     *  payee. Served back as the user's own answer or as the AI's accordingly (V319). */
+    @Column(name = "chosen_by_user", nullable = false)
+    private boolean chosenByUser;
+
     public UUID getId() { return id; }
     public UUID getUserId() { return userId; }
     public void setUserId(UUID userId) { this.userId = userId; }
@@ -43,4 +50,6 @@ public class UserMerchantCategoryResolution {
     public void setCategoryId(UUID categoryId) { this.categoryId = categoryId; }
     public Instant getResolvedAt() { return resolvedAt; }
     public void setResolvedAt(Instant resolvedAt) { this.resolvedAt = resolvedAt; }
+    public boolean isChosenByUser() { return chosenByUser; }
+    public void setChosenByUser(boolean chosenByUser) { this.chosenByUser = chosenByUser; }
 }

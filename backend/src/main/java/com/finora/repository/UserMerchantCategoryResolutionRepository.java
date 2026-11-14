@@ -25,7 +25,10 @@ public interface UserMerchantCategoryResolutionRepository extends JpaRepository<
      *  reasoning {@code MerchantIndex} already relies on for loading a user's merchants in full. */
     List<UserMerchantCategoryResolution> findAllByUserId(UUID userId);
 
-    /** Spec §7's concurrency guard: a losing concurrent insert no-ops instead of throwing or
+    /** The model's answer for a payee (resolve()), saved as the model's ({@code chosen_by_user}
+     *  false).
+     *
+     *  <p>Spec §7's concurrency guard: a losing concurrent insert no-ops instead of throwing or
      *  overwriting -- callers check the returned row count, not an exception, to know who won.
      *
      *  <p>Deliberately NOT {@code REQUIRES_NEW}, unlike the string-only AI-suggestion cache this
@@ -50,8 +53,8 @@ public interface UserMerchantCategoryResolutionRepository extends JpaRepository<
     @Modifying
     @Query(value = """
            INSERT INTO user_merchant_category_resolution
-               (id, user_id, counterparty_key, direction, category_id, resolved_at)
-           VALUES (gen_random_uuid(), :userId, :counterpartyKey, :direction, :categoryId, :resolvedAt)
+               (id, user_id, counterparty_key, direction, category_id, resolved_at, chosen_by_user)
+           VALUES (gen_random_uuid(), :userId, :counterpartyKey, :direction, :categoryId, :resolvedAt, FALSE)
            ON CONFLICT (user_id, counterparty_key, direction) DO NOTHING
            """, nativeQuery = true)
     int insertIfAbsent(@Param("userId") UUID userId, @Param("counterpartyKey") String counterpartyKey,
@@ -59,7 +62,8 @@ public interface UserMerchantCategoryResolutionRepository extends JpaRepository<
                         @Param("resolvedAt") Instant resolvedAt);
 
     /** Human override (spec §8): unconditional overwrite, unlike insertIfAbsent -- "the most
-     *  recent manual correction always wins," not "first write wins."
+     *  recent manual correction always wins," not "first write wins." The row becomes the user's
+     *  ({@code chosen_by_user} true), also when it overwrites the model's answer.
      *
      *  <p>Not {@code REQUIRES_NEW}, for the same FK-visibility reason as {@code insertIfAbsent}
      *  above -- every real caller (e.g. {@code UserMerchantCategoryResolutionService.pin}, called
@@ -70,10 +74,10 @@ public interface UserMerchantCategoryResolutionRepository extends JpaRepository<
     @Modifying
     @Query(value = """
            INSERT INTO user_merchant_category_resolution
-               (id, user_id, counterparty_key, direction, category_id, resolved_at)
-           VALUES (gen_random_uuid(), :userId, :counterpartyKey, :direction, :categoryId, :resolvedAt)
+               (id, user_id, counterparty_key, direction, category_id, resolved_at, chosen_by_user)
+           VALUES (gen_random_uuid(), :userId, :counterpartyKey, :direction, :categoryId, :resolvedAt, TRUE)
            ON CONFLICT (user_id, counterparty_key, direction)
-           DO UPDATE SET category_id = :categoryId, resolved_at = :resolvedAt
+           DO UPDATE SET category_id = :categoryId, resolved_at = :resolvedAt, chosen_by_user = TRUE
            """, nativeQuery = true)
     void upsertPinned(@Param("userId") UUID userId, @Param("counterpartyKey") String counterpartyKey,
                        @Param("direction") String direction, @Param("categoryId") UUID categoryId,
@@ -86,8 +90,8 @@ public interface UserMerchantCategoryResolutionRepository extends JpaRepository<
     @Modifying
     @Query(value = """
            INSERT INTO user_merchant_category_resolution
-               (id, user_id, counterparty_key, direction, category_id, resolved_at)
-           SELECT gen_random_uuid(), r.user_id, :newKey, r.direction, r.category_id, r.resolved_at
+               (id, user_id, counterparty_key, direction, category_id, resolved_at, chosen_by_user)
+           SELECT gen_random_uuid(), r.user_id, :newKey, r.direction, r.category_id, r.resolved_at, r.chosen_by_user
            FROM user_merchant_category_resolution r
            WHERE r.user_id = :userId AND r.counterparty_key = :oldKey
            ON CONFLICT (user_id, counterparty_key, direction) DO NOTHING

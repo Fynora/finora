@@ -68,6 +68,18 @@ public class UserMerchantCategoryResolutionService {
                             "reason", Map.of("type", "string")),
                     "required", List.of("category")));
 
+    /**
+     * A category saved for one payee: its name, and whether the user chose it ({@link #pin}) or the
+     * model answered for the payee ({@link #resolve}). The two are served back differently -- the
+     * user's choice as their own learned answer, the model's as an AI suggestion -- because the
+     * same table holds both (V319).
+     */
+    public record SavedCategory(String categoryName, boolean chosenByUser) {
+        static SavedCategory fromModel(String categoryName) {
+            return new SavedCategory(categoryName, false);
+        }
+    }
+
     private final MerchantUnderstandingService understandingService;
     private final FynAvailabilityGuard availabilityGuard;
     private final LlmClient llmClient;
@@ -112,15 +124,19 @@ public class UserMerchantCategoryResolutionService {
      * shows no AI suggestion (falls through to whatever the rest of the waterfall picks) until
      * the user actually confirms a transaction for it.
      *
+     * <p>The answer says who chose it ({@link SavedCategory#chosenByUser()}): most rows are the
+     * user's own confirmed choice, which {@link #pin} saves into this same table.
+     *
      * <p>Only for a key that names one payee ({@link CounterpartyIdentity#identifiesOnePayee}). A
      * resolution saved under a gateway's own id or a masked or cut id was one shop's answer, and
      * would be read back for every other shop on that key -- including one saved before such keys
      * stopped being saved.
      */
-    public Optional<String> resolveReadOnly(UUID userId, String counterpartyKey, Transaction.Type direction) {
+    public Optional<SavedCategory> resolveReadOnly(UUID userId, String counterpartyKey, Transaction.Type direction) {
         if (!CounterpartyIdentity.identifiesOnePayee(counterpartyKey)) return Optional.empty();
         return resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(userId, counterpartyKey, direction)
-                .flatMap(cached -> categoryRepository.findById(cached.getCategoryId()).map(Category::getName));
+                .flatMap(cached -> categoryRepository.findById(cached.getCategoryId())
+                        .map(category -> new SavedCategory(category.getName(), cached.isChosenByUser())));
     }
 
     /** As {@link #resolveReadOnly(UUID, String, Transaction.Type)}, against a {@link
@@ -128,11 +144,11 @@ public class UserMerchantCategoryResolutionService {
      *  {@link #indexFor} -- see that index's own doc comment for why. A null index falls back to
      *  the live query, which keeps the plain overload above working unchanged for any caller that
      *  hasn't hoisted one. */
-    public Optional<String> resolveReadOnly(UUID userId, String counterpartyKey, Transaction.Type direction,
-                                             com.finora.imports.ResolutionIndex resolutionIndex) {
+    public Optional<SavedCategory> resolveReadOnly(UUID userId, String counterpartyKey, Transaction.Type direction,
+                                                    com.finora.imports.ResolutionIndex resolutionIndex) {
         if (!CounterpartyIdentity.identifiesOnePayee(counterpartyKey)) return Optional.empty();
         if (resolutionIndex != null) {
-            return resolutionIndex.categoryNameFor(counterpartyKey, direction);
+            return resolutionIndex.savedFor(counterpartyKey, direction);
         }
         return resolveReadOnly(userId, counterpartyKey, direction);
     }
@@ -152,12 +168,12 @@ public class UserMerchantCategoryResolutionService {
                 .findAllById(rows.stream().map(UserMerchantCategoryResolution::getCategoryId).distinct().toList())
                 .stream()
                 .collect(Collectors.toMap(Category::getId, Category::getName));
-        Map<Transaction.Type, Map<String, String>> byDirection = new java.util.HashMap<>();
+        Map<Transaction.Type, Map<String, SavedCategory>> byDirection = new java.util.HashMap<>();
         for (UserMerchantCategoryResolution row : rows) {
             String name = namesById.get(row.getCategoryId());
             if (name != null) {
                 byDirection.computeIfAbsent(row.getDirection(), d -> new java.util.HashMap<>())
-                        .put(row.getCounterpartyKey(), name);
+                        .put(row.getCounterpartyKey(), new SavedCategory(name, row.isChosenByUser()));
             }
         }
         return new com.finora.imports.ResolutionIndex(byDirection);
@@ -168,10 +184,13 @@ public class UserMerchantCategoryResolutionService {
      * answer is neither read from nor saved to the user's resolutions: saved, it would file the next
      * shop on the same key the same way. {@link #resolveReadOnly} returns nothing for such a key, so
      * the read below already misses.
+     *
+     * <p>A saved answer comes back as it was saved, the user's or the model's; the model's fresh
+     * answer comes back as the model's.
      */
-    public Optional<String> resolve(UUID userId, String counterpartyKey, Transaction.Type direction,
-                                     String description) {
-        Optional<String> cached = resolveReadOnly(userId, counterpartyKey, direction);
+    public Optional<SavedCategory> resolve(UUID userId, String counterpartyKey, Transaction.Type direction,
+                                            String description) {
+        Optional<SavedCategory> cached = resolveReadOnly(userId, counterpartyKey, direction);
         if (cached.isPresent()) {
             return cached;
         }
@@ -263,7 +282,7 @@ public class UserMerchantCategoryResolutionService {
         if (CounterpartyIdentity.identifiesOnePayee(counterpartyKey)) {
             resolutionRepository.insertIfAbsent(userId, counterpartyKey, direction.name(), resolved.getId(), Instant.now());
         }
-        return Optional.of(resolved.getName());
+        return Optional.of(SavedCategory.fromModel(resolved.getName()));
     }
 
     /** Human override (spec §8), called from Task 7's wiring whenever a user manually sets or

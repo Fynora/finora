@@ -29,6 +29,8 @@ export function QuickSortPattern({ question }: { question: QuickSortQuestion }) 
         {line}
         <ChevronDown size={12} aria-hidden="true" className={open ? 'rotate-180' : undefined} />
       </button>
+      {/* What one answer files: the waiting payments, which the line above no longer counts. */}
+      <p>{question.payments} waiting · {rupees(question.total)}</p>
       {open && (
         <div className="mt-1 space-y-1">
           <ul className="space-y-0.5">

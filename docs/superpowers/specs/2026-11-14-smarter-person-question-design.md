@@ -24,8 +24,8 @@ own past picks.
 
 - No new categories. No change to which rows wait, to the order of questions, or to how an answer files and
   remembers.
-- No guessing on the customer's behalf: the neutral answers stay ahead of any spending answer, and nothing
-  is filed without a tap.
+- No guessing on the customer's behalf: the neutral answers ("Personal Transfer", "Friend Repayment") are
+  always among the quick answers, and nothing is filed without a tap.
 
 ## Approaches considered
 
@@ -41,16 +41,21 @@ Sid picked A on 2026-11-14, after choosing "smarter person question" over wideni
 1. **Answers for a person question (PERSON_PAID).** The current order stays: the customer's own past picks for
    people first (most used first), then the defaults, at most 5, each only if the customer still has that
    category. Defaults become, in this order: **Personal Transfer, Friend Repayment, Groceries, Transport,
-   Rent**. "More…" still opens the full list. Shop, money-in and guess questions are unchanged.
+   Rent**. Own picks take at most 3 places, so the two neutral answers are always offered (review fix,
+   2026-11-14: with 5 own picks they used to fall past the cap). "More…" still opens the full list. Shop,
+   money-in and guess questions are unchanged.
 2. **A pattern line on every question whose payee is one payee** (shop and person alike; not on a single-row
    question whose key names no one payee):
    `14 payments since Aug · usually ₹150–₹400`
-   - Counted over all live payments to that payee in that direction, not only the waiting ones.
+   - Counted over all live payments to that payee in that direction, not only the waiting ones, leaving out
+     the rows every total leaves out: duplicates and rows marked as duplicates, transfers, refund and
+     reversal legs, and superseded rows a refreshed statement keeps on file.
    - "since" = the month of the first payment, with the year when it differs from the latest payment's.
    - "usually": 4+ payments → 25th–75th percentile; 2–3 → lowest–highest; whole rupees; one value when both
      ends round the same; left out for a single payment.
 3. **Where it shows:** the full Quick sort and the Dashboard card, on web and mobile, in place of today's
-   "N payments · ₹total · latest date" line. The waiting count stays visible where it is today.
+   "N payments · ₹total · latest date" line. The waiting count stays visible as its own line under the
+   pattern, `10 waiting · ₹2,130`: what one answer will file.
 4. **Seeing the payments behind the line** (Sid, 2026-11-14: the customer may want to look before choosing).
    Tapping the pattern line opens the list right inside the card, without leaving the question: the
    payee's latest payments, newest first, up to 10, each as date · amount · the bank's narration. When there

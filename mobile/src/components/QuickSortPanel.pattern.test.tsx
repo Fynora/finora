@@ -74,6 +74,25 @@ describe('QuickSortPanel pattern line', () => {
     expect(screen.queryByText(/UPI\/RAVI K\/REF0/)).not.toBeOnTheScreen();
   });
 
+  it('still says how many payments are waiting and how much', async () => {
+    tx.quickSort.mockResolvedValue(batch([question()]));
+    renderPanel();
+    expect(await screen.findByText('3 waiting · ₹1,240')).toBeOnTheScreen();
+  });
+
+  it('closes the list when the next question comes up', async () => {
+    tx.quickSort.mockResolvedValue(batch([
+      question(),
+      question({ id: 'vpa:second|EXPENSE', anchorTransactionId: 'txn-2', payee: 'SECOND PERSON' }),
+    ]));
+    renderPanel();
+    fireEvent.press(await screen.findByRole('button', { name: LINE }));
+    fireEvent.press(screen.getByRole('button', { name: 'Groceries' }));
+    expect(await screen.findByText('SECOND PERSON')).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: LINE })).toBeCollapsed();
+    expect(screen.queryByText(/UPI\/RAVI K\/REF0/)).not.toBeOnTheScreen();
+  });
+
   it('offers See all when there are more payments and hands the payee over', async () => {
     tx.quickSort.mockResolvedValue(batch([question()]));
     const onSeeAll = jest.fn();

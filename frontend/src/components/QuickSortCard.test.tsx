@@ -95,6 +95,25 @@ describe('QuickSortCard pattern line', () => {
     expect(screen.queryByText(/UPI\/RAVI K\/REF0/)).not.toBeInTheDocument();
   });
 
+  it('still says how many payments are waiting and how much', async () => {
+    vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch([withPattern()]));
+    renderCard();
+    expect(await screen.findByText('3 waiting · ₹1,240')).toBeInTheDocument();
+  });
+
+  it('closes the list when the next question comes up', async () => {
+    vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch([
+      withPattern(),
+      withPattern({ id: 'vpa:second|EXPENSE', anchorTransactionId: 'txn-2', payee: 'SECOND PERSON' }),
+    ]));
+    renderCard();
+    await userEvent.click(await screen.findByRole('button', { name: /14 payments since Aug/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Groceries' }));
+    expect(await screen.findByText('SECOND PERSON')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /14 payments since Aug/ })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText(/UPI\/RAVI K\/REF0/)).not.toBeInTheDocument();
+  });
+
   it('links to all payments in Transactions when there are more than shown', async () => {
     vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch([withPattern()]));
     renderCard();

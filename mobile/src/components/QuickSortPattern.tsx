@@ -41,6 +41,8 @@ export function QuickSortPattern({ question, onSeeAll }: {
           <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={14} color={c.muted} />
         </View>
       </Pressable>
+      {/* What one answer files: the waiting payments, which the line above no longer counts. */}
+      <Text style={[styles.row, { color: c.mutedInk }]}>{question.payments} waiting · {rupees(question.total)}</Text>
       {open ? (
         <View style={styles.list}>
           {recent.map((s) => (

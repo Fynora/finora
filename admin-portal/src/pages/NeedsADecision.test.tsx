@@ -132,6 +132,18 @@ describe('NeedsADecision page', () => {
     expect(screen.getByText('2 waiting · 1 with nobody on it · 1 past the promise')).toBeInTheDocument();
   });
 
+  it('says Claude is off once, not "Claude: Claude fix off"', async () => {
+    vi.mocked(adminDecisionQueueApi.list).mockResolvedValue([
+      row({ claudeFix: { state: 'OFF', reason: null, publicPr: null, privatePr: null, attempt: 0, monthlyCap: 50 } }),
+    ]);
+
+    renderPage();
+
+    const [only] = await screen.findAllByTestId('decision-row');
+    expect(within(only).getByText('off')).toBeInTheDocument();
+    expect(within(only).queryByText(/Claude fix off/)).not.toBeInTheDocument();
+  });
+
   it('says when nothing is waiting', async () => {
     vi.mocked(adminDecisionQueueApi.list).mockResolvedValue([]);
 

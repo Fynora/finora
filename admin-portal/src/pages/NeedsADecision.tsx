@@ -47,7 +47,8 @@ export function openLink(row: DecisionQueueRow): string {
 
 function Row({ row, now }: { row: DecisionQueueRow; now: number }) {
   const left = timeLeftLabel(row.promiseAt, now);
-  const claude = row.claudeFix ? describeClaudeFix(row.claudeFix) : null;
+  // After the "Claude:" label, the shared words' "Claude fix off" would say Claude twice.
+  const claude = !row.claudeFix ? null : row.claudeFix.state === 'OFF' ? 'off' : describeClaudeFix(row.claudeFix);
   return (
     <li className={`rounded-lg border p-4 bg-card ${left.past ? 'border-danger border-l-4' : 'border-border'}`}
       data-testid="decision-row">
@@ -123,7 +124,7 @@ export default function NeedsADecision() {
   const { hasPermission } = useAdminAuth();
   const allowed = hasPermission('IMPORT_TRIAGE_MANAGE') || hasPermission('TRUST_REVIEW_MANAGE');
   return (
-    <AdminLayout title="Needs a decision" subtitle="Every held statement, nobody-on-it first, then by time left on the 48-hour promise">
+    <AdminLayout title="Needs a decision" subtitle="Every open hold: nobody-on-it first, then least time left on the 48-hour promise">
       {allowed
         ? <NeedsADecisionContent />
         : <p className="text-muted text-sm">This requires the IMPORT_TRIAGE_MANAGE or TRUST_REVIEW_MANAGE permission.</p>}

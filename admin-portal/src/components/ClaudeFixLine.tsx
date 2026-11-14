@@ -19,8 +19,9 @@ function PrLink({ href, children }: { href: string; children: string }) {
   );
 }
 
-/** The words for one status: plain text, or text with the PR links. */
-function describe(fix: HeldClaudeFix): ReactNode {
+/** The words for one status: plain text, or text with the PR links. Also the Claude line on the
+ *  "Needs a decision" rows, so both say the same thing. */
+export function describeClaudeFix(fix: HeldClaudeFix): ReactNode {
   if (fix.state === 'OFF') return 'Claude fix off';
   switch (fix.state) {
     case 'NOT_STARTED':
@@ -63,7 +64,7 @@ function describe(fix: HeldClaudeFix): ReactNode {
  */
 export default function ClaudeFixLine({ fix }: { fix: HeldClaudeFix | null | undefined }) {
   if (!fix) return null;
-  const text = describe(fix);
+  const text = describeClaudeFix(fix);
   if (text === null) return null;
   return (
     <div className="rounded-lg border border-border p-3" data-testid="claude-fix-line">

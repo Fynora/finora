@@ -128,6 +128,20 @@ describe('Sidebar', () => {
     expect(screen.queryByText('Learning Engine')).not.toBeInTheDocument();
   });
 
+  it('shows Needs a decision right after Dashboard to an admin holding either hold permission', () => {
+    for (const permission of ['TRUST_REVIEW_MANAGE', 'IMPORT_TRIAGE_MANAGE']) {
+      const { unmount } = renderSidebar([permission]);
+      const links = screen.getAllByRole('link').map((l) => l.textContent);
+      expect(links.indexOf('Needs a decision')).toBe(links.indexOf('Dashboard') + 1);
+      unmount();
+    }
+  });
+
+  it('hides Needs a decision without either hold permission', () => {
+    renderSidebar(['PLATFORM_DIAGNOSTICS_VIEW']);
+    expect(screen.queryByRole('link', { name: /Needs a decision/ })).not.toBeInTheDocument();
+  });
+
   it('shows Layout Intelligence to a layout curator as well as to diagnostics viewers', () => {
     renderSidebar(['LAYOUT_REGISTRY_MANAGE']);
     expect(screen.getByRole('link', { name: /Layout Intelligence/ })).toBeInTheDocument();

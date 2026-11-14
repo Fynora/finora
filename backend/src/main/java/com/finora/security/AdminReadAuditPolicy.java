@@ -107,6 +107,7 @@ public final class AdminReadAuditPolicy {
             entry(A + "/blanked-copy/status", Rule.none()),
             entry(A + "/dashboard/activation-funnel", Rule.none()),
             entry(A + "/dashboard/activity-trend", Rule.none()),
+            entry(A + "/decision-queue", Rule.none()),                   // job ids, bank, staff names; no user id or file name
             entry(A + "/feature-flags", Rule.none()),
             entry(A + "/held-imports/summary", Rule.none()),
             entry(A + "/held-statements/telemetry", Rule.none()),

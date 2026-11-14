@@ -30,8 +30,9 @@ which ones somebody, or Claude, is already handling.
 
 ## Anti-goals
 
-- Customer content in the list. Like the two lists today, it shows no statement text, file name or
-  error text, so browsing it is not audited.
+- Customer content in the list. It shows no statement text, file name, error text or user id
+  (less than the two lists today, which show user ids and file names), so `AdminReadAuditPolicy`
+  classifies it as carrying no personal data.
 - A hold shown twice. A re-upload that an open review already covers is decided by that review and
   is not listed on its own (the same rule `HoldOverdueEscalationService` uses).
 - A next step that tells someone to do something the system will refuse.

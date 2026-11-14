@@ -285,6 +285,13 @@ export function LedgerScreen() {
     // merchant keyword matching almost nothing) instead of showing what was actually asked for.
     setKeyword(incomingFilters.keyword ?? '');
     setDrillThroughKeyword(incomingFilters.keyword ?? null);
+    // Quick sort's See all promises exactly that payee's payments: a type, status or international
+    // filter left on from an earlier visit would show fewer.
+    if (incomingFilters.payeeOf) {
+      setTypeFilter('ALL');
+      setStatusFilter('ALL');
+      setInternationalOnly(false);
+    }
   }
 
   // Loaded lazily: only fetched once, cheap, and the picker needs it the instant a row is tapped.

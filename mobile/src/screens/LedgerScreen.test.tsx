@@ -1102,6 +1102,31 @@ describe('drill-through filters (Track C/C4)', () => {
     ));
   });
 
+  // "See all 14" promises exactly that payee's 14 payments, so a filter left on from an earlier
+  // visit to this still-mounted tab must not narrow them further.
+  it("a payee arriving from Quick sort's See all drops filters left on from before", async () => {
+    transactions.search.mockResolvedValue(page([]) as never);
+    const view = renderScreen();
+    openFilters();
+    fireEvent.press(screen.getByLabelText('Show only international transactions'));
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ international: true })
+    ));
+
+    mockRouteParams = { filters: filters({ payeeOf: 'txn-1', label: 'Payments to RAVI K', nonce: 2 }) };
+    view.rerender(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })}>
+        <ToastProvider>
+          <LedgerScreen />
+        </ToastProvider>
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => expect(transactions.search).toHaveBeenLastCalledWith(
+      expect.objectContaining({ payeeOf: 'txn-1', international: undefined, type: undefined, status: undefined })
+    ));
+  });
+
   // Regression: clearing a keyword-only drill-through (Insights' Top Merchant) used to only
   // dismiss the banner -- the search box and the actual results stayed silently narrowed to the
   // merchant, looking cleared while still filtering.

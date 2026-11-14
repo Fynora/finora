@@ -13,7 +13,7 @@ class BackgroundJobAlertDecisionTest {
 
     private static BackgroundJobStatus status(String lastEmailKind, Instant lastEmailAt, Instant lastBrokenEmailAt) {
         return new BackgroundJobStatus("A.b", NOW.minusSeconds(60), NOW.minusSeconds(59), JobOutcome.CRASHED, 0, 0,
-                null, 1, NOW.minusSeconds(59), lastEmailKind, lastEmailAt, lastBrokenEmailAt, "i");
+                null, 1, NOW.minusSeconds(59), lastEmailKind, lastEmailAt, lastBrokenEmailAt, "i", null, null);
     }
 
     @Test

@@ -41,6 +41,7 @@ class AdminBackgroundJobsControllerIT extends AbstractIntegrationTest {
     @Autowired private JwtService jwtService;
     @Autowired private RefreshTokenRepository refreshTokens;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private com.finora.observability.jobs.BackgroundJobStore store;
     private final ObjectMapper mapper = new ObjectMapper();
 
     @BeforeEach
@@ -63,6 +64,12 @@ class AdminBackgroundJobsControllerIT extends AbstractIntegrationTest {
     private ResponseEntity<String> get(String path, User caller) {
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(TestSessions.accessTokenFor(jwtService, refreshTokens, caller));
+        // An already-encoded query (a GitHub key's ":" and "/") must not be encoded a second time,
+        // which a String URL template would do.
+        if (path.contains("%")) {
+            return restTemplate.exchange(java.net.URI.create(restTemplate.getRootUri() + path), HttpMethod.GET,
+                    new HttpEntity<>(headers), String.class);
+        }
         return restTemplate.exchange(path, HttpMethod.GET, new HttpEntity<>(headers), String.class);
     }
 
@@ -82,11 +89,33 @@ class AdminBackgroundJobsControllerIT extends AbstractIntegrationTest {
                 """, key, Timestamp.from(at), summary);
     }
 
+    private static String failuresPath(String key) {
+        return "/api/v1/admin/background-jobs/failures?key="
+                + java.net.URLEncoder.encode(key, java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    /** A GitHub key holds ":" and "/"; it must still reach its failures (it did not, in a path). */
+    @Test
+    void aGitHubKeysFailuresLoad() throws Exception {
+        String e2e = "github:Fynora/finora/e2e-nightly.yml";
+        jdbc.update("DELETE FROM background_job_failures WHERE job_key = ?", e2e);
+        jdbc.update("DELETE FROM background_job_status WHERE job_key = ?", e2e);
+        store.recordExternalRun(e2e, 9101L, "u", Instant.now().minusSeconds(900), Instant.now().minusSeconds(300),
+                com.finora.observability.jobs.JobOutcome.CRASHED, "Failed: Run Playwright");
+
+        ResponseEntity<String> response = get(failuresPath(e2e), admin("ADMIN", User.SCOPE_ADMIN));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode rows = mapper.readTree(response.getBody()).get("data");
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).get("errorSummary").asText()).isEqualTo("Failed: Run Playwright");
+    }
+
     @Test
     void listRequiresDiagnosticsPermission() {
         User consumer = admin("USER", User.SCOPE_USER);
         assertThat(get("/api/v1/admin/background-jobs", consumer).getStatusCode().is2xxSuccessful()).isFalse();
-        assertThat(get("/api/v1/admin/background-jobs/" + DAILY_JOB + "/failures", consumer)
+        assertThat(get(failuresPath(DAILY_JOB), consumer)
                 .getStatusCode().is2xxSuccessful()).isFalse();
     }
 
@@ -129,7 +158,7 @@ class AdminBackgroundJobsControllerIT extends AbstractIntegrationTest {
         failureRow(DAILY_JOB, now.minus(Duration.ofHours(2)), "IllegalStateException at A:2");
         failureRow(DAILY_JOB, now.minus(Duration.ofMinutes(5)), "IllegalArgumentException at B:3");
 
-        ResponseEntity<String> response = get("/api/v1/admin/background-jobs/" + DAILY_JOB + "/failures",
+        ResponseEntity<String> response = get(failuresPath(DAILY_JOB),
                 admin("ADMIN", User.SCOPE_ADMIN));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -148,7 +177,7 @@ class AdminBackgroundJobsControllerIT extends AbstractIntegrationTest {
             failureRow(DAILY_JOB, now.minus(Duration.ofMinutes(i + 1)), "E at A:" + i);
         }
 
-        ResponseEntity<String> response = get("/api/v1/admin/background-jobs/" + DAILY_JOB + "/failures",
+        ResponseEntity<String> response = get(failuresPath(DAILY_JOB),
                 admin("ADMIN", User.SCOPE_ADMIN));
 
         JsonNode rows = mapper.readTree(response.getBody()).get("data");
@@ -158,8 +187,34 @@ class AdminBackgroundJobsControllerIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void githubRowsCarrySourceRunUrlAndOffReason() throws Exception {
+        String traces = "github:Fynora/finora-statement-traces/traces.yml";
+        jdbc.update("DELETE FROM background_job_status WHERE job_key = ?", traces);
+        store.recordExternalRun(traces, 7001L, "https://github.com/Fynora/finora-statement-traces/actions/runs/7001",
+                Instant.now().minusSeconds(900), Instant.now().minusSeconds(300), com.finora.observability.jobs.JobOutcome.OK, null);
+
+        JsonNode jobs = mapper.readTree(get("/api/v1/admin/background-jobs", admin("ADMIN", User.SCOPE_ADMIN)).getBody()).get("data");
+
+        JsonNode row = null, traffic = null, backend = null;
+        for (JsonNode j : jobs) {
+            if (j.get("key").asText().equals(traces)) row = j;
+            if (j.get("key").asText().equals("github:Fynora/finora/github-traffic-metrics.yml")) traffic = j;
+            if (j.get("key").asText().equals(DAILY_JOB)) backend = j;
+        }
+        assertThat(row).isNotNull();
+        assertThat(row.get("source").asText()).isEqualTo("GITHUB");
+        assertThat(row.get("name").asText()).isEqualTo("Statement trace tests");
+        assertThat(row.get("runUrl").asText()).isEqualTo("https://github.com/Fynora/finora-statement-traces/actions/runs/7001");
+        assertThat(row.get("schedule").asText()).isEqualTo("daily at 04:30 UTC");
+        assertThat(traffic.get("state").asText()).isEqualTo("OFF");
+        assertThat(traffic.get("offReason").asText()).isEqualTo("Needs a GitHub token from Sid");
+        assertThat(backend.get("source").asText()).isEqualTo("BACKEND");
+        assertThat(backend.get("runUrl").isNull()).isTrue();
+    }
+
+    @Test
     void unknownKeyIs404() {
-        ResponseEntity<String> response = get("/api/v1/admin/background-jobs/NoSuch.job/failures",
+        ResponseEntity<String> response = get(failuresPath("NoSuch.job"),
                 admin("ADMIN", User.SCOPE_ADMIN));
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }

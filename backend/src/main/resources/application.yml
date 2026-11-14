@@ -910,6 +910,12 @@ app:
     enabled: ${APP_BACKGROUND_JOB_ALERTS_ENABLED:false}
     interval-ms: ${APP_BACKGROUND_JOB_ALERTS_INTERVAL_MS:300000}
     initial-delay-ms: ${APP_BACKGROUND_JOB_ALERTS_INITIAL_DELAY_MS:120000}
+  background-jobs:
+    github:
+      # Part 2: how often the GitHub checks are read (GitHubWorkflowPoller). The token is the Claude
+      # fix job's (app.claude-fix.github-token); about 40 read calls an hour.
+      poll-interval-ms: ${APP_BACKGROUND_JOBS_GITHUB_POLL_INTERVAL_MS:900000}
+      initial-delay-ms: ${APP_BACKGROUND_JOBS_GITHUB_INITIAL_DELAY_MS:60000}
   claude-fix:
     # The automatic Claude fix job (docs/superpowers/specs/2026-10-15-claude-fix-job-design.md,
     # runbook docs/engineering/claude-fix-job.md). When a PDF statement is held and its server

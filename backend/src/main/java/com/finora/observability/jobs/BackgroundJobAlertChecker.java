@@ -102,8 +102,7 @@ public class BackgroundJobAlertChecker {
 
     private BackgroundJobAlertEmails.Facts facts(JobSchedule schedule, BackgroundJobStatus status, JobState state,
                                                  Instant now) {
-        BackgroundJobCatalog.JobInfo info = BackgroundJobCatalog.lookup(schedule.key())
-                .orElse(new BackgroundJobCatalog.JobInfo(schedule.key(), ""));
+        BackgroundJobCatalog.JobInfo info = BackgroundJobCatalog.infoFor(schedule.key());
         String error = null;
         if (state == JobState.CRASHED || state == JobState.PARTLY_FAILED) {
             error = store.failuresSince(schedule.key(), now.minus(BackgroundJobsService.FAILURE_HISTORY)).stream()
@@ -119,7 +118,8 @@ public class BackgroundJobAlertChecker {
                 status == null ? 0 : status.lastFailedItems(), status == null ? 0 : status.lastHandled(), error,
                 brokenSince, running ? null : lastRun, running ? status.lastStartedAt() : null,
                 registry.appStartedAt(), status == null ? null : status.lastSuccessAt(),
-                adminBaseUrl() + "/background-jobs?job=" + schedule.key());
+                adminBaseUrl() + "/background-jobs?job=" + java.net.URLEncoder.encode(schedule.key(), java.nio.charset.StandardCharsets.UTF_8),
+                schedule.source() == JobSchedule.Source.GITHUB);
     }
 
     private void send(List<User> recipients, AlertKind kind, BackgroundJobAlertEmails.Facts facts) {

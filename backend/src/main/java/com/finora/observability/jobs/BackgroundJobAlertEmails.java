@@ -20,7 +20,7 @@ final class BackgroundJobAlertEmails {
     /** Everything one email needs; {@code errorSummary} and the times may be null. */
     record Facts(String name, String purpose, JobState state, int failedItems, int handled, String errorSummary,
                  Instant brokenSince, Instant lastRunAt, Instant runningSince, Instant appStartedAt,
-                 Instant lastSuccessAt, String link) {}
+                 Instant lastSuccessAt, String link, boolean github) {}
 
     private BackgroundJobAlertEmails() {}
 
@@ -56,7 +56,7 @@ final class BackgroundJobAlertEmails {
 
     static String whatHappened(Facts f) {
         return switch (f.state()) {
-            case CRASHED -> "its last run crashed";
+            case CRASHED -> f.github() ? "its last run failed" : "its last run crashed";
             case PARTLY_FAILED -> f.handled() > 0
                     ? f.failedItems() + " of " + f.handled() + " items failed in its last run"
                     : f.failedItems() + (f.failedItems() == 1 ? " item" : " items") + " failed in its last run";

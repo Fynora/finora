@@ -1025,3 +1025,11 @@ Every `@Scheduled` method's runs are recorded (`com.finora.observability.jobs`, 
 - **Known limit:** all scheduled jobs share Spring's default single scheduler thread, so one slow
   run (for example `ImportJobWorker.poll` parsing a batch of statements) delays every other job and
   can make several show Overdue at once. That is a real delay, not a page fault.
+- **GitHub checks (part 2):** `GitHubWorkflowPoller` reads ten GitHub workflows every 15 minutes
+  (`GitHubWorkflowCatalog`: the private trace repo's four, the public nightlies) with the Claude fix
+  job's token, and records each run once by its run id (V321). Runs on `main` count (the Claude fix
+  job's on `incoming`); skipped and cancelled runs are ignored. A nightly is late 3 hours after its UTC
+  time; a run going over 6 hours is stuck; a workflow with no run read yet is not late. A Claude fix
+  run whose only failed steps are "no fix" or "the guard refused the public PR" counts as OK. GitHub
+  traffic metrics is Off until it has a token. If the token stops working, the "GitHub checks reader"
+  row turns Partly failed. Design: `docs/superpowers/specs/2026-11-14-background-jobs-github-design.md`.

@@ -49,10 +49,18 @@ public final class QuickSortDto {
      * @param largeOneOff         a single payment of at least Rs 5,000
      * @param currentCategory     the anchor's category now ("Other", "Personal Transfer" or a guess)
      * @param answers             up to five likely categories, best first; the client adds "More..."
+     * @param samples             up to three waiting rows; kept for app builds older than {@code recent}
+     * @param allPayments         every live payment to this payee in this direction, waiting or not; null
+     *                            for a "row:" question (spec 2026-11-14-smarter-person-question-design.md)
+     * @param firstDate           the earliest of those payments; null with allPayments
+     * @param typicalLow          "usually" low end in whole rupees (see PayeePattern); null for one payment
+     * @param typicalHigh         "usually" high end in whole rupees; null for one payment
+     * @param recent              the latest of those payments, newest first, at most 10; empty for "row:"
      */
     public record Question(String id, UUID anchorTransactionId, Kind kind, String payee, int payments,
                            BigDecimal total, LocalDate latestDate, boolean largeOneOff, String currentCategory,
-                           List<String> answers, List<Sample> samples) {}
+                           List<String> answers, List<Sample> samples, Integer allPayments, LocalDate firstDate,
+                           BigDecimal typicalLow, BigDecimal typicalHigh, List<Sample> recent) {}
 
     public record Sample(UUID id, LocalDate date, String description, BigDecimal amount, String type) {}
 

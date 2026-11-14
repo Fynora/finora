@@ -163,13 +163,43 @@ class QuickSortServiceTest {
     }
 
     @Test
-    void personQuestionsOfferNoSpendingCategoryByDefault() {
+    void personQuestionOffersNeutralThenSpendingAnswers() {
+        // Sid, 2026-11-14 (smarter person question): the two neutral answers stay first, then the
+        // spending answers people are most often paid for.
         person("vpa:ravi", 300);
 
         QuickSortDto.Question q = service.batch(userId, 0).questions().get(0);
 
         assertThat(q.kind()).isEqualTo(QuickSortDto.Kind.PERSON_PAID);
-        assertThat(q.answers()).containsExactly("Personal Transfer", "Friend Repayment");
+        assertThat(q.answers())
+                .containsExactly("Personal Transfer", "Friend Repayment", "Groceries", "Transport", "Rent");
+    }
+
+    @Test
+    void neutralPersonAnswersStayWithManyOwnPicks() {
+        // Own picks still come first, but never crowd out the two answers that guess nothing.
+        person("vpa:ravi", 300);
+        List<TransactionRepository.CategoryCount> picks = new java.util.ArrayList<>();
+        for (String name : List.of("Rent", "Dining", "Health", "Shopping")) {
+            TransactionRepository.CategoryCount count = mock(TransactionRepository.CategoryCount.class);
+            when(count.getCategoryId()).thenReturn(categoryIds.get(name));
+            when(count.getCount()).thenReturn(4L);
+            picks.add(count);
+        }
+        when(transactionRepository.countManualChoicesByCategory(userId, CounterpartyType.PERSON, Transaction.Type.EXPENSE))
+                .thenReturn(picks);
+
+        assertThat(service.batch(userId, 0).questions().get(0).answers())
+                .containsExactly("Rent", "Dining", "Health", "Personal Transfer", "Friend Repayment");
+    }
+
+    @Test
+    void personQuestionSkipsADeletedCategory() {
+        person("vpa:ravi", 300);
+        categories.removeIf(c -> "Rent".equals(c.getName()));
+
+        assertThat(service.batch(userId, 0).questions().get(0).answers())
+                .containsExactly("Personal Transfer", "Friend Repayment", "Groceries", "Transport");
     }
 
     @Test
@@ -182,7 +212,7 @@ class QuickSortServiceTest {
                 .thenReturn(List.of(rent));
 
         assertThat(service.batch(userId, 0).questions().get(0).answers())
-                .containsExactly("Rent", "Personal Transfer", "Friend Repayment");
+                .containsExactly("Rent", "Personal Transfer", "Friend Repayment", "Groceries", "Transport");
     }
 
     @Test

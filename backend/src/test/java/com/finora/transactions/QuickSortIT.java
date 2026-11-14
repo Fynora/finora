@@ -86,6 +86,76 @@ class QuickSortIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void patternCountsPaymentsThatAreNotWaiting() throws Exception {
+        seed(user.getId(), accountId, "vpa:samplea", 100);
+        seed(user.getId(), accountId, "vpa:samplea", 200);
+        UUID sortedA = seed(user.getId(), accountId, "vpa:samplea", 300);
+        UUID sortedB = seed(user.getId(), accountId, "vpa:samplea", 400);
+        quickSorted(sortedA, t -> {});
+        quickSorted(sortedB, t -> {});
+
+        JsonNode q = questionFor(batch(0), "vpa:samplea|EXPENSE");
+
+        assertThat(q.get("payments").asInt()).isEqualTo(2);
+        assertThat(q.get("allPayments").asInt()).isEqualTo(4);
+        assertThat(q.get("recent")).hasSize(4);
+        assertThat(q.get("typicalLow").decimalValue()).isEqualByComparingTo("100");
+        assertThat(q.get("typicalHigh").decimalValue()).isEqualByComparingTo("300");
+    }
+
+    @Test
+    void patternSkipsDuplicatesAndOtherAccounts() throws Exception {
+        seed(user.getId(), accountId, "vpa:samplea", 100);
+        seed(user.getId(), accountId, "vpa:samplea", 100);
+        UUID duplicate = seed(user.getId(), accountId, "vpa:samplea", 999);
+        quickSorted(duplicate, t -> t.setReconciliationStatus(Transaction.ReconciliationStatus.DUPLICATE));
+        UUID goneAccount = newAccount(user.getId());
+        UUID onGoneAccount = seed(user.getId(), goneAccount, "vpa:samplea", 999);
+        quickSorted(onGoneAccount, t -> {});
+        accountRepository.deleteById(goneAccount);
+
+        JsonNode q = questionFor(batch(0), "vpa:samplea|EXPENSE");
+
+        assertThat(q.get("allPayments").asInt()).isEqualTo(2);
+        assertThat(q.get("recent")).hasSize(2);
+    }
+
+    @Test
+    void patternLeavesOutRowsNoTotalCounts() throws Exception {
+        // A refreshed statement leaves its old rows on file as SUPERSEDED; with transfers and
+        // duplicate marks they are out of every total, so they are out of the count too.
+        seed(user.getId(), accountId, "vpa:samplea", 100);
+        seed(user.getId(), accountId, "vpa:samplea", 100);
+        UUID superseded = seed(user.getId(), accountId, "vpa:samplea", 100);
+        quickSorted(superseded, t -> t.setReconciliationStatus(Transaction.ReconciliationStatus.SUPERSEDED));
+        UUID transfer = seed(user.getId(), accountId, "vpa:samplea", 100);
+        quickSorted(transfer, t -> t.setTransfer(true));
+
+        JsonNode q = questionFor(batch(0), "vpa:samplea|EXPENSE");
+
+        assertThat(q.get("allPayments").asInt()).isEqualTo(2);
+        assertThat(q.get("recent")).hasSize(2);
+    }
+
+    @Test
+    void rowQuestionHasNoPattern() throws Exception {
+        seed(user.getId(), accountId, null, 100);
+
+        JsonNode q = batch(0).get("questions").get(0);
+
+        assertThat(q.get("id").asText()).startsWith("row:");
+        assertThat(q.get("allPayments").isNull()).isTrue();
+        assertThat(q.get("recent")).isEmpty();
+    }
+
+    private static JsonNode questionFor(JsonNode batch, String id) {
+        for (JsonNode q : batch.get("questions")) {
+            if (id.equals(q.get("id").asText())) return q;
+        }
+        throw new AssertionError("no question " + id + " in " + batch);
+    }
+
+    @Test
     void answerWithoutSourceStillFilesThePayee() throws Exception {
         // An app build older than the Dashboard questions sends no source.
         seed(user.getId(), accountId, "vpa:samplea", 100);

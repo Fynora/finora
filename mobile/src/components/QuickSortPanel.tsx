@@ -3,6 +3,8 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { Card, SectionHeading } from './Card';
 import { CategoryPickerModal } from './CategoryPickerModal';
+import { QuickSortPattern } from './QuickSortPattern';
+import { patternLine } from '../lib/payeePattern';
 import { ProgressBar } from './dashboard/ProgressBar';
 import { transactionsApi } from '../api/endpoints';
 import { fmtCurrency, fmtDate } from '../lib/format';
@@ -37,13 +39,15 @@ const PROMPT: Record<QuickSortKind, string> = {
  * {@code onLoaded(0)} also fires whenever it stops showing (hidden today, failed, Not now, nothing
  * left), so the Dashboard can bring its review nudge back.
  */
-export function QuickSortPanel({ onLoaded, variant = 'full', accountEmail = null, onOpenFull }: {
+export function QuickSortPanel({ onLoaded, variant = 'full', accountEmail = null, onOpenFull, onSeeAll }: {
   onLoaded?: (questions: number) => void;
   variant?: 'full' | 'dashboard';
   /** The signed-in account, for the dashboard variant's "Not now". */
   accountEmail?: string | null;
   /** Dashboard variant: open the full Quick sort. */
   onOpenFull?: () => void;
+  /** Open Transactions searched for this payee; without it the payments list offers no "See all". */
+  onSeeAll?: (payee: string) => void;
 }) {
   const dashboard = variant === 'dashboard';
   // Dashboard: null until the stored "Not now" is read (SecureStore is async), so nothing flashes.
@@ -243,9 +247,11 @@ export function QuickSortPanel({ onLoaded, variant = 'full', accountEmail = null
         {current ? (
           <View>
             <Text style={[styles.payee, { color: c.ink }]}>{current.payee}</Text>
-            <Text style={[styles.meta, { color: c.mutedInk }]}>
-              {current.payments} {current.payments === 1 ? 'payment' : 'payments'} · {fmtCurrency(current.total)}
-            </Text>
+            {patternLine(current) ? <QuickSortPattern key={current.id} question={current} onSeeAll={onSeeAll} /> : (
+              <Text style={[styles.meta, { color: c.mutedInk }]}>
+                {current.payments} {current.payments === 1 ? 'payment' : 'payments'} · {fmtCurrency(current.total)}
+              </Text>
+            )}
             <Text style={[styles.body, { color: c.ink }]}>
               {current.kind === 'GUESS' ? `Fynora thinks: ${current.currentCategory}` : PROMPT[current.kind]}
             </Text>
@@ -320,9 +326,11 @@ export function QuickSortPanel({ onLoaded, variant = 'full', accountEmail = null
       ) : current ? (
         <View>
           <Text style={[styles.payee, { color: c.ink }]}>{current.payee}</Text>
-          <Text style={[styles.meta, { color: c.mutedInk }]}>
-            {current.payments} {current.payments === 1 ? 'payment' : 'payments'} · {fmtCurrency(current.total)} · latest {fmtDate(current.latestDate) ?? current.latestDate}
-          </Text>
+          {patternLine(current) ? <QuickSortPattern key={current.id} question={current} onSeeAll={onSeeAll} /> : (
+            <Text style={[styles.meta, { color: c.mutedInk }]}>
+              {current.payments} {current.payments === 1 ? 'payment' : 'payments'} · {fmtCurrency(current.total)} · latest {fmtDate(current.latestDate) ?? current.latestDate}
+            </Text>
+          )}
           {current.largeOneOff ? (
             <Text style={[styles.badge, { color: c.ink, backgroundColor: c.border }]}>Large one-off payment</Text>
           ) : null}

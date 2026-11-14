@@ -52,10 +52,116 @@ function renderCard() {
   const queryClient = new QueryClient();
   return render(
     <QueryClientProvider client={queryClient}>
-      <QuickSortCard />
+      <MemoryRouter>
+        <QuickSortCard />
+      </MemoryRouter>
     </QueryClientProvider>
   );
 }
+
+function recentRows(n: number): QuickSortQuestion['samples'] {
+  return Array.from({ length: n }, (_, i) => ({
+    id: `r-${i}`, date: `2026-11-${String(12 - i).padStart(2, '0')}`, description: `UPI/RAVI K/REF${i}`,
+    amount: 200 + i, type: 'EXPENSE',
+  }));
+}
+
+function withPattern(over: Partial<QuickSortQuestion> = {}): QuickSortQuestion {
+  return question({
+    kind: 'PERSON_PAID', payee: 'RAVI K', answers: ['Personal Transfer', 'Groceries'],
+    allPayments: 14, firstDate: '2026-08-03', typicalLow: 150, typicalHigh: 400, recent: recentRows(10), ...over,
+  });
+}
+
+describe('QuickSortCard pattern line', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.mocked(transactionsApi.quickSort).mockReset();
+    vi.mocked(transactionsApi.quickSortAnswer).mockReset().mockResolvedValue({ filed: 1 });
+    vi.mocked(trackNavigation).mockReset();
+  });
+
+  it('opens and closes the payee\'s payments from the pattern line', async () => {
+    vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch([withPattern()]));
+    renderCard();
+    const line = await screen.findByRole('button', { name: '14 payments since Aug · usually ₹150–₹400' });
+    expect(line).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText(/UPI\/RAVI K\/REF0/)).not.toBeInTheDocument();
+    await userEvent.click(line);
+    expect(line).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText(`${formatDate('2026-11-12')} · ₹200 · UPI/RAVI K/REF0`)).toBeInTheDocument();
+    expect(screen.getAllByText(/UPI\/RAVI K\/REF/)).toHaveLength(10);
+    await userEvent.click(line);
+    expect(screen.queryByText(/UPI\/RAVI K\/REF0/)).not.toBeInTheDocument();
+  });
+
+  it('still says how many payments are waiting and how much', async () => {
+    vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch([withPattern()]));
+    renderCard();
+    expect(await screen.findByText('3 waiting · ₹1,240')).toBeInTheDocument();
+  });
+
+  it('closes the list when the next question comes up', async () => {
+    vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch([
+      withPattern(),
+      withPattern({ id: 'vpa:second|EXPENSE', anchorTransactionId: 'txn-2', payee: 'SECOND PERSON' }),
+    ]));
+    renderCard();
+    await userEvent.click(await screen.findByRole('button', { name: /14 payments since Aug/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Groceries' }));
+    expect(await screen.findByText('SECOND PERSON')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /14 payments since Aug/ })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText(/UPI\/RAVI K\/REF0/)).not.toBeInTheDocument();
+  });
+
+  it('links to all payments in Transactions when there are more than shown', async () => {
+    vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch([withPattern()]));
+    renderCard();
+    await userEvent.click(await screen.findByRole('button', { name: /14 payments since Aug/ }));
+    const link = screen.getByRole('link', { name: 'See all 14 in Transactions' });
+    expect(link).toHaveAttribute('href', '/app/transactions?q=RAVI%20K');
+    await userEvent.click(link);
+    expect(trackNavigation).toHaveBeenCalledWith('transactions', 'contextual');
+  });
+
+  it('offers no See all link when every payment is listed', async () => {
+    vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch([withPattern({ allPayments: 3, recent: recentRows(3) })]));
+    renderCard();
+    await userEvent.click(await screen.findByRole('button', { name: /3 payments since Aug/ }));
+    expect(screen.queryByRole('link', { name: /See all/ })).not.toBeInTheDocument();
+  });
+
+  it('answers the same with the list open', async () => {
+    vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch([withPattern()]));
+    renderCard();
+    await userEvent.click(await screen.findByRole('button', { name: /14 payments since Aug/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Groceries' }));
+    expect(transactionsApi.quickSortAnswer).toHaveBeenCalledWith('txn-1', 'Groceries', 'PERSON_PAID');
+  });
+
+  it('falls back to today\'s line without a pattern', async () => {
+    vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch([question()]));
+    renderCard();
+    expect(await screen.findByText(/3 payments/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /payments since/ })).not.toBeInTheDocument();
+    expect(screen.getByText('Show payments')).toBeInTheDocument();
+  });
+
+  it('works the same on the Dashboard card', async () => {
+    vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch([withPattern()]));
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter>
+          <QuickSortCard variant="dashboard" accountEmail="a@example.com" />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    const line = await screen.findByRole('button', { name: '14 payments since Aug · usually ₹150–₹400' });
+    await userEvent.click(line);
+    expect(screen.getAllByText(/UPI\/RAVI K\/REF/)).toHaveLength(10);
+    expect(screen.getByRole('link', { name: 'See all 14 in Transactions' })).toBeInTheDocument();
+  });
+});
 
 describe('QuickSortCard', () => {
   beforeEach(() => {

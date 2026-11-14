@@ -223,11 +223,20 @@ class StatementConversionIT extends AbstractIntegrationTest {
 
     // ---- helpers ---------------------------------------------------------------------------------
 
+    /**
+     * Tables written by the scheduler on its own, whatever requests are in flight: every scheduled
+     * run records its name, times and outcome there (background jobs health, #2550), never request
+     * or statement data. A run landing between the two counts failed this test once (26 -> 31 rows,
+     * 2026-11-14) without a conversion having written anything.
+     */
+    private static final Set<String> SCHEDULER_BOOKKEEPING = Set.of("background_job_status", "background_job_failures");
+
     private Map<String, Long> rowCounts() {
         List<String> tables = jdbc.queryForList(
                 "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename", String.class);
         Map<String, Long> counts = new LinkedHashMap<>();
         for (String table : tables) {
+            if (SCHEDULER_BOOKKEEPING.contains(table)) continue;
             counts.put(table, jdbc.queryForObject("SELECT count(*) FROM \"" + table + "\"", Long.class));
         }
         return counts;

@@ -8,7 +8,7 @@ import com.finora.observability.jobs.BackgroundJobsService;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -34,8 +34,9 @@ public class AdminBackgroundJobsController {
         return ApiResponse.ok(backgroundJobsService.list());
     }
 
-    @GetMapping("/{key}/failures")
-    public ApiResponse<List<BackgroundJobFailure>> failures(@PathVariable String key) {
+    /** The key is a query parameter, not a path segment: a GitHub workflow's key holds ":" and "/". */
+    @GetMapping("/failures")
+    public ApiResponse<List<BackgroundJobFailure>> failures(@RequestParam String key) {
         return ApiResponse.ok(backgroundJobsService.failures(key)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "No such background job")));
     }

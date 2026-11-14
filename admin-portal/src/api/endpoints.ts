@@ -426,7 +426,8 @@ export const adminReferralsApi = {
 export const adminBackgroundJobsApi = {
   list: () => api.get<BackgroundJobDto[]>('/admin/background-jobs').then((r) => r.data),
   failures: (key: string) =>
-    api.get<BackgroundJobFailureDto[]>(`/admin/background-jobs/${encodeURIComponent(key)}/failures`).then((r) => r.data),
+    // A query parameter, not a path segment: a GitHub workflow's key holds ":" and "/".
+    api.get<BackgroundJobFailureDto[]>('/admin/background-jobs/failures', { params: { key } }).then((r) => r.data),
 };
 
 export const adminSystemApi = {

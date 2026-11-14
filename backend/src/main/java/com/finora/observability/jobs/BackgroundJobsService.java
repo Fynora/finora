@@ -64,8 +64,7 @@ public class BackgroundJobsService {
     }
 
     private BackgroundJobDto toDto(JobSchedule schedule, BackgroundJobStatus status, Instant now) {
-        BackgroundJobCatalog.JobInfo info = BackgroundJobCatalog.lookup(schedule.key())
-                .orElse(new BackgroundJobCatalog.JobInfo(schedule.key(), ""));
+        BackgroundJobCatalog.JobInfo info = BackgroundJobCatalog.infoFor(schedule.key());
         JobState state = OverdueRule.state(schedule, status, registry.appStartedAt(), now);
         return new BackgroundJobDto(schedule.key(), info.name(), info.purpose(), schedule.description(), state,
                 status == null ? null : status.lastStartedAt(),
@@ -75,6 +74,9 @@ public class BackgroundJobsService {
                 status == null ? 0 : status.lastHandled(),
                 status == null ? 0 : status.consecutiveFailures(),
                 status == null ? null : status.brokenSince(),
-                OverdueRule.isRunning(status));
+                OverdueRule.isRunning(status),
+                schedule.source().name(),
+                schedule.source() == JobSchedule.Source.GITHUB && status != null ? status.lastExternalUrl() : null,
+                schedule.offReason());
     }
 }

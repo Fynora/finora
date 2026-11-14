@@ -34,7 +34,8 @@ function needsAttention(state: BackgroundJobState): boolean {
 export function jobSummary(job: BackgroundJobDto): string {
   switch (job.state) {
     case 'CRASHED':
-      return job.consecutiveFailures > 1 ? `${job.consecutiveFailures} runs in a row failed` : 'Last run crashed';
+      if (job.consecutiveFailures > 1) return `${job.consecutiveFailures} runs in a row failed`;
+      return job.source === 'GITHUB' ? 'Last run failed' : 'Last run crashed';
     case 'PARTLY_FAILED': {
       const items = job.lastHandled > 0
         ? `${job.lastFailedItems} of ${job.lastHandled} items failed`
@@ -45,8 +46,9 @@ export function jobSummary(job: BackgroundJobDto): string {
       if (job.running) return `Running since ${formatIst(job.lastStartedAt)}, longer than it should`;
       return job.lastFinishedAt ? `Hasn't run since ${formatIst(job.lastFinishedAt)}` : "Hasn't run since the server started";
     case 'OFF':
-      return 'Switched off on purpose';
+      return job.offReason ?? 'Switched off on purpose';
     case 'OK':
+      if (job.running) return `Running since ${formatIst(job.lastStartedAt)}`;
       return job.lastFinishedAt ? `Last run ${formatIst(job.lastFinishedAt)}` : 'Not run yet since the server started';
   }
 }
@@ -78,7 +80,7 @@ export function lastRunDuration(job: BackgroundJobDto): string | null {
   return formatDuration(ms);
 }
 
-function FailureHistory({ jobKey }: { jobKey: string }) {
+function FailureHistory({ jobKey, github }: { jobKey: string; github: boolean }) {
   const { data, error, isLoading } = useQuery({
     queryKey: ['admin-background-job-failures', jobKey],
     queryFn: () => adminBackgroundJobsApi.failures(jobKey),
@@ -93,7 +95,7 @@ function FailureHistory({ jobKey }: { jobKey: string }) {
       {data.map((f) => (
         <li key={f.occurredAt + (f.errorSummary ?? '')} className="text-sm border border-border rounded-lg px-3 py-2">
           <p className="font-medium text-ink">
-            {formatIst(f.occurredAt)} · {f.outcome === 'CRASHED' ? 'Crashed' : `${f.failedItems} ${f.failedItems === 1 ? 'item' : 'items'} failed`}
+            {formatIst(f.occurredAt)} · {f.outcome === 'CRASHED' ? (github ? 'Failed' : 'Crashed') : `${f.failedItems} ${f.failedItems === 1 ? 'item' : 'items'} failed`}
           </p>
           {f.errorSummary && <p className="text-muted break-words font-mono text-xs mt-0.5">{f.errorSummary}</p>}
         </li>
@@ -105,7 +107,9 @@ function FailureHistory({ jobKey }: { jobKey: string }) {
 
 function JobRow({ job, open, onToggle }: { job: BackgroundJobDto; open: boolean; onToggle: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
-  const state = STATE_LABEL[job.state];
+  const github = job.source === 'GITHUB';
+  // A GitHub run fails rather than crashes: same state, plainer word.
+  const state = github && job.state === 'CRASHED' ? { ...STATE_LABEL.CRASHED, label: 'Failed' } : STATE_LABEL[job.state];
   const duration = lastRunDuration(job);
   return (
     <div data-testid="background-job" ref={ref} id={`job-${job.key}`}
@@ -116,6 +120,7 @@ function JobRow({ job, open, onToggle }: { job: BackgroundJobDto; open: boolean;
         <span className="flex-1 min-w-0">
           <span className="flex flex-wrap items-center gap-2">
             <span data-testid="job-name" className="font-semibold text-ink">{job.name}</span>
+            {github && <span className="text-xs font-medium rounded-full px-2 py-0.5 border border-border text-muted">GitHub</span>}
             <span className={`text-xs font-semibold rounded-full px-2.5 py-0.5 ${state.className}`}>{state.label}</span>
           </span>
           <span className="block text-sm text-muted mt-0.5">
@@ -134,9 +139,15 @@ function JobRow({ job, open, onToggle }: { job: BackgroundJobDto; open: boolean;
               <div><dt className="inline text-muted">Broken since: </dt><dd className="inline text-ink">{formatIst(job.brokenSince)}</dd></div>
             )}
           </dl>
+          {job.runUrl && (
+            <a href={job.runUrl} target="_blank" rel="noopener noreferrer"
+              className="inline-flex items-center text-sm font-medium text-primary underline underline-offset-2 py-2">
+              Open this run on GitHub
+            </a>
+          )}
           <div>
             <h3 className="text-xs font-semibold text-muted uppercase tracking-wide mb-2">Failures, last 30 days</h3>
-            <FailureHistory jobKey={job.key} />
+            <FailureHistory jobKey={job.key} github={github} />
           </div>
         </div>
       )}

@@ -6308,7 +6308,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/admin/background-jobs/{key}/failures": {
+    "/api/v1/admin/background-jobs/failures": {
         parameters: {
             query?: never;
             header?: never;
@@ -14597,6 +14597,9 @@ export interface components {
             /** Format: date-time */
             brokenSince?: string;
             running?: boolean;
+            source?: string;
+            runUrl?: string;
+            offReason?: string;
         };
         ApiResponseListBackgroundJobFailure: {
             success?: boolean;
@@ -25384,11 +25387,11 @@ export interface operations {
     };
     failures: {
         parameters: {
-            query?: never;
-            header?: never;
-            path: {
+            query: {
                 key: string;
             };
+            header?: never;
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;

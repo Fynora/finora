@@ -1,5 +1,7 @@
 package com.finora.observability.jobs;
 
+import com.finora.observability.jobs.github.GitHubWorkflowCatalog;
+
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -116,6 +118,8 @@ public final class BackgroundJobCatalog {
                 "Fetches fresh data for Account Aggregator links that missed an update.");
 
         // Diagnostics
+        put("GitHubWorkflowPoller.poll", "GitHub checks reader",
+                "Reads the latest run of each GitHub check the jobs page watches.");
         put("BackgroundJobAlertChecker.check", "Background job checker",
                 "Emails admins when a background job breaks or recovers; prunes old failure records.");
         put("UserRequestLoad.flushIfMinuteElapsed", "Request load counter",
@@ -134,6 +138,14 @@ public final class BackgroundJobCatalog {
 
     public static Optional<JobInfo> lookup(String key) {
         return Optional.ofNullable(JOBS.get(key));
+    }
+
+    /** The name and purpose of any job on the page: a backend job, or a watched GitHub workflow (part 2). */
+    public static JobInfo infoFor(String key) {
+        JobInfo backend = JOBS.get(key);
+        if (backend != null) return backend;
+        return GitHubWorkflowCatalog.find(key).map(w -> new JobInfo(w.name(), w.purpose()))
+                .orElse(new JobInfo(key, ""));
     }
 
     public static Set<String> keys() {

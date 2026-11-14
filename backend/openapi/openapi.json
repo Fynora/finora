@@ -14250,7 +14250,7 @@
                 }
             }
         },
-        "/api/v1/admin/background-jobs/{key}/failures": {
+        "/api/v1/admin/background-jobs/failures": {
             "get": {
                 "tags": [
                     "admin-background-jobs-controller"
@@ -14259,7 +14259,7 @@
                 "parameters": [
                     {
                         "name": "key",
-                        "in": "path",
+                        "in": "query",
                         "required": true,
                         "schema": {
                             "type": "string"
@@ -35787,6 +35787,15 @@
                     },
                     "running": {
                         "type": "boolean"
+                    },
+                    "source": {
+                        "type": "string"
+                    },
+                    "runUrl": {
+                        "type": "string"
+                    },
+                    "offReason": {
+                        "type": "string"
                     }
                 }
             },

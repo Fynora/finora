@@ -36,11 +36,19 @@ jest.mock('../lib/haptics');
 let mockQuickSortQuestions = 0;
 jest.mock('../components/QuickSortPanel', () => {
   const { useEffect } = jest.requireActual('react');
-  const { Text } = jest.requireActual('react-native');
+  const { Pressable, Text } = jest.requireActual('react-native');
   return {
-    QuickSortPanel: ({ onLoaded }: { onLoaded?: (n: number) => void }) => {
+    QuickSortPanel: ({ onLoaded, onSeeAll }: { onLoaded?: (n: number) => void; onSeeAll?: (payee: string) => void }) => {
       useEffect(() => { onLoaded?.(mockQuickSortQuestions); }, [onLoaded]);
-      return mockQuickSortQuestions > 0 ? <Text>Quick sort stub</Text> : null;
+      if (mockQuickSortQuestions === 0) return null;
+      return (
+        <>
+          <Text>Quick sort stub</Text>
+          {onSeeAll ? (
+            <Pressable accessibilityRole="button" onPress={() => onSeeAll('RAVI K')}><Text>Stub see all</Text></Pressable>
+          ) : null}
+        </>
+      );
     },
   };
 });
@@ -130,6 +138,19 @@ beforeEach(() => {
 });
 
 describe('Quick sort first', () => {
+  it("opens Transactions searched for a payee from Quick sort's See all", async () => {
+    mockQuickSortQuestions = 1;
+    const { navigate } = jest.requireMock('@react-navigation/native').useNavigation() as { navigate: jest.Mock };
+    navigate.mockClear();
+
+    renderScreen();
+    fireEvent.press(await screen.findByText('Stub see all'));
+
+    expect(navigate).toHaveBeenCalledWith('Transactions', {
+      filters: { keyword: 'RAVI K', label: 'RAVI K', nonce: expect.any(Number) },
+    });
+  });
+
   it('opens with Quick sort and keeps the full lists behind "See all waiting payments"', async () => {
     mockQuickSortQuestions = 3;
     transactions.needsReviewGroups.mockResolvedValue([group()]);

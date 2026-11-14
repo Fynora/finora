@@ -10,6 +10,10 @@ import { Card, EmptyState, SectionHeading } from '../components/Card';
 import { CategoryPickerModal } from '../components/CategoryPickerModal';
 import { MerchantLogo } from '../components/MerchantLogo';
 import { QuickSortPanel } from '../components/QuickSortPanel';
+import { useNavigation } from '@react-navigation/native';
+import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import type { AppTabParamList } from '../navigation/types';
+import { trackNavigation } from '../lib/trackNavigation';
 import { SkeletonGroup, SkeletonTransactionRow } from '../components/skeletons/Skeletons';
 import { categoriesApi, transactionsApi } from '../api/endpoints';
 import { useToast } from '../context/ToastContext';
@@ -44,6 +48,12 @@ import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
  * confirmation — you cannot open it by accident and you cannot leave it having chosen nothing.
  */
 export function CategoryReviewScreen() {
+  const navigation = useNavigation<BottomTabNavigationProp<AppTabParamList>>();
+  // Quick sort's "See all N in Transactions": the Transactions tab, searched for that payee.
+  const openTransactionsFor = (payee: string) => {
+    trackNavigation('transactions', 'contextual');
+    navigation.navigate('Transactions', { filters: { keyword: payee, label: payee, nonce: Date.now() } });
+  };
   const c = useTheme();
   const tabBar = useTabBarSpace();
   const largeText = useLargeFontScale();
@@ -317,7 +327,7 @@ export function CategoryReviewScreen() {
         merchant.
       </Text>
 
-      <QuickSortPanel onLoaded={setQuickSortQuestions} />
+      <QuickSortPanel onLoaded={setQuickSortQuestions} onSeeAll={openTransactionsFor} />
 
       {listsBehindQuickSort ? (
         <Pressable onPress={() => setShowAllWaiting(true)} hitSlop={12} accessibilityRole="button">

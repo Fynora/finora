@@ -132,6 +132,11 @@ export function DashboardScreen() {
     trackNavigation('review-categories', 'contextual');
     navigation.navigate('More', { screen: 'CategoryReview' });
   };
+  // Quick sort's "See all N in Transactions": the Transactions tab, searched for that payee.
+  const openTransactionsFor = (payee: string) => {
+    trackNavigation('transactions', 'contextual');
+    navigation.navigate('Transactions', { filters: { keyword: payee, label: payee, nonce: Date.now() } });
+  };
   const queryClient = useQueryClient();
   const route = useRoute<RouteProp<AppTabParamList, 'Home'>>();
   const { showToast } = useToast();
@@ -566,6 +571,7 @@ export function DashboardScreen() {
           accountEmail={email ?? null}
           onLoaded={(questions) => setQuickSortShowing(questions > 0)}
           onOpenFull={openCategoryReview}
+          onSeeAll={openTransactionsFor}
         />
       ) : null}
       {quickSortShowing === false && reviewCountKnown && reviewCount > 0 ? (

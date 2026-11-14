@@ -997,6 +997,30 @@ describe('categorization review nudge', () => {
     expect(transactions.quickSort).toHaveBeenCalledWith(0, false, 'DASHBOARD');
   });
 
+  it("opens Transactions searched for the payee from the card's See all", async () => {
+    transactions.quickSort.mockResolvedValueOnce({
+      questions: [{
+        id: 'vpa:ravi|EXPENSE', anchorTransactionId: 't-1', kind: 'PERSON_PAID', payee: 'RAVI K', payments: 2,
+        total: 800, latestDate: '2026-11-12', largeOneOff: false, currentCategory: 'Personal Transfer',
+        answers: ['Personal Transfer'], samples: [], allPayments: 14, firstDate: '2026-08-03', typicalLow: 150,
+        typicalHigh: 400,
+        recent: [{ id: 'r-1', date: '2026-11-12', description: 'UPI/RAVI K/REF', amount: 200, type: 'EXPENSE' }],
+      }],
+      waitingTotal: 800,
+      rest: { questions: 0, payments: 0, amount: 0, transactionIds: [] },
+    });
+    const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };
+    navigate.mockClear();
+
+    renderScreen();
+    fireEvent.press(await screen.findByRole('button', { name: '14 payments since Aug · usually ₹150–₹400' }));
+    fireEvent.press(screen.getByRole('button', { name: 'See all 14 in Transactions' }));
+
+    expect(navigate).toHaveBeenCalledWith('Transactions', {
+      filters: { keyword: 'RAVI K', label: 'RAVI K', nonce: expect.any(Number) },
+    });
+  });
+
   it('asks again each time the Dashboard tab comes back into focus', async () => {
     // Bottom tabs keep the screen mounted, so a "visit" is a focus, not a mount. The shared mock
     // runs a focus effect once; this test keeps the screen's latest focus effect to fire it again.

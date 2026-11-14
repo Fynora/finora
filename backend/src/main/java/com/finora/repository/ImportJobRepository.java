@@ -126,6 +126,11 @@ public interface ImportJobRepository extends JpaRepository<ImportJob, UUID> {
      *  held without one ({@code HeldStatementService.listHoldsWithoutReviewRecord}). */
     Page<ImportJob> findByStatusAndHeldStatementIdIsNull(ImportJob.Status status, Pageable pageable);
 
+    /** Every open hold, oldest first, for the "Needs a decision" page ({@code DecisionQueueService});
+     *  {@code limit} bounds it. */
+    List<ImportJob> findByStatusInOrderByFinishedAtAscIdAsc(java.util.Collection<ImportJob.Status> statuses,
+                                                           Pageable limit);
+
     /** How many of {@link #findByStatusAndHeldStatementIdIsNull} there are -- the admin dashboard
      *  counts these trust holds alongside the ones that do have a review record. */
     long countByStatusAndHeldStatementIdIsNull(ImportJob.Status status);

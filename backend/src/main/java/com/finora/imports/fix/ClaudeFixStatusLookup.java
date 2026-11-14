@@ -29,4 +29,22 @@ public class ClaudeFixStatusLookup {
         if (!properties.isEnabled() && (row.isEmpty() || recordedOff)) return ClaudeFixStatus.off(cap);
         return row.map(r -> ClaudeFixStatus.of(r, cap)).orElse(null);
     }
+
+    /**
+     * {@link #forJob} for many jobs in one read. A job missing from the map reads as
+     * {@link #forJob} would return null for it: switched on, decision not recorded yet.
+     */
+    public java.util.Map<UUID, ClaudeFixStatus> forJobs(java.util.Collection<UUID> jobIds) {
+        int cap = properties.getMonthlyCap();
+        java.util.Map<UUID, ClaudeFixJob> rows = new java.util.HashMap<>();
+        jobs.findAllById(jobIds).forEach(r -> rows.put(r.getJobId(), r));
+        java.util.Map<UUID, ClaudeFixStatus> result = new java.util.HashMap<>();
+        for (UUID id : jobIds) {
+            ClaudeFixJob row = rows.get(id);
+            boolean recordedOff = row != null && row.getReason() == ClaudeFixJob.Reason.OFF;
+            if (!properties.isEnabled() && (row == null || recordedOff)) result.put(id, ClaudeFixStatus.off(cap));
+            else if (row != null) result.put(id, ClaudeFixStatus.of(row, cap));
+        }
+        return result;
+    }
 }

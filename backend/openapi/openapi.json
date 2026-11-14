@@ -35767,6 +35767,15 @@
                     },
                     "running": {
                         "type": "boolean"
+                    },
+                    "source": {
+                        "type": "string"
+                    },
+                    "runUrl": {
+                        "type": "string"
+                    },
+                    "offReason": {
+                        "type": "string"
                     }
                 }
             },

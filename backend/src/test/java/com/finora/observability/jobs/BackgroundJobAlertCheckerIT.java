@@ -146,6 +146,44 @@ class BackgroundJobAlertCheckerIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void aFailedGitHubRunEmailsOnce_saysFailed() {
+        String e2e = "github:Fynora/finora/e2e-nightly.yml";
+        jdbc.update("DELETE FROM background_job_failures WHERE job_key = ?", e2e);
+        jdbc.update("DELETE FROM background_job_status WHERE job_key = ?", e2e);
+        store.recordExternalRun(e2e, 8001L, "https://github.com/Fynora/finora/actions/runs/8001",
+                Instant.now().minusSeconds(1800), Instant.now().minusSeconds(600), JobOutcome.CRASHED, "Failed: Run Playwright");
+
+        checker.check();
+        checker.check();
+
+        List<EmailMessage> mine = sentTo(adminEmail).stream()
+                .filter(m -> m.subject().contains("Web app tests (nightly)")).toList();
+        assertThat(mine).hasSize(1);
+        assertThat(mine.get(0).subject()).isEqualTo("Background job needs attention: Web app tests (nightly)");
+        assertThat(mine.get(0).html()).contains("its last run failed").contains("Failed: Run Playwright")
+                .doesNotContain("crashed");
+    }
+
+    @Test
+    void anOffGitHubRowNeverEmails() {
+        String traffic = "github:Fynora/finora/github-traffic-metrics.yml";
+        jdbc.update("DELETE FROM background_job_failures WHERE job_key = ?", traffic);
+        jdbc.update("DELETE FROM background_job_status WHERE job_key = ?", traffic);
+        store.recordExternalRun(traffic, 8002L, "u", Instant.now().minusSeconds(1800), Instant.now().minusSeconds(600),
+                JobOutcome.CRASHED, "Failed: Save metrics");
+
+        checker.check();
+
+        assertThat(sentTo(adminEmail)).noneMatch(m -> m.subject().contains("GitHub traffic metrics"));
+    }
+
+    private List<EmailMessage> sentTo(String to) {
+        ArgumentCaptor<EmailMessage> captor = ArgumentCaptor.forClass(EmailMessage.class);
+        verify(emailProvider, atLeast(0)).send(captor.capture());
+        return captor.getAllValues().stream().filter(m -> m.to().equals(to)).toList();
+    }
+
+    @Test
     void flagOff_sendsNothingButStillPrunes() {
         crashedRow(Instant.now().minus(Duration.ofDays(31)));
         BackgroundJobAlertChecker off = checker.withAlertsEnabled(false);

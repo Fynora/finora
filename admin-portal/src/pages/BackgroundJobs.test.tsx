@@ -46,7 +46,7 @@ function job(overrides: Partial<BackgroundJobDto>): BackgroundJobDto {
     key: 'X.y', name: 'Some job', purpose: 'Does a thing.', schedule: 'every 15 minutes', state: 'OK',
     lastStartedAt: '2026-11-13T08:30:00Z', lastFinishedAt: '2026-11-13T08:30:05Z',
     lastSuccessAt: '2026-11-13T08:30:05Z', lastFailedItems: 0, lastHandled: 0, consecutiveFailures: 0,
-    brokenSince: null, running: false, ...overrides,
+    brokenSince: null, running: false, source: 'BACKEND', runUrl: null, offReason: null, ...overrides,
   };
 }
 
@@ -211,5 +211,50 @@ describe('BackgroundJobs durations', () => {
     renderPage();
     const row = await screen.findByTestId('background-job');
     expect(within(row).getByText(/took 2 min 5 s/)).toBeInTheDocument();
+  });
+});
+
+describe('BackgroundJobs GitHub rows', () => {
+  beforeEach(() => {
+    vi.mocked(adminBackgroundJobsApi.list).mockReset();
+    vi.mocked(adminBackgroundJobsApi.failures).mockReset();
+    mockAuth(['PLATFORM_DIAGNOSTICS_VIEW']);
+  });
+
+  it('githubRowsShowTagFailedLabelAndRunLink', async () => {
+    vi.mocked(adminBackgroundJobsApi.list).mockResolvedValue([
+      job({ key: 'github:Fynora/finora/e2e-nightly.yml', name: 'Web app tests (nightly)', state: 'CRASHED',
+        source: 'GITHUB', runUrl: 'https://github.com/Fynora/finora/actions/runs/42', consecutiveFailures: 1 }),
+    ]);
+    vi.mocked(adminBackgroundJobsApi.failures).mockResolvedValue([]);
+    renderPage('/background-jobs?job=' + encodeURIComponent('github:Fynora/finora/e2e-nightly.yml'));
+
+    const row = await screen.findByTestId('background-job');
+    expect(within(row).getByText('GitHub')).toBeInTheDocument();
+    expect(within(row).getByText('Failed')).toBeInTheDocument();
+    expect(within(row).queryByText('Crashed')).toBeNull();
+    expect(within(row).getByText(/^Last run failed/)).toBeInTheDocument();
+    const link = within(row).getByRole('link', { name: /Open this run on GitHub/ });
+    expect(link).toHaveAttribute('href', 'https://github.com/Fynora/finora/actions/runs/42');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  it('offGitHubRowShowsItsReason', async () => {
+    vi.mocked(adminBackgroundJobsApi.list).mockResolvedValue([
+      job({ key: 'github:Fynora/finora/github-traffic-metrics.yml', name: 'GitHub traffic metrics', state: 'OFF',
+        source: 'GITHUB', offReason: 'Needs a GitHub token from Sid' }),
+    ]);
+    renderPage();
+    const row = await screen.findByTestId('background-job');
+    expect(within(row).getByText('Needs a GitHub token from Sid')).toBeInTheDocument();
+    expect(within(row).queryByText(/Switched off on purpose/)).toBeNull();
+  });
+
+  it('backendRowsHaveNoGitHubTagOrLink', async () => {
+    vi.mocked(adminBackgroundJobsApi.list).mockResolvedValue([job({ key: 'A.b', name: 'Some job' })]);
+    renderPage();
+    const row = await screen.findByTestId('background-job');
+    expect(within(row).queryByText('GitHub')).toBeNull();
+    expect(within(row).queryByRole('link', { name: /GitHub/ })).toBeNull();
   });
 });

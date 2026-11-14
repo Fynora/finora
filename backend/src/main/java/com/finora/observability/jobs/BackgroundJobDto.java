@@ -16,5 +16,11 @@ public record BackgroundJobDto(
         int lastHandled,
         int consecutiveFailures,
         Instant brokenSince,
-        boolean running
+        boolean running,
+        /** BACKEND or GITHUB (part 2). */
+        String source,
+        /** The GitHub run's page, for GitHub rows; null otherwise. */
+        String runUrl,
+        /** Why a row is Off on purpose (for example a GitHub workflow waiting for a token); null otherwise. */
+        String offReason
 ) {}

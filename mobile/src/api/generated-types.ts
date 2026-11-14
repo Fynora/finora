@@ -14590,6 +14590,9 @@ export interface components {
             /** Format: date-time */
             brokenSince?: string;
             running?: boolean;
+            source?: string;
+            runUrl?: string;
+            offReason?: string;
         };
         ApiResponseListBackgroundJobFailure: {
             success?: boolean;

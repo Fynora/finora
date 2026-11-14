@@ -41,6 +41,7 @@ class AdminBackgroundJobsControllerIT extends AbstractIntegrationTest {
     @Autowired private JwtService jwtService;
     @Autowired private RefreshTokenRepository refreshTokens;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private com.finora.observability.jobs.BackgroundJobStore store;
     private final ObjectMapper mapper = new ObjectMapper();
 
     @BeforeEach
@@ -155,6 +156,32 @@ class AdminBackgroundJobsControllerIT extends AbstractIntegrationTest {
         assertThat(rows).hasSize(50);
         assertThat(rows.get(0).get("errorSummary").asText()).isEqualTo("E at A:0");
         assertThat(rows.get(49).get("errorSummary").asText()).isEqualTo("E at A:49");
+    }
+
+    @Test
+    void githubRowsCarrySourceRunUrlAndOffReason() throws Exception {
+        String traces = "github:Fynora/finora-statement-traces/traces.yml";
+        jdbc.update("DELETE FROM background_job_status WHERE job_key = ?", traces);
+        store.recordExternalRun(traces, 7001L, "https://github.com/Fynora/finora-statement-traces/actions/runs/7001",
+                Instant.now().minusSeconds(900), Instant.now().minusSeconds(300), com.finora.observability.jobs.JobOutcome.OK, null);
+
+        JsonNode jobs = mapper.readTree(get("/api/v1/admin/background-jobs", admin("ADMIN", User.SCOPE_ADMIN)).getBody()).get("data");
+
+        JsonNode row = null, traffic = null, backend = null;
+        for (JsonNode j : jobs) {
+            if (j.get("key").asText().equals(traces)) row = j;
+            if (j.get("key").asText().equals("github:Fynora/finora/github-traffic-metrics.yml")) traffic = j;
+            if (j.get("key").asText().equals(DAILY_JOB)) backend = j;
+        }
+        assertThat(row).isNotNull();
+        assertThat(row.get("source").asText()).isEqualTo("GITHUB");
+        assertThat(row.get("name").asText()).isEqualTo("Statement trace tests");
+        assertThat(row.get("runUrl").asText()).isEqualTo("https://github.com/Fynora/finora-statement-traces/actions/runs/7001");
+        assertThat(row.get("schedule").asText()).isEqualTo("daily at 04:30 UTC");
+        assertThat(traffic.get("state").asText()).isEqualTo("OFF");
+        assertThat(traffic.get("offReason").asText()).isEqualTo("Needs a GitHub token from Sid");
+        assertThat(backend.get("source").asText()).isEqualTo("BACKEND");
+        assertThat(backend.get("runUrl").isNull()).isTrue();
     }
 
     @Test

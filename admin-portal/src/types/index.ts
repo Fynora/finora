@@ -149,6 +149,12 @@ export interface BackgroundJobDto {
   brokenSince: string | null;
   /** Started and not finished yet. */
   running: boolean;
+  /** BACKEND for the backend's own scheduled jobs, GITHUB for a watched GitHub workflow. */
+  source: 'BACKEND' | 'GITHUB';
+  /** The GitHub run's page, for GitHub rows. */
+  runUrl: string | null;
+  /** Why the row is Off on purpose, when it is. */
+  offReason: string | null;
 }
 
 /** One crashed or partly failed run, kept 30 days. The error is its type and code location only. */

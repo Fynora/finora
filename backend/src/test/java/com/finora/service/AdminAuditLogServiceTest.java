@@ -33,7 +33,7 @@ class AdminAuditLogServiceTest {
         UserRepository users = mock(UserRepository.class);
         AuditLog entry = new AuditLog();
         entry.setAction("SYSTEM_SWEEP");
-        when(audit.search(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(audit.search(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new PageImpl<>(List.of(entry), PageRequest.of(0, 25), 1));
 
         List<AdminAuditLogRowDto> rows = new AdminAuditLogService(audit, users)
@@ -71,7 +71,7 @@ class AdminAuditLogServiceTest {
     }
 
     private AdminAuditLogRowDto row(AuditLog l, boolean userView, User... people) {
-        when(audit.search(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(audit.search(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new PageImpl<>(List.of(l), PageRequest.of(0, 25), 1));
         when(users.findAllById(any())).thenReturn(List.of(people));
         return new AdminAuditLogService(audit, users)
@@ -136,6 +136,40 @@ class AdminAuditLogServiceTest {
         AdminAuditLogRowDto failed = row(entry(admin.getId(), "LOGIN_FAILED", admin.getId(), Map.of()), true, admin);
         assertThat(failed.actorId()).isNull();
         assertThat(failed.userName()).isEqualTo("Ops Admin");
+    }
+
+    /** Trust review, held imports, blanked copies: the admin in the account slot AND as actorId,
+     *  the customer as subjectUserId. Was "by Ops Admin · Ops Admin" (re-check of 2026-11-14). */
+    @Test
+    void aTrustReviewRow_isByTheAdmin_aboutTheCustomerItNames() {
+        User admin = person("ADMIN", "Ops Admin");
+        User customer = person("USER", "Asha Rao");
+        AdminAuditLogRowDto r = row(entry(admin.getId(), "TRUST_REVIEW_APPROVED", UUID.randomUUID(),
+                Map.of("actorId", admin.getId().toString(), "subjectUserId", customer.getId().toString(),
+                        "heldId", "HS-1")), true, admin, customer);
+        assertThat(r.actorId()).isEqualTo(admin.getId());
+        assertThat(r.userId()).isEqualTo(customer.getId());
+        assertThat(r.userName()).isEqualTo("Asha Rao");
+    }
+
+    @Test
+    void anActorIdThatIsTheAccountItself_onSomethingElse_isAboutThatThing() {
+        User admin = person("ADMIN", "Ops Admin");
+        AdminAuditLogRowDto r = row(entry(admin.getId(), "LAYOUT_PROFILE_CREATED", UUID.randomUUID(),
+                Map.of("actorId", admin.getId().toString(), "name", "HDFC v3")), true, admin);
+        assertThat(r.actorId()).isEqualTo(admin.getId());
+        assertThat(r.userId()).isNull();
+    }
+
+    /** The Claude fix job acts with no account; the customer is named in the details. */
+    @Test
+    void aJobRowNamingACustomer_isAboutThatCustomer() {
+        User customer = person("USER", "Asha Rao");
+        AdminAuditLogRowDto r = row(entry(null, "HELD_STATEMENT_BLANKED_COPY_RESULT", UUID.randomUUID(),
+                Map.of("actor", "claude-fix", "subjectUserId", customer.getId().toString())), true, customer);
+        assertThat(r.systemActor()).isEqualTo("claude-fix");
+        assertThat(r.actorId()).isNull();
+        assertThat(r.userId()).isEqualTo(customer.getId());
     }
 
     /** An unreadable first key no longer hides the admin a later key names (the search already

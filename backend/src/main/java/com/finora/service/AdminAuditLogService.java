@@ -48,11 +48,29 @@ public class AdminAuditLogService {
     public PagedResponse<AdminAuditLogRowDto> globalFeed(String q, Instant from, Instant to, UUID userId, UUID actorId,
                                                          String action, String requestId, Pageable pageable,
                                                          boolean mayNameCustomers) {
-        var page = auditLogRepository.search(q, from, to, userId,
+        var page = auditLogRepository.search(q, from, to, userId, userId != null ? userId.toString() : null,
                 actorId != null ? actorId.toString() : null, actorId, blankToNull(action), blankToNull(requestId),
                 AdminUserDataReadAuditInterceptor.ACTION, pageable);
         Map<UUID, User> people = peopleNamedIn(page.getContent());
         return PagedResponse.of(page.map(l -> toRow(l, people, mayNameCustomers)));
+    }
+
+    /**
+     * One account's history for the user page (AdminController.auditLogsForUser): what
+     * AuditLogRepository.findForAdminUserHistory finds. The details are shown raw, as before, except
+     * that a customer's identity in them (CUSTOMER_IDENTITY_KEYS) is hidden from a caller without
+     * USER_VIEW -- the same rule as the feed, which this endpoint used to sidestep: it needs only
+     * AUDIT_VIEW, and the feed shows every account's id.
+     */
+    @Transactional(readOnly = true)
+    public List<com.finora.dto.AuditLogDto> userHistory(UUID userId, boolean mayNameCustomers) {
+        boolean hideCustomer = !mayNameCustomers && userRepository.findById(userId)
+                .map(u -> !User.SCOPE_ADMIN.equals(u.getAccountScope())).orElse(true);
+        return auditLogRepository.findForAdminUserHistory(userId, userId.toString()).stream()
+                .map(l -> new com.finora.dto.AuditLogDto(l.getId(), l.getUserId(), l.getAction(), l.getEntityType(),
+                        l.getEntityId(), hideCustomer ? withoutCustomerIdentity(l.getMetadata()) : l.getMetadata(),
+                        l.getRequestId(), l.getCreatedAt()))
+                .toList();
     }
 
     private static String blankToNull(String value) {
@@ -60,13 +78,16 @@ public class AdminAuditLogService {
     }
 
     /** Every account a page of entries mentions -- the row's account, the admin named in its
-     *  details, and the customer whose data a read-audit row says was opened -- in one query. */
+     *  details, the customer it names as subjectUserId, and the customer whose data a read-audit
+     *  row says was opened -- in one query. */
     private Map<UUID, User> peopleNamedIn(List<AuditLog> logs) {
         Set<UUID> ids = new HashSet<>();
         for (AuditLog l : logs) {
             if (l.getUserId() != null) ids.add(l.getUserId());
             UUID actor = actorOf(l);
             if (actor != null) ids.add(actor);
+            UUID subject = subjectUserIdOf(l);
+            if (subject != null) ids.add(subject);
             if (isDataView(l) && l.getEntityId() != null) ids.add(l.getEntityId());
         }
         if (ids.isEmpty()) return Map.of();
@@ -100,25 +121,52 @@ public class AdminAuditLogService {
     }
 
     /**
-     * Whether no admin is named in the details and no job either -- so, when the row's account is
-     * a staff member, that staff member is who acted. Many admin-side writes (trust review,
-     * layouts, rules, banks, roles, settings, offers, campaigns, release markers, the read audit;
-     * 56 calls in 18 files at the break-test of 2026-11-14) pass the acting admin as the row's
-     * account and add no actor key. Read here, not rewritten, so old rows read right too. Only
-     * when the row's entity is not the account itself -- see toRow.
+     * Whether this row is its staff account's own act on something else. 57 admin-side writes
+     * (break-test of 2026-11-14) pass the acting admin as the row's account: about 35 name no actor
+     * key at all (layouts, rules, banks, roles, settings, offers, campaigns, release markers, the
+     * read audit), the rest also stamp {@code actorId} with that same admin (trust review, held
+     * imports, blanked copies). Read so here, not rewritten, so old rows read right too. All of:
+     * <ul>
+     *   <li>the account is a staff member;</li>
+     *   <li>its entity is not that account itself -- an email sent to them, their own or a failed
+     *       sign-in on their account happened TO them;</li>
+     *   <li>no job is named ({@code metadata.actor}, any value);</li>
+     *   <li>no actor key, or {@code actorId} is the account itself.</li>
+     * </ul>
+     * AuditLogRepository.OWN_ACT is the same test in SQL; keep the two in step.
      */
-    private static boolean actsAsItsOwnAccount(AuditLog l) {
-        return actorOf(l) == null && systemActorOf(l) == null && !hasAnyActorKey(l);
+    private static boolean isOwnAct(AuditLog l, User account) {
+        UUID accountId = l.getUserId();
+        if (accountId == null || account == null || !User.SCOPE_ADMIN.equals(account.getAccountScope())) return false;
+        if (accountId.equals(l.getEntityId())) return false;
+        Map<String, Object> md = l.getMetadata();
+        if (md != null && md.get("actor") != null) return false;
+        if (!hasAnyActorKey(l)) return true;
+        Object actorIdValue = md.get("actorId");
+        return actorIdValue != null && accountId.toString().equals(actorIdValue.toString());
     }
 
-    /** True when any actor key is present at all (even one that cannot be parsed): such a row
-     *  names its admin, or names one that cannot be read, and is never re-attributed. */
+    /** True when any actor key is present at all (even one that cannot be parsed). */
     private static boolean hasAnyActorKey(AuditLog l) {
         if (l.getMetadata() == null) return false;
         for (String key : AuditLogRepository.ADMIN_ACTOR_KEYS) {
             if (l.getMetadata().get(key) != null) return true;
         }
         return false;
+    }
+
+    /** The customer a row is about when the writing service recorded them in its details rather
+     *  than as the account: trust review, held imports and blanked copies put the acting admin (or
+     *  no one, for the Claude fix job) in the account slot and the customer here. Null if absent or
+     *  unreadable. */
+    static UUID subjectUserIdOf(AuditLog l) {
+        Object raw = l.getMetadata() != null ? l.getMetadata().get("subjectUserId") : null;
+        if (raw == null) return null;
+        try {
+            return UUID.fromString(raw.toString());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     /** Details that would say who a customer is, for a caller who may not know (no USER_VIEW). */
@@ -137,16 +185,16 @@ public class AdminAuditLogService {
         User account = accountId != null ? people.get(accountId) : null;
         UUID actorId = actorOf(l);
         UUID subjectId = accountId;
-        if (actorId == null && account != null && User.SCOPE_ADMIN.equals(account.getAccountScope())
-                && !accountId.equals(l.getEntityId()) && actsAsItsOwnAccount(l)) {
-            // A staff member's account on a row naming no other actor, about something other than
-            // that account: they are who did it. The row is about its entity (a held statement, a
-            // rule...), or, for a read audit, the customer whose data was opened. A row whose entity
-            // IS the account (an email sent to them, their own sign-in, a failed sign-in to their
-            // account) happened to them and stays about them.
+        if (isOwnAct(l, account)) {
+            // The staff member in the account slot did this, to something else: they are who acted,
+            // and the row is about its entity (a held statement, a rule...) -- or, for a read audit,
+            // the customer whose data was opened.
             actorId = accountId;
             subjectId = isDataView(l) ? l.getEntityId() : null;
         }
+        // A customer named in the details is who the row is about, whoever is in the account slot.
+        UUID namedSubject = subjectUserIdOf(l);
+        if (namedSubject != null) subjectId = namedSubject;
         User subjectUser = subjectId != null ? people.get(subjectId) : null;
         User subject = nameable(subjectUser, mayNameCustomers);
         User actor = nameable(actorId != null ? people.get(actorId) : null, mayNameCustomers);

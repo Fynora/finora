@@ -5,7 +5,6 @@ import com.finora.dto.ApiResponse;
 import com.finora.activation.ReportingDay;
 import com.finora.dto.AuditLogDto;
 import com.finora.security.CurrentUser;
-import com.finora.repository.AuditLogRepository;
 import com.finora.service.AdminAuditLogService;
 import com.finora.dto.AdminAuditLogRowDto;
 import org.springframework.data.domain.PageRequest;
@@ -45,25 +44,22 @@ import com.finora.util.LikePatterns;
 @PreAuthorize("hasAuthority('AUDIT_VIEW')")
 public class AdminController {
 
-    private final AuditLogRepository auditLogRepository;
     private final AdminAuditLogService auditLogService;
     private final CurrentUser currentUser;
     private final ReportingDay reportingDay;
 
-    public AdminController(AuditLogRepository auditLogRepository, AdminAuditLogService auditLogService,
+    public AdminController(AdminAuditLogService auditLogService,
                            CurrentUser currentUser, ReportingDay reportingDay) {
-        this.auditLogRepository = auditLogRepository;
         this.auditLogService = auditLogService;
         this.currentUser = currentUser;
         this.reportingDay = reportingDay;
     }
 
+    /** One account's history for its user page -- also the rows about it recorded elsewhere, and a
+     *  customer's identity in the details hidden without USER_VIEW (AdminAuditLogService.userHistory). */
     @GetMapping("/users/{userId}/audit-logs")
     public ApiResponse<List<AuditLogDto>> auditLogsForUser(@PathVariable UUID userId) {
-        var logs = auditLogRepository.findByUserIdOrderByCreatedAtDesc(userId).stream()
-                .map(this::toDto)
-                .toList();
-        return ApiResponse.ok(logs);
+        return ApiResponse.ok(auditLogService.userHistory(userId, currentUser.hasAuthority("USER_VIEW")));
     }
 
     /**
@@ -111,8 +107,4 @@ public class AdminController {
                 action, requestId, pageable, currentUser.hasAuthority("USER_VIEW")));
     }
 
-    private AuditLogDto toDto(com.finora.entity.AuditLog l) {
-        return new AuditLogDto(l.getId(), l.getUserId(), l.getAction(), l.getEntityType(),
-                l.getEntityId(), l.getMetadata(), l.getRequestId(), l.getCreatedAt());
-    }
 }

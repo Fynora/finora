@@ -74,69 +74,87 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
      * jsonb_extract_path_text; it is not indexed, which is acceptable for an admin-only page. Keep
      * the key list in this query and the constant in step.
      *
-     * <p>Many admin-side writes instead pass the acting admin as the row's account and name no
-     * actor (break-test 2026-11-14: 56 calls in 18 files -- trust review, layouts, rules, banks,
-     * roles, settings, offers, campaigns, release markers, the read audit). A row whose account is
-     * a staff member and whose details name no admin and no job ({@code metadata.actor}) is that
-     * staff member's own act, unless its entity is that account itself (an email sent to them,
-     * their own or a failed sign-in) -- AdminAuditLogService.toRow reads it so, and these filters match it
-     * the same way: under {@code actorUuid} (the same id as {@code actorId}), and not under its
-     * account. A read-audit row ({@code dataViewAction}) is about the customer whose data was
-     * opened, its entity, so the account filter matches it there.
+     * <p>57 admin-side writes instead pass the acting admin as the row's account (break-test
+     * 2026-11-14): about 35 name no actor key at all, the rest also stamp {@code actorId} with that
+     * same admin, and trust review, held imports and blanked copies name the customer as
+     * {@code metadata.subjectUserId}. {@link #OWN_ACT} is when a row is its staff account's own act
+     * on something else (AdminAuditLogService.isOwnAct is the same test); the filters read rows the
+     * way AdminAuditLogService.toRow shows them:
+     * <ul>
+     *   <li>{@code userId} -- the row is about this account: its {@code subjectUserId} when it names
+     *       one; otherwise its account, unless it is the account's own act; or, for a read audit
+     *       ({@code dataViewAction}) that is an admin's own act, its entity, the customer whose data
+     *       was opened. {@code userIdText} is the same id as text, for the details.</li>
+     *   <li>{@code actorId} -- any actor key names this admin, or the row is this admin's own act
+     *       ({@code actorUuid} is the same id).</li>
+     * </ul>
      */
-    @Query("""
-        SELECT a FROM AuditLog a
-        WHERE (:q IS NULL
-               OR LOWER(a.action) LIKE LOWER(CONCAT('%', CAST(:q AS string), '%')) ESCAPE '\\'
-               OR LOWER(a.entityType) LIKE LOWER(CONCAT('%', CAST(:q AS string), '%')) ESCAPE '\\')
-          AND (CAST(:dateFrom AS timestamp) IS NULL OR a.createdAt >= :dateFrom)
-          AND (CAST(:dateTo AS timestamp) IS NULL OR a.createdAt < :dateTo)
-          AND (CAST(:userId AS uuid) IS NULL
-               OR (a.userId = :userId
-                   AND NOT (EXISTS (SELECT u.id FROM User u WHERE u.id = a.userId AND u.accountScope = 'ADMIN')
-                            AND (a.entityId IS NULL OR a.entityId <> a.userId)
-                            AND function('jsonb_extract_path_text', a.metadata, 'actorId') IS NULL
-                            AND function('jsonb_extract_path_text', a.metadata, 'suspendedBy') IS NULL
-                            AND function('jsonb_extract_path_text', a.metadata, 'reactivatedBy') IS NULL
-                            AND function('jsonb_extract_path_text', a.metadata, 'recordedBy') IS NULL
-                            AND function('jsonb_extract_path_text', a.metadata, 'updatedBy') IS NULL
-                            AND function('jsonb_extract_path_text', a.metadata, 'setBy') IS NULL
-                            AND function('jsonb_extract_path_text', a.metadata, 'createdBy') IS NULL
-                            AND function('jsonb_extract_path_text', a.metadata, 'changedBy') IS NULL
-                            AND function('jsonb_extract_path_text', a.metadata, 'actor') IS NULL))
-               OR (a.action = :dataViewAction AND a.entityId = :userId
-                   AND EXISTS (SELECT u.id FROM User u WHERE u.id = a.userId AND u.accountScope = 'ADMIN')
-                   AND function('jsonb_extract_path_text', a.metadata, 'actorId') IS NULL
-                   AND function('jsonb_extract_path_text', a.metadata, 'actor') IS NULL))
-          AND (CAST(:actorId AS string) IS NULL
-               OR function('jsonb_extract_path_text', a.metadata, 'actorId') = CAST(:actorId AS string)
-               OR function('jsonb_extract_path_text', a.metadata, 'suspendedBy') = CAST(:actorId AS string)
-               OR function('jsonb_extract_path_text', a.metadata, 'reactivatedBy') = CAST(:actorId AS string)
-               OR function('jsonb_extract_path_text', a.metadata, 'recordedBy') = CAST(:actorId AS string)
-               OR function('jsonb_extract_path_text', a.metadata, 'updatedBy') = CAST(:actorId AS string)
-               OR function('jsonb_extract_path_text', a.metadata, 'setBy') = CAST(:actorId AS string)
-               OR function('jsonb_extract_path_text', a.metadata, 'createdBy') = CAST(:actorId AS string)
-               OR function('jsonb_extract_path_text', a.metadata, 'changedBy') = CAST(:actorId AS string)
-               OR (a.userId = :actorUuid
-                   AND EXISTS (SELECT u.id FROM User u WHERE u.id = a.userId AND u.accountScope = 'ADMIN')
-                   AND (a.entityId IS NULL OR a.entityId <> a.userId)
-                   AND function('jsonb_extract_path_text', a.metadata, 'actorId') IS NULL
-                   AND function('jsonb_extract_path_text', a.metadata, 'suspendedBy') IS NULL
-                   AND function('jsonb_extract_path_text', a.metadata, 'reactivatedBy') IS NULL
-                   AND function('jsonb_extract_path_text', a.metadata, 'recordedBy') IS NULL
-                   AND function('jsonb_extract_path_text', a.metadata, 'updatedBy') IS NULL
-                   AND function('jsonb_extract_path_text', a.metadata, 'setBy') IS NULL
-                   AND function('jsonb_extract_path_text', a.metadata, 'createdBy') IS NULL
-                   AND function('jsonb_extract_path_text', a.metadata, 'changedBy') IS NULL
-                   AND function('jsonb_extract_path_text', a.metadata, 'actor') IS NULL))
-          AND (CAST(:action AS string) IS NULL OR a.action = :action)
-          AND (CAST(:requestId AS string) IS NULL OR a.requestId = :requestId)
-        """)
+    @Query("SELECT a FROM AuditLog a WHERE (:q IS NULL"
+            + " OR LOWER(a.action) LIKE LOWER(CONCAT('%', CAST(:q AS string), '%')) ESCAPE '\\'"
+            + " OR LOWER(a.entityType) LIKE LOWER(CONCAT('%', CAST(:q AS string), '%')) ESCAPE '\\')"
+            + " AND (CAST(:dateFrom AS timestamp) IS NULL OR a.createdAt >= :dateFrom)"
+            + " AND (CAST(:dateTo AS timestamp) IS NULL OR a.createdAt < :dateTo)"
+            + " AND (CAST(:userId AS uuid) IS NULL"
+            + "      OR " + SUBJECT_USER_ID + " = CAST(:userIdText AS string)"
+            + "      OR (" + SUBJECT_USER_ID + " IS NULL AND ("
+            + "            (a.userId = :userId AND NOT " + OWN_ACT + ")"
+            + "            OR (a.action = :dataViewAction AND a.entityId = :userId AND " + OWN_ACT + "))))"
+            + " AND (CAST(:actorId AS string) IS NULL"
+            + "      OR function('jsonb_extract_path_text', a.metadata, 'actorId') = CAST(:actorId AS string)"
+            + "      OR function('jsonb_extract_path_text', a.metadata, 'suspendedBy') = CAST(:actorId AS string)"
+            + "      OR function('jsonb_extract_path_text', a.metadata, 'reactivatedBy') = CAST(:actorId AS string)"
+            + "      OR function('jsonb_extract_path_text', a.metadata, 'recordedBy') = CAST(:actorId AS string)"
+            + "      OR function('jsonb_extract_path_text', a.metadata, 'updatedBy') = CAST(:actorId AS string)"
+            + "      OR function('jsonb_extract_path_text', a.metadata, 'setBy') = CAST(:actorId AS string)"
+            + "      OR function('jsonb_extract_path_text', a.metadata, 'createdBy') = CAST(:actorId AS string)"
+            + "      OR function('jsonb_extract_path_text', a.metadata, 'changedBy') = CAST(:actorId AS string)"
+            + "      OR (a.userId = :actorUuid AND " + OWN_ACT + "))"
+            + " AND (CAST(:action AS string) IS NULL OR a.action = :action)"
+            + " AND (CAST(:requestId AS string) IS NULL OR a.requestId = :requestId)")
     Page<AuditLog> search(@Param("q") String q, @Param("dateFrom") Instant dateFrom,
                            @Param("dateTo") Instant dateTo, @Param("userId") UUID userId,
+                           @Param("userIdText") String userIdText,
                            @Param("actorId") String actorId, @Param("actorUuid") UUID actorUuid,
                            @Param("action") String action, @Param("requestId") String requestId,
                            @Param("dataViewAction") String dataViewAction, Pageable pageable);
+
+    /**
+     * One account's history for the admin portal's user page (AdminAuditLogService.userHistory),
+     * newest first: every row in its account slot -- as before, so an admin's own acts stay on their
+     * page -- plus the rows naming it as {@code subjectUserId} (trust review, held imports, blanked
+     * copies): before the break-test of 2026-11-14 a customer's page never showed who approved or
+     * rejected their statement. Only adds rows. Not the read audit of someone opening this account:
+     * every open of the user page writes two or more of those, and they would push the account's
+     * own activity off the page's 20-row list; the Audit Log's account filter lists them.
+     */
+    @Query("SELECT a FROM AuditLog a WHERE a.userId = :userId"
+            + " OR " + SUBJECT_USER_ID + " = CAST(:userIdText AS string)"
+            + " ORDER BY a.createdAt DESC, a.id DESC")
+    List<AuditLog> findForAdminUserHistory(@Param("userId") UUID userId, @Param("userIdText") String userIdText);
+
+    /** {@code metadata.subjectUserId}: the customer a trust-review, held-import or blanked-copy row
+     *  is about (AdminAuditLogService.subjectUserIdOf). */
+    String SUBJECT_USER_ID = "function('jsonb_extract_path_text', a.metadata, 'subjectUserId')";
+
+    /**
+     * The row is its staff account's own act on something else -- AdminAuditLogService.isOwnAct,
+     * in JPQL; keep the two in step: the account is staff; the entity is not that account; no job
+     * ({@code metadata.actor}); and no actor key, or {@code actorId} is the account itself. Never
+     * NULL (COALESCE), so {@code NOT OWN_ACT} is safe.
+     */
+    String OWN_ACT = "(EXISTS (SELECT u.id FROM User u WHERE u.id = a.userId AND u.accountScope = 'ADMIN')"
+            + " AND (a.entityId IS NULL OR a.entityId <> a.userId)"
+            + " AND function('jsonb_extract_path_text', a.metadata, 'actor') IS NULL"
+            + " AND ((function('jsonb_extract_path_text', a.metadata, 'actorId') IS NULL"
+            + "       AND function('jsonb_extract_path_text', a.metadata, 'suspendedBy') IS NULL"
+            + "       AND function('jsonb_extract_path_text', a.metadata, 'reactivatedBy') IS NULL"
+            + "       AND function('jsonb_extract_path_text', a.metadata, 'recordedBy') IS NULL"
+            + "       AND function('jsonb_extract_path_text', a.metadata, 'updatedBy') IS NULL"
+            + "       AND function('jsonb_extract_path_text', a.metadata, 'setBy') IS NULL"
+            + "       AND function('jsonb_extract_path_text', a.metadata, 'createdBy') IS NULL"
+            + "       AND function('jsonb_extract_path_text', a.metadata, 'changedBy') IS NULL)"
+            + "      OR COALESCE(function('jsonb_extract_path_text', a.metadata, 'actorId'), '') = CAST(a.userId AS string)))";
+
     // Full history, unpaged -- backs the self-service Activity Timeline page (ActivityController)
     // and the existing admin-gated per-user audit view (AdminController). Same tradeoff both
     // already accept: audit_logs grows unbounded over a user's lifetime, but this is a review

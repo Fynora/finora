@@ -612,7 +612,7 @@ public class CategorizationService {
     static final int MAX_MODEL_NARRATION_LENGTH = 500;
 
     /** Whether a narration may go to the AI fallback -- see {@link #narrationForModel}. */
-    static boolean mayGoToModel(String description) {
+    public static boolean mayGoToModel(String description) {
         return narrationForModel(description).isPresent();
     }
 

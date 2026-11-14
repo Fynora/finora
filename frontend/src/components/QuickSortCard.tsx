@@ -8,6 +8,8 @@ import { Link } from 'react-router-dom';
 import type { QuickSortBatch, QuickSortKind, QuickSortQuestion } from '../types';
 import { formatDate } from '../utils/date';
 import { trackNavigation } from '../lib/trackNavigation';
+import { patternLine } from '../lib/payeePattern';
+import { QuickSortPattern } from './QuickSortPattern';
 import { safeStorage } from '../lib/safeStorage';
 import {
   DASHBOARD_QUESTION_LIMIT, DASHBOARD_QUICK_SORT_KEY, isHiddenToday, notNowValue,
@@ -187,9 +189,11 @@ export function QuickSortCard({ variant = 'full', accountEmail = null }: {
           <div className="space-y-3">
             <div>
               <p className="text-base font-semibold text-ink">{current.payee}</p>
-              <p className="text-xs text-muted">
-                {current.payments} {current.payments === 1 ? 'payment' : 'payments'} · {fmt(current.total)}
-              </p>
+              {patternLine(current) ? <QuickSortPattern key={current.id} question={current} /> : (
+                <p className="text-xs text-muted">
+                  {current.payments} {current.payments === 1 ? 'payment' : 'payments'} · {fmt(current.total)}
+                </p>
+              )}
             </div>
             <p className="text-sm text-ink">
               {current.kind === 'GUESS' ? `Fynora thinks: ${current.currentCategory}` : PROMPT[current.kind]}
@@ -277,9 +281,11 @@ export function QuickSortCard({ variant = 'full', accountEmail = null }: {
         <div className="space-y-3">
           <div>
             <p className="text-base font-semibold text-ink">{current.payee}</p>
-            <p className="text-xs text-muted">
-              {current.payments} {current.payments === 1 ? 'payment' : 'payments'} · {fmt(current.total)} · latest {formatDate(current.latestDate) || current.latestDate}
-            </p>
+            {patternLine(current) ? <QuickSortPattern key={current.id} question={current} /> : (
+              <p className="text-xs text-muted">
+                {current.payments} {current.payments === 1 ? 'payment' : 'payments'} · {fmt(current.total)} · latest {formatDate(current.latestDate) || current.latestDate}
+              </p>
+            )}
             {current.largeOneOff && (
               <p className="mt-1 inline-block rounded bg-accent-blue-bg px-2 py-0.5 text-xs text-ink">Large one-off payment</p>
             )}
@@ -331,7 +337,9 @@ export function QuickSortCard({ variant = 'full', accountEmail = null }: {
             />
           ))}
 
-          {current.samples.length > 0 && (
+          {/* Only without a pattern (an older server, or a one-row question): the pattern line opens the
+              payee's payments itself. */}
+          {!patternLine(current) && current.samples.length > 0 && (
             <details className="text-xs text-muted">
               <summary className="cursor-pointer">Show payments</summary>
               <ul className="mt-1 space-y-0.5">

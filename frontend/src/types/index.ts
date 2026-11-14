@@ -897,6 +897,14 @@ export interface QuickSortQuestion {
   currentCategory: string | null;
   answers: string[];
   samples: QuickSortSample[];
+  // The payee's pattern (spec 2026-11-14-smarter-person-question-design.md): every live payment to
+  // them in this direction, waiting or not. Absent from an older server and null on a "row:" question.
+  allPayments?: number | null;
+  firstDate?: string | null;
+  typicalLow?: number | null;
+  typicalHigh?: number | null;
+  /** The latest of those payments, newest first, at most 10. */
+  recent?: QuickSortSample[];
 }
 
 export interface QuickSortRest {

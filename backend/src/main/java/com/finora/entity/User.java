@@ -318,6 +318,11 @@ public class User {
     @Column(name = "ai_processing_consent_at")
     private Instant aiProcessingConsentAt;
 
+    // V323: when a customer who said no to AI was asked one more time, on an import's Done step
+    // (com.finora.aisort). Set = never asked again. Null = not asked again yet.
+    @Column(name = "ai_import_question_at")
+    private Instant aiImportQuestionAt;
+
     // --- getters / setters ---
     public UUID getId() { return id; }
     public String getEmail() { return email; }
@@ -419,4 +424,7 @@ public class User {
         this.aiProcessingConsent = enabled;
         this.aiProcessingConsentAt = at;
     }
+    public Instant getAiImportQuestionAt() { return aiImportQuestionAt; }
+    /** The one-more AI question was shown and answered (either way); it is never asked again. */
+    public void recordAiImportQuestion(Instant at) { this.aiImportQuestionAt = at; }
 }

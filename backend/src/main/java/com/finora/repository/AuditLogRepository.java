@@ -73,6 +73,16 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
      * admin lives in {@code metadata} under one of {@link #ADMIN_ACTOR_KEYS}, read with
      * jsonb_extract_path_text; it is not indexed, which is acceptable for an admin-only page. Keep
      * the key list in this query and the constant in step.
+     *
+     * <p>Many admin-side writes instead pass the acting admin as the row's account and name no
+     * actor (break-test 2026-11-14: 56 calls in 18 files -- trust review, layouts, rules, banks,
+     * roles, settings, offers, campaigns, release markers, the read audit). A row whose account is
+     * a staff member and whose details name no admin and no job ({@code metadata.actor}) is that
+     * staff member's own act, unless its entity is that account itself (an email sent to them,
+     * their own or a failed sign-in) -- AdminAuditLogService.toRow reads it so, and these filters match it
+     * the same way: under {@code actorUuid} (the same id as {@code actorId}), and not under its
+     * account. A read-audit row ({@code dataViewAction}) is about the customer whose data was
+     * opened, its entity, so the account filter matches it there.
      */
     @Query("""
         SELECT a FROM AuditLog a
@@ -81,7 +91,23 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
                OR LOWER(a.entityType) LIKE LOWER(CONCAT('%', CAST(:q AS string), '%')) ESCAPE '\\')
           AND (CAST(:dateFrom AS timestamp) IS NULL OR a.createdAt >= :dateFrom)
           AND (CAST(:dateTo AS timestamp) IS NULL OR a.createdAt < :dateTo)
-          AND (CAST(:userId AS uuid) IS NULL OR a.userId = :userId)
+          AND (CAST(:userId AS uuid) IS NULL
+               OR (a.userId = :userId
+                   AND NOT (EXISTS (SELECT u.id FROM User u WHERE u.id = a.userId AND u.accountScope = 'ADMIN')
+                            AND (a.entityId IS NULL OR a.entityId <> a.userId)
+                            AND function('jsonb_extract_path_text', a.metadata, 'actorId') IS NULL
+                            AND function('jsonb_extract_path_text', a.metadata, 'suspendedBy') IS NULL
+                            AND function('jsonb_extract_path_text', a.metadata, 'reactivatedBy') IS NULL
+                            AND function('jsonb_extract_path_text', a.metadata, 'recordedBy') IS NULL
+                            AND function('jsonb_extract_path_text', a.metadata, 'updatedBy') IS NULL
+                            AND function('jsonb_extract_path_text', a.metadata, 'setBy') IS NULL
+                            AND function('jsonb_extract_path_text', a.metadata, 'createdBy') IS NULL
+                            AND function('jsonb_extract_path_text', a.metadata, 'changedBy') IS NULL
+                            AND function('jsonb_extract_path_text', a.metadata, 'actor') IS NULL))
+               OR (a.action = :dataViewAction AND a.entityId = :userId
+                   AND EXISTS (SELECT u.id FROM User u WHERE u.id = a.userId AND u.accountScope = 'ADMIN')
+                   AND function('jsonb_extract_path_text', a.metadata, 'actorId') IS NULL
+                   AND function('jsonb_extract_path_text', a.metadata, 'actor') IS NULL))
           AND (CAST(:actorId AS string) IS NULL
                OR function('jsonb_extract_path_text', a.metadata, 'actorId') = CAST(:actorId AS string)
                OR function('jsonb_extract_path_text', a.metadata, 'suspendedBy') = CAST(:actorId AS string)
@@ -90,14 +116,27 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
                OR function('jsonb_extract_path_text', a.metadata, 'updatedBy') = CAST(:actorId AS string)
                OR function('jsonb_extract_path_text', a.metadata, 'setBy') = CAST(:actorId AS string)
                OR function('jsonb_extract_path_text', a.metadata, 'createdBy') = CAST(:actorId AS string)
-               OR function('jsonb_extract_path_text', a.metadata, 'changedBy') = CAST(:actorId AS string))
+               OR function('jsonb_extract_path_text', a.metadata, 'changedBy') = CAST(:actorId AS string)
+               OR (a.userId = :actorUuid
+                   AND EXISTS (SELECT u.id FROM User u WHERE u.id = a.userId AND u.accountScope = 'ADMIN')
+                   AND (a.entityId IS NULL OR a.entityId <> a.userId)
+                   AND function('jsonb_extract_path_text', a.metadata, 'actorId') IS NULL
+                   AND function('jsonb_extract_path_text', a.metadata, 'suspendedBy') IS NULL
+                   AND function('jsonb_extract_path_text', a.metadata, 'reactivatedBy') IS NULL
+                   AND function('jsonb_extract_path_text', a.metadata, 'recordedBy') IS NULL
+                   AND function('jsonb_extract_path_text', a.metadata, 'updatedBy') IS NULL
+                   AND function('jsonb_extract_path_text', a.metadata, 'setBy') IS NULL
+                   AND function('jsonb_extract_path_text', a.metadata, 'createdBy') IS NULL
+                   AND function('jsonb_extract_path_text', a.metadata, 'changedBy') IS NULL
+                   AND function('jsonb_extract_path_text', a.metadata, 'actor') IS NULL))
           AND (CAST(:action AS string) IS NULL OR a.action = :action)
           AND (CAST(:requestId AS string) IS NULL OR a.requestId = :requestId)
         """)
     Page<AuditLog> search(@Param("q") String q, @Param("dateFrom") Instant dateFrom,
                            @Param("dateTo") Instant dateTo, @Param("userId") UUID userId,
-                           @Param("actorId") String actorId, @Param("action") String action,
-                           @Param("requestId") String requestId, Pageable pageable);
+                           @Param("actorId") String actorId, @Param("actorUuid") UUID actorUuid,
+                           @Param("action") String action, @Param("requestId") String requestId,
+                           @Param("dataViewAction") String dataViewAction, Pageable pageable);
     // Full history, unpaged -- backs the self-service Activity Timeline page (ActivityController)
     // and the existing admin-gated per-user audit view (AdminController). Same tradeoff both
     // already accept: audit_logs grows unbounded over a user's lifetime, but this is a review

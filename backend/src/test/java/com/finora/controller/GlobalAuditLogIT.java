@@ -313,4 +313,91 @@ class GlobalAuditLogIT extends AbstractIntegrationTest {
         assertThat(row.get("systemActor").asText()).isEqualTo("merchant-rail-name-recheck");
         assertThat(row.get("actorId").isNull()).isTrue();
     }
+
+    // ---- admin actions recorded with the admin as the row's account (break-test 2026-11-14) ----
+    // 56 writes in 18 files (trust review, layouts, rules, banks, roles, settings, offers, campaigns,
+    // release markers, the read audit) pass the acting admin as the account and name no actor. The
+    // feed read them as "about Ops Admin, by nobody", and "Only this admin" never listed them.
+
+    @Test
+    void aStaffAccountOnARowNamingNoActor_isWhoActed_andIsListedUnderThatAdmin_notTheirAccount() throws Exception {
+        User admin = createNamedUser("ADMIN", "Acting Admin");
+        String action = "ZTEST_ADMIN_AS_ACCOUNT_" + UUID.randomUUID();
+        com.finora.entity.AuditLog entry = new com.finora.entity.AuditLog();
+        entry.setUserId(admin.getId());
+        entry.setAction(action);
+        entry.setEntityType("HeldStatement");
+        entry.setEntityId(UUID.randomUUID());
+        entry.setMetadata(java.util.Map.of("note", "approved"));
+        auditLogRepository.save(entry);
+
+        JsonNode row = feed(admin, "action=" + action).get(0);
+        assertThat(row.get("actorId").asText()).isEqualTo(admin.getId().toString());
+        assertThat(row.get("actorName").asText()).isEqualTo("Acting Admin");
+        assertThat(row.get("userId").isNull()).as("about the held statement, not the admin").isTrue();
+
+        assertThat(feed(admin, "action=" + action + "&actorId=" + admin.getId())).hasSize(1);
+        assertThat(feed(admin, "action=" + action + "&userId=" + admin.getId())).isEmpty();
+    }
+
+    @Test
+    void openingACustomersProfile_isListedUnderThatCustomer_andUnderTheAdminWhoOpenedIt() throws Exception {
+        User admin = createNamedUser("ADMIN", "Acting Admin");
+        User customer = createNamedUser("USER", "Asha Rao");
+        ResponseEntity<String> opened = restTemplate.exchange("/api/v1/admin/users/" + customer.getId(), HttpMethod.GET,
+                new HttpEntity<>(bearerFor(admin)), String.class);
+        assertThat(opened.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        JsonNode aboutCustomer = feed(admin, "action=ADMIN_USER_DATA_VIEWED&userId=" + customer.getId());
+        assertThat(aboutCustomer).hasSize(1);
+        JsonNode row = aboutCustomer.get(0);
+        assertThat(row.get("userId").asText()).isEqualTo(customer.getId().toString());
+        assertThat(row.get("userName").asText()).isEqualTo("Asha Rao");
+        assertThat(row.get("actorId").asText()).isEqualTo(admin.getId().toString());
+        assertThat(row.get("actorName").asText()).isEqualTo("Acting Admin");
+
+        JsonNode byAdmin = feed(admin, "action=ADMIN_USER_DATA_VIEWED&actorId=" + admin.getId());
+        assertThat(byAdmin).anySatisfy(r -> assertThat(r.get("userId").asText()).isEqualTo(customer.getId().toString()));
+        assertThat(feed(admin, "action=ADMIN_USER_DATA_VIEWED&userId=" + admin.getId())).isEmpty();
+    }
+
+    /** A row about a staff member that names who acted on them stays about them: only a row naming
+     *  no actor and no job is re-read as the account's own act. */
+    @Test
+    void aRowAboutAStaffMember_byAnotherAdminOrAJob_staysAboutThem() throws Exception {
+        User admin = createNamedUser("ADMIN", "Acting Admin");
+        User other = createNamedUser("ADMIN", "Second Admin");
+        String action = "ZTEST_ABOUT_STAFF_" + UUID.randomUUID();
+        saveEntry(admin.getId(), action, other.getId(), null);
+        com.finora.entity.AuditLog byJob = new com.finora.entity.AuditLog();
+        byJob.setUserId(admin.getId());
+        byJob.setAction(action);
+        byJob.setMetadata(java.util.Map.of("actor", "account-purge-sweep"));
+        auditLogRepository.save(byJob);
+
+        assertThat(feed(admin, "action=" + action + "&userId=" + admin.getId())).hasSize(2);
+        assertThat(feed(admin, "action=" + action + "&actorId=" + admin.getId())).isEmpty();
+        assertThat(feed(admin, "action=" + action + "&actorId=" + other.getId())).hasSize(1);
+    }
+
+    /** A row whose entity is the staff account itself happened TO them (an email sent to them, a
+     *  failed sign-in on their account): about them, and never listed as their own act. */
+    @Test
+    void aRowAboutTheStaffAccountItself_isAboutThem_notTheirAct() throws Exception {
+        User admin = createNamedUser("ADMIN", "Acting Admin");
+        String action = "ZTEST_TO_STAFF_" + UUID.randomUUID();
+        com.finora.entity.AuditLog entry = new com.finora.entity.AuditLog();
+        entry.setUserId(admin.getId());
+        entry.setAction(action);
+        entry.setEntityType("User");
+        entry.setEntityId(admin.getId());
+        entry.setMetadata(java.util.Map.of("type", "verify"));
+        auditLogRepository.save(entry);
+
+        JsonNode row = feed(admin, "action=" + action).get(0);
+        assertThat(row.get("actorId").isNull()).isTrue();
+        assertThat(row.get("userId").asText()).isEqualTo(admin.getId().toString());
+        assertThat(feed(admin, "action=" + action + "&userId=" + admin.getId())).hasSize(1);
+        assertThat(feed(admin, "action=" + action + "&actorId=" + admin.getId())).isEmpty();
+    }
 }

@@ -71,8 +71,14 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
      * <p>userId/actorId/action/requestId (Audit Log drill-down, 2026-11-11) are exact matches, so
      * an admin can follow one account, one admin, one kind of event or one request. The acting
      * admin lives in {@code metadata} under one of {@link #ADMIN_ACTOR_KEYS}, read with
-     * jsonb_extract_path_text; it is not indexed, which is acceptable for an admin-only page. Keep
-     * the key list in this query and the constant in step.
+     * jsonb_extract_path_text. Keep the key list in this query and the constant in step.
+     *
+     * <p>Every way a filter can match a row has an index (V322): the account filter by
+     * subjectUserId, user_id and entity_id, the admin filter by one partial index per actor key and
+     * user_id; Postgres combines them instead of reading the whole table (1,000,000 rows locally:
+     * 430-600 ms before, about 30 ms after). A new actor key, or a new way to match, needs its own
+     * index whose expression matches the query's exactly; AuditLogFilterIndexIT fails until it has
+     * one.
      *
      * <p>57 admin-side writes instead pass the acting admin as the row's account (break-test
      * 2026-11-14): about 35 name no actor key at all, the rest also stamp {@code actorId} with that

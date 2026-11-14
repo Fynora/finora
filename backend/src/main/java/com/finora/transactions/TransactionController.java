@@ -58,10 +58,13 @@ public class TransactionController {
             @RequestParam(defaultValue = "desc") String sortDir,
             // The last transaction a scrolling client already holds: continue the list from there
             // rather than from a page number. See TransactionDto.FilterRequest.
-            @RequestParam(required = false) UUID after
+            @RequestParam(required = false) UUID after,
+            // Only the payments to this transaction's payee that Quick sort's "See all N" counts.
+            // See TransactionDto.FilterRequest.
+            @RequestParam(required = false) UUID payeeOf
     ) {
         var filter = new TransactionDto.FilterRequest(accountId, categoryId, type, status, dateFrom, dateTo,
-                amountMin, amountMax, keyword, page, size, sortField, sortDir, international, after);
+                amountMin, amountMax, keyword, page, size, sortField, sortDir, international, after, payeeOf);
         return ApiResponse.ok(transactionService.search(currentUser.id(), filter));
     }
 

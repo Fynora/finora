@@ -30,6 +30,8 @@ public record PayeePattern(int payments, LocalDate firstDate, LocalDate latestDa
      * too (RefundNetting.reportable, RecurringService.countsAsAPayment) -- a duplicate or a row marked
      * as one, a transfer, a refund or reversal leg, and a superseded row, which a refreshed statement
      * leaves on file and which would otherwise count the same payment twice.
+     * TransactionRepository.searchFromPlace's payee condition is this same rule in JPQL, so the
+     * Transactions list behind "See all N" holds exactly these rows; change both together.
      */
     public static boolean counts(Transaction t) {
         Transaction.ReconciliationStatus status = t.getReconciliationStatus();

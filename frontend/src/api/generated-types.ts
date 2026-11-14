@@ -16651,6 +16651,7 @@ export interface operations {
                 sortField?: string;
                 sortDir?: string;
                 after?: string;
+                payeeOf?: string;
             };
             header?: never;
             path?: never;

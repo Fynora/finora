@@ -48,10 +48,10 @@ describe('Privacy policy matches what the product does', () => {
   // statement's unsorted shop payments' descriptions through the same CategorizationService rule.
   it('discloses that "Sort with AI" after an import sends that statement\'s shop payments, only on a tap', () => {
     const t = policyText();
-    expect(t).toMatch(/Importing a statement does not do this on its own/i);
-    expect(t).toMatch(/tap "Sort with AI"/i);
-    expect(t).toMatch(/the bank's description of each shop payment it could not sort is sent in the same way/i);
-    expect(t).toMatch(/category suggestions for hand-typed transactions and, when you tap "Sort with AI" after an import, for that statement's shop payments/i);
+    expect(t).toMatch(/An import never sends anything by itself/i);
+    expect(t).toMatch(/tap "Sort with AI" after an import to send the bank's description of each shop payment Fynora could not sort, the same way and with the same parts removed/i);
+    expect(t).toMatch(/Payments to people are never sent/i);
+    expect(t).toMatch(/category suggestions for hand-typed transactions and for imported shop payments you ask it to sort/i);
   });
 
   it('says the typed description is free text', () => {

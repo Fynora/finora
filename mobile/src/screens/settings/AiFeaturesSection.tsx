@@ -56,7 +56,7 @@ export function AiFeaturesSection() {
         <Text style={[styles.label, { color: c.ink }]}>AI features</Text>
         <Text style={[styles.hint, { color: c.mutedInk }]}>
           Ask Fyn, AI insights and AI category suggestions. When on, the question you ask, the account figures
-          needed to answer it, or the description of a transaction you add by hand or a shop payment you ask it to sort after an import are
+          needed to answer it, or the description of a transaction you add by hand or ask it to sort are
           sent to Anthropic
           (Claude), with names and account numbers Fynora recognises hidden first.
         </Text>

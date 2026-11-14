@@ -92,9 +92,8 @@ export default function Terms() {
           on against your bank's or card issuer's own statement or app. Reading your statements, the rules that
           categorize your transactions, the Financial Health Score and budgets are Fynora's own application
           logic, with no third-party AI service involved. Three features do use a third-party AI service,
-          Anthropic's Claude: Ask Fyn, AI insights on the Insights page, and category suggestions for a
-          transaction you add by hand or, when you tap "Sort with AI" after an import, for that statement's shop
-          payments. Their answers can be wrong in the same way. The Privacy Policy explains
+          Anthropic's Claude: Ask Fyn, AI insights on the Insights page, and category suggestions for
+          transactions you add by hand or ask it to sort after an import. Their answers can be wrong in the same way. The Privacy Policy explains
           what each one sends and how people's names are hidden first.
         </p>
       </PublicSection>

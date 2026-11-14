@@ -116,6 +116,8 @@ public final class BackgroundJobCatalog {
                 "Fetches fresh data for Account Aggregator links that missed an update.");
 
         // Diagnostics
+        put("GitHubWorkflowPoller.poll", "GitHub checks reader",
+                "Reads the latest run of each GitHub check the jobs page watches.");
         put("BackgroundJobAlertChecker.check", "Background job checker",
                 "Emails admins when a background job breaks or recovers; prunes old failure records.");
         put("UserRequestLoad.flushIfMinuteElapsed", "Request load counter",

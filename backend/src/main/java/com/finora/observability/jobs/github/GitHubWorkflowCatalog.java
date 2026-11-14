@@ -8,7 +8,8 @@ import java.util.Set;
  * The GitHub workflows the Background jobs page watches (design:
  * docs/superpowers/specs/2026-11-14-background-jobs-github-design.md, Sid's option B): the private
  * trace repository's four, and the public repository's nightly checks. Not CI on pull requests or
- * merges: GitHub already shows those.
+ * merges: GitHub already shows those. Runs on main count, except the Claude fix job's, which run on
+ * the incoming branch production pushes to.
  *
  * <p>Crons are copied from each workflow file, in UTC. The public files are checked to exist by
  * GitHubWorkflowCatalogTest; the private repository's (traces.yml, retention.yml, privacy-scan.yml,
@@ -27,7 +28,7 @@ public final class GitHubWorkflowCatalog {
             entry(PRIVATE, "privacy-scan.yml", null, "Trace privacy scan",
                     "Checks every saved trace holds no customer details, on each push to main."),
             new GitHubWorkflow(GitHubWorkflow.keyFor(PRIVATE, "fix.yml"), "Claude fix runs",
-                    "Claude proposes a reader fix for a held statement.", PRIVATE, "fix.yml", null, null,
+                    "Claude proposes a reader fix for a held statement.", PRIVATE, "fix.yml", "incoming", null, null,
                     Set.of("Read the copy again, and run every test", "The guard refused the public PR")),
             entry(PUBLIC, "e2e-nightly.yml", "0 3 * * *", "Web app tests (nightly)",
                     "Runs the full browser test suite against main every night."),
@@ -40,14 +41,14 @@ public final class GitHubWorkflowCatalog {
             entry(PUBLIC, "codeql.yml", "0 4 * * 1", "CodeQL code scan (weekly)",
                     "GitHub's security scan of the code, every Monday."),
             new GitHubWorkflow(GitHubWorkflow.keyFor(PUBLIC, "github-traffic-metrics.yml"), "GitHub traffic metrics",
-                    "Saves GitHub's visitor numbers every 6 hours.", PUBLIC, "github-traffic-metrics.yml",
+                    "Saves GitHub's visitor numbers every 6 hours.", PUBLIC, "github-traffic-metrics.yml", "main",
                     "0 */6 * * *", "Needs a GitHub token from Sid", Set.of())
     );
 
     private GitHubWorkflowCatalog() {}
 
     private static GitHubWorkflow entry(String repo, String file, String cron, String name, String purpose) {
-        return new GitHubWorkflow(GitHubWorkflow.keyFor(repo, file), name, purpose, repo, file, cron, null, Set.of());
+        return new GitHubWorkflow(GitHubWorkflow.keyFor(repo, file), name, purpose, repo, file, "main", cron, null, Set.of());
     }
 
     public static List<GitHubWorkflow> all() {

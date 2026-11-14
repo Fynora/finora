@@ -18,10 +18,10 @@ class OverdueRuleTest {
     private static final ZoneId ZONE = ZoneId.systemDefault();
     private static final Instant APP_START = Instant.parse("2026-11-13T00:00:00Z");
     private static final JobSchedule EVERY_30S =
-            new JobSchedule("A.b", Duration.ofSeconds(30), Duration.ZERO, null, "every 30 seconds");
+            new JobSchedule("A.b", Duration.ofSeconds(30), Duration.ZERO, null, "every 30 seconds", JobSchedule.Source.BACKEND, null);
     /** 2 x 30 s + 5 min. */
     private static final Duration ALLOWANCE = Duration.ofSeconds(60).plusMinutes(5);
-    private static final JobSchedule DAILY_0345 = new JobSchedule("C.d", null, null, "0 45 3 * * *", "daily at 03:45");
+    private static final JobSchedule DAILY_0345 = new JobSchedule("C.d", null, null, "0 45 3 * * *", "daily at 03:45", JobSchedule.Source.BACKEND, null);
 
     private static BackgroundJobStatus finished(Instant started, Instant finished, JobOutcome outcome) {
         return new BackgroundJobStatus("A.b", started, finished, outcome, 0, 0,
@@ -60,7 +60,7 @@ class OverdueRuleTest {
 
     @Test
     void freshStart_noRowYet_isNotOverdueBeforeInitialDelayPlusAllowance() {
-        JobSchedule delayed = new JobSchedule("A.b", Duration.ofSeconds(30), Duration.ofMinutes(3), null, "x");
+        JobSchedule delayed = new JobSchedule("A.b", Duration.ofSeconds(30), Duration.ofMinutes(3), null, "x", JobSchedule.Source.BACKEND, null);
         Instant limit = APP_START.plus(Duration.ofMinutes(3)).plus(ALLOWANCE);
         assertThat(OverdueRule.state(delayed, null, APP_START, limit)).isEqualTo(JobState.OK);
         assertThat(OverdueRule.state(delayed, null, APP_START, limit.plusSeconds(1))).isEqualTo(JobState.OVERDUE);
@@ -132,5 +132,92 @@ class OverdueRuleTest {
     @Test
     void neverRunAndNotYetDue_isOk() {
         assertThat(OverdueRule.state(EVERY_30S, null, APP_START, APP_START.plusSeconds(5))).isEqualTo(JobState.OK);
+    }
+
+    // ---- Part 2: GitHub workflows (UTC crons, 3 h allowance, 6 h running limit, no app-start exception)
+
+    private static JobSchedule github(String cron) {
+        return new JobSchedule("github:Fynora/finora/x.yml", null, null, cron, "x", JobSchedule.Source.GITHUB, null);
+    }
+
+    private static BackgroundJobStatus githubRun(Instant started, Instant finished) {
+        return new BackgroundJobStatus("github:Fynora/finora/x.yml", started, finished, finished == null ? null : JobOutcome.OK,
+                0, 0, finished, 0, null, null, null, null, "github", 1L, "u");
+    }
+
+    @Test
+    void github_nightlyDelayed2h_isNotOverdue() {
+        Instant fire = Instant.parse("2026-11-14T03:00:00Z");
+        BackgroundJobStatus yesterday = githubRun(fire.minus(Duration.ofDays(1)), fire.minus(Duration.ofDays(1)).plusSeconds(600));
+        assertThat(OverdueRule.state(github("0 3 * * *"), yesterday, APP_START, fire.plus(Duration.ofHours(2))))
+                .isEqualTo(JobState.OK);
+    }
+
+    @Test
+    void github_3h1mAfterTheFireWithNoRun_isOverdue_inUtcWhateverTheJvmZone() {
+        Instant fire = Instant.parse("2026-11-14T03:00:00Z");
+        BackgroundJobStatus yesterday = githubRun(fire.minus(Duration.ofDays(1)), fire.minus(Duration.ofDays(1)).plusSeconds(600));
+        assertThat(OverdueRule.state(github("0 3 * * *"), yesterday, APP_START, fire.plus(Duration.ofMinutes(179))))
+                .isEqualTo(JobState.OK);
+        assertThat(OverdueRule.state(github("0 3 * * *"), yesterday, APP_START, fire.plus(Duration.ofMinutes(181))))
+                .isEqualTo(JobState.OVERDUE);
+    }
+
+    @Test
+    void github_aRunStartedAfterTheFire_isNotOverdue() {
+        Instant fire = Instant.parse("2026-11-14T03:00:00Z");
+        BackgroundJobStatus today = githubRun(fire.plusSeconds(300), fire.plusSeconds(900));
+        assertThat(OverdueRule.state(github("0 3 * * *"), today, APP_START, fire.plus(Duration.ofHours(10))))
+                .isEqualTo(JobState.OK);
+    }
+
+    @Test
+    void github_runningOver6h_isOverdue() {
+        Instant started = Instant.parse("2026-11-14T03:00:00Z");
+        BackgroundJobStatus running = githubRun(started, null);
+        assertThat(OverdueRule.state(github("0 3 * * *"), running, APP_START, started.plus(Duration.ofHours(6))))
+                .isEqualTo(JobState.OK);
+        assertThat(OverdueRule.state(github(null), running, APP_START, started.plus(Duration.ofHours(6)).plusSeconds(1)))
+                .isEqualTo(JobState.OVERDUE);
+    }
+
+    @Test
+    void github_pushTriggered_isNeverOverdue() {
+        assertThat(OverdueRule.state(github(null), null, APP_START, APP_START.plus(Duration.ofDays(30))))
+                .isEqualTo(JobState.OK);
+    }
+
+    @Test
+    void github_fireBeforeTheAppStarted_stillCounts() {
+        Instant fire = Instant.parse("2026-11-14T03:00:00Z");
+        Instant appStart = fire.plus(Duration.ofHours(1));
+        BackgroundJobStatus twoDaysAgo = githubRun(fire.minus(Duration.ofDays(2)), fire.minus(Duration.ofDays(2)).plusSeconds(60));
+        assertThat(OverdueRule.state(github("0 3 * * *"), twoDaysAgo, appStart, fire.plus(Duration.ofHours(4))))
+                .isEqualTo(JobState.OVERDUE);
+    }
+
+    /** No run read yet (just deployed, or the token is broken: the reader's own row says so). */
+    @Test
+    void github_noRunReadYet_isNotOverdue() {
+        Instant fire = Instant.parse("2026-11-14T03:00:00Z");
+        assertThat(OverdueRule.state(github("0 3 * * *"), null, APP_START, fire.plus(Duration.ofHours(10))))
+                .isEqualTo(JobState.OK);
+    }
+
+    @Test
+    void anOffEntryIsOff_whateverItsRowSays() {
+        JobSchedule off = new JobSchedule("github:Fynora/finora/t.yml", null, null, "0 */6 * * *", "x",
+                JobSchedule.Source.GITHUB, "Needs a GitHub token from Sid");
+        BackgroundJobStatus crashed = new BackgroundJobStatus("k", APP_START, APP_START, JobOutcome.CRASHED, 0, 0,
+                null, 3, APP_START, null, null, null, "github", 5L, "u");
+        assertThat(OverdueRule.state(off, crashed, APP_START, APP_START.plus(Duration.ofDays(3)))).isEqualTo(JobState.OFF);
+    }
+
+    @Test
+    void githubCronsReadInWords() {
+        assertThat(JobScheduleRegistry.describeGitHubCron("30 4 * * *")).isEqualTo("daily at 04:30 UTC");
+        assertThat(JobScheduleRegistry.describeGitHubCron("0 4 * * 1")).isEqualTo("Mondays at 04:00 UTC");
+        assertThat(JobScheduleRegistry.describeGitHubCron("0 */6 * * *")).isEqualTo("every 6 hours");
+        assertThat(JobScheduleRegistry.describeGitHubCron(null)).isEqualTo("when started by a push");
     }
 }

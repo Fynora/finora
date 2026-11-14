@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { ChevronDown } from 'lucide-react';
 import type { QuickSortQuestion } from '../types';
 import { formatDate } from '../utils/date';
-import { patternLine, seeAllHref } from '../lib/payeePattern';
+import { patternLine, seeAllHref, type SeeAllState } from '../lib/payeePattern';
 import { trackNavigation } from '../lib/trackNavigation';
 
 function rupees(n: number) {
@@ -39,7 +39,9 @@ export function QuickSortPattern({ question }: { question: QuickSortQuestion }) 
             ))}
           </ul>
           {more && (
-            <Link to={seeAllHref(question.payee)} onClick={() => trackNavigation('transactions', 'contextual')}
+            <Link to={seeAllHref(question.anchorTransactionId)}
+              state={{ payee: question.payee, incoming: question.kind === 'MONEY_IN' } satisfies SeeAllState}
+              onClick={() => trackNavigation('transactions', 'contextual')}
               className="inline-block font-medium text-primary underline">
               See all {question.allPayments} in Transactions
             </Link>

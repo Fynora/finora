@@ -37,6 +37,16 @@ describe('parseLedgerUrlFilters', () => {
     expect(parse('from=2026-09-14&to=2026-09-14')).toEqual({ dateFrom: '2026-09-14', dateTo: '2026-09-14' });
   });
 
+  it("reads the payee a Quick sort See all names (a transaction id)", () => {
+    expect(parse('payee=5F0C1A2B-0000-4000-8000-000000000001'))
+      .toEqual({ payeeOf: '5F0C1A2B-0000-4000-8000-000000000001' });
+  });
+
+  it('ignores a payee that is not a transaction id, so nothing odd reaches the server', () => {
+    expect(parse('payee=RAVI%20K')).toEqual({});
+    expect(parse('payee=')).toEqual({});
+  });
+
   it('ignores a blank category', () => {
     expect(parse('category=%20%20')).toEqual({});
   });

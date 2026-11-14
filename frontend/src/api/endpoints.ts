@@ -212,6 +212,9 @@ export interface TransactionFilters {
   // in the requested order and ignores `page`, and its page/totalElements/totalPages then describe
   // only what is left (page 0 of the remainder). See lib/ledgerPaging.
   after?: string;
+  // A transaction id: only the payments to (or from) that row's payee that Quick sort's pattern line
+  // counts -- what its "See all N in Transactions" opens, so the list holds exactly N rows.
+  payeeOf?: string;
 }
 
 // Mirrors the backend's com.finora.dto.PagedResponse<T> -- a real total, not just "however many

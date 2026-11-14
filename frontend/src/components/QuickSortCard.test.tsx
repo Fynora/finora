@@ -6,7 +6,7 @@ import { QuickSortCard } from './QuickSortCard';
 import { transactionsApi, categoriesApi } from '../api/endpoints';
 import type { QuickSortBatch, QuickSortQuestion } from '../types';
 import { formatDate } from '../utils/date';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { DASHBOARD_QUICK_SORT_KEY, notNowValue } from '../lib/dashboardQuickSort';
 import { trackNavigation } from '../lib/trackNavigation';
 
@@ -119,9 +119,30 @@ describe('QuickSortCard pattern line', () => {
     renderCard();
     await userEvent.click(await screen.findByRole('button', { name: /14 payments since Aug/ }));
     const link = screen.getByRole('link', { name: 'See all 14 in Transactions' });
-    expect(link).toHaveAttribute('href', '/app/transactions?q=RAVI%20K');
+    expect(link).toHaveAttribute('href', '/app/transactions?payee=txn-1');
     await userEvent.click(link);
     expect(trackNavigation).toHaveBeenCalledWith('transactions', 'contextual');
+  });
+
+  it("hands the Transactions page the payee's name and direction, not in the URL", async () => {
+    vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch([withPattern()]));
+    function Landed() {
+      const location = useLocation();
+      return <p>landed {location.search} {JSON.stringify(location.state)}</p>;
+    }
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter>
+          <Routes>
+            <Route path="/" element={<QuickSortCard />} />
+            <Route path="/app/transactions" element={<Landed />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    await userEvent.click(await screen.findByRole('button', { name: /14 payments since Aug/ }));
+    await userEvent.click(screen.getByRole('link', { name: 'See all 14 in Transactions' }));
+    expect(await screen.findByText('landed ?payee=txn-1 {"payee":"RAVI K","incoming":false}')).toBeInTheDocument();
   });
 
   it('offers no See all link when every payment is listed', async () => {

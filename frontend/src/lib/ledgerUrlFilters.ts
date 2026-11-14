@@ -9,7 +9,12 @@ export interface LedgerUrlFilters {
   /** A category NAME, because that is all a report row carries; resolved to an id by
    *  {@link categoryIdByName} once the user's categories have loaded. */
   categoryName?: string;
+  /** `payee`: the id of a transaction whose payee's payments to show (Quick sort's "See all").
+   *  An id rather than a name or key, so nothing personal is in the URL. */
+  payeeOf?: string;
 }
+
+const TRANSACTION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -21,7 +26,7 @@ function isRealDate(value: string): boolean {
   return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
 }
 
-/** Reads `from`, `to` and `category` from the query string. Anything malformed is ignored rather
+/** Reads `from`, `to`, `category` and `payee` from the query string. Anything malformed is ignored rather
  *  than passed on: a hand-edited or stale link must not send the server a garbage date. A range
  *  whose end is before its start is dropped whole, since it would match nothing and read as
  *  "you have no transactions". */
@@ -39,6 +44,8 @@ export function parseLedgerUrlFilters(params: URLSearchParams): LedgerUrlFilters
     if (toOk) out.dateTo = to;
   }
   if (category) out.categoryName = category;
+  const payee = params.get('payee')?.trim();
+  if (payee && TRANSACTION_ID.test(payee)) out.payeeOf = payee;
   return out;
 }
 

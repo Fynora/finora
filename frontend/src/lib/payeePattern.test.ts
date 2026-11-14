@@ -52,7 +52,10 @@ describe('patternLine', () => {
 });
 
 describe('seeAllHref', () => {
-  it('opens Transactions searched for the payee', () => {
-    expect(seeAllHref('RAVI K & SONS')).toBe('/app/transactions?q=RAVI%20K%20%26%20SONS');
+  // A text search for the name missed many of a payee's payments and showed other payees' rows
+  // (measured on production): the link names the question's row, and the list keeps that payee.
+  it("opens Transactions narrowed to the payee of the question's row", () => {
+    expect(seeAllHref('5f0c1a2b-0000-4000-8000-000000000001'))
+      .toBe('/app/transactions?payee=5f0c1a2b-0000-4000-8000-000000000001');
   });
 });

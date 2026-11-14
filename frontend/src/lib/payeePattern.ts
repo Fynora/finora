@@ -34,7 +34,17 @@ export function patternLine(q: QuickSortQuestion): string | null {
   return low === high ? `${head} · usually ${rupees(low)}` : `${head} · usually ${rupees(low)}–${rupees(high)}`;
 }
 
-/** The Transactions page, searched for this payee. */
-export function seeAllHref(payee: string): string {
-  return `/app/transactions?q=${encodeURIComponent(payee)}`;
+/**
+ * The Transactions page narrowed to the payee of the question's row (its anchor): exactly the payments
+ * the pattern line counts. A search for the payee's name, measured on production, missed many of them
+ * and showed other payees' rows.
+ */
+export function seeAllHref(anchorTransactionId: string): string {
+  return `/app/transactions?payee=${encodeURIComponent(anchorTransactionId)}`;
+}
+
+/** Link state for {@link seeAllHref}: the name and direction the Transactions page shows above the list. */
+export interface SeeAllState {
+  payee: string;
+  incoming: boolean;
 }

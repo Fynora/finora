@@ -102,5 +102,5 @@
 
 - [ ] `./mvnw clean verify` (all phases, 0 failures); portal suite, `tsc -b`, lint.
 - [ ] Private trace tests against this branch (it touches nothing under `imports/`; run anyway only if Task 1–4 touched it).
-- [ ] Local stack with a stubbed GitHub API base (`APP_CLAUDE_FIX_API_BASE` pointed at a local stub serving fixture runs): page at 375 px and desktop shows GitHub rows, tag, "Failed", link, Off reason.
+- [ ] Local stack with a stubbed GitHub API base (`-Dapp.claude-fix.api-base=<local stub>` serving fixture runs; the env-var form of that property does not bind): page at 375 px and desktop shows GitHub rows, tag, "Failed", link, Off reason.
 - [ ] Confirm V321 free; push; open the PR with what was checked.

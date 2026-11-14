@@ -163,13 +163,25 @@ class QuickSortServiceTest {
     }
 
     @Test
-    void personQuestionsOfferNoSpendingCategoryByDefault() {
+    void personQuestionOffersNeutralThenSpendingAnswers() {
+        // Sid, 2026-11-14 (smarter person question): the two neutral answers stay first, then the
+        // spending answers people are most often paid for.
         person("vpa:ravi", 300);
 
         QuickSortDto.Question q = service.batch(userId, 0).questions().get(0);
 
         assertThat(q.kind()).isEqualTo(QuickSortDto.Kind.PERSON_PAID);
-        assertThat(q.answers()).containsExactly("Personal Transfer", "Friend Repayment");
+        assertThat(q.answers())
+                .containsExactly("Personal Transfer", "Friend Repayment", "Groceries", "Transport", "Rent");
+    }
+
+    @Test
+    void personQuestionSkipsADeletedCategory() {
+        person("vpa:ravi", 300);
+        categories.removeIf(c -> "Rent".equals(c.getName()));
+
+        assertThat(service.batch(userId, 0).questions().get(0).answers())
+                .containsExactly("Personal Transfer", "Friend Repayment", "Groceries", "Transport");
     }
 
     @Test
@@ -182,7 +194,7 @@ class QuickSortServiceTest {
                 .thenReturn(List.of(rent));
 
         assertThat(service.batch(userId, 0).questions().get(0).answers())
-                .containsExactly("Rent", "Personal Transfer", "Friend Repayment");
+                .containsExactly("Rent", "Personal Transfer", "Friend Repayment", "Groceries", "Transport");
     }
 
     @Test

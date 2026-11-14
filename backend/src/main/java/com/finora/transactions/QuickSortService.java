@@ -48,9 +48,12 @@ import java.util.UUID;
 public class QuickSortService {
 
     static final BigDecimal LARGE_ONE_OFF = new BigDecimal("5000");
-    /** No spending category is offered for a person by default: nothing in the narration says what
-     *  a payment to a person was for, and a ready-made "Groceries" button would nudge a guess. */
-    static final List<String> PERSON_DEFAULTS = List.of("Personal Transfer", "Friend Repayment");
+    /** The two neutral answers stay first, so nothing nudges a guess; then the spending categories
+     *  people are most often paid for (Sid, 2026-11-14: most money paid to people goes to people paid
+     *  many times in varying amounts, and "Groceries" behind "More..." was an extra step every time).
+     *  The question's pattern line and payments list give the customer what to choose from. */
+    static final List<String> PERSON_DEFAULTS =
+            List.of("Personal Transfer", "Friend Repayment", "Groceries", "Transport", "Rent");
     static final List<String> SHOP_DEFAULTS = List.of("Groceries", "Dining", "Shopping", "Transport", "Health");
     static final List<String> MONEY_IN_DEFAULTS = List.of("Friend Repayment", "Salary", "Gifts & Donations", "Transfer");
     static final int MAX_ANSWERS = 5;
@@ -154,9 +157,10 @@ public class QuickSortService {
         Map<UUID, String> categoryNames = new HashMap<>();
         for (Category c : categoryRepository.findByUserId(userId)) categoryNames.put(c.getId(), c.getName());
         Map<String, List<String>> ownChoices = new HashMap<>();
+        Map<String, PayeePattern> patterns = patternsFor(userId, groups.subList(start, end), liveAccountIds);
         List<QuickSortDto.Question> questions = new ArrayList<>();
         for (Group g : groups.subList(start, end)) {
-            questions.add(question(userId, g, categoryNames, ownChoices));
+            questions.add(question(userId, g, categoryNames, ownChoices, patterns.get(g.id)));
         }
 
         List<UUID> restIds = new ArrayList<>();
@@ -170,8 +174,33 @@ public class QuickSortService {
                 new QuickSortDto.Rest(groups.size() - end, restPayments, sum(groups, end, groups.size()), restIds));
     }
 
+    /**
+     * Each one-payee group's pattern, from every live payment to that payee in that direction (waiting
+     * or not), in one query for the whole batch. A "row:" group has none.
+     */
+    private Map<String, PayeePattern> patternsFor(UUID userId, List<Group> groups, List<UUID> liveAccountIds) {
+        Set<String> keys = new java.util.HashSet<>();
+        for (Group g : groups) {
+            if (!g.id.startsWith("row:")) keys.add(g.rows.get(0).getCounterpartyKey());
+        }
+        if (keys.isEmpty()) return Map.of();
+        Set<UUID> live = new java.util.HashSet<>(liveAccountIds);
+        Map<String, List<Transaction>> byGroupId = new HashMap<>();
+        for (Transaction t : transactionRepository.findByUserIdAndCounterpartyKeyIn(userId, keys)) {
+            if (!live.contains(t.getAccountId())) continue;
+            if (t.getReconciliationStatus() == Transaction.ReconciliationStatus.DUPLICATE) continue;
+            byGroupId.computeIfAbsent(t.getCounterpartyKey() + "|" + t.getTxnType(), k -> new ArrayList<>()).add(t);
+        }
+        Map<String, PayeePattern> patterns = new HashMap<>();
+        for (Group g : groups) {
+            List<Transaction> payments = byGroupId.get(g.id);
+            if (payments != null && !payments.isEmpty()) patterns.put(g.id, PayeePattern.of(payments));
+        }
+        return patterns;
+    }
+
     private QuickSortDto.Question question(UUID userId, Group g, Map<UUID, String> categoryNames,
-                                           Map<String, List<String>> ownChoices) {
+                                           Map<String, List<String>> ownChoices, PayeePattern pattern) {
         Transaction anchor = g.rows.get(0);
         String current = categoryNames.get(anchor.getCategoryId());
         QuickSortDto.Kind kind = kindOf(anchor);
@@ -194,7 +223,10 @@ public class QuickSortService {
                 .toList();
         boolean largeOneOff = g.rows.size() == 1 && anchor.getAmount().abs().compareTo(LARGE_ONE_OFF) >= 0;
         return new QuickSortDto.Question(g.id, anchor.getId(), kind, PayeeLabel.of(anchor, "Unknown payee"),
-                g.rows.size(), g.total, anchor.getTxnDate(), largeOneOff, current, offered, samples);
+                g.rows.size(), g.total, anchor.getTxnDate(), largeOneOff, current, offered, samples,
+                pattern == null ? null : pattern.payments(), pattern == null ? null : pattern.firstDate(),
+                pattern == null ? null : pattern.typicalLow(), pattern == null ? null : pattern.typicalHigh(),
+                pattern == null ? List.of() : pattern.recent());
     }
 
     /**

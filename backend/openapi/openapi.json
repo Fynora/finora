@@ -25464,6 +25464,26 @@
                         "items": {
                             "$ref": "#/components/schemas/Sample"
                         }
+                    },
+                    "allPayments": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "firstDate": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "typicalLow": {
+                        "type": "number"
+                    },
+                    "typicalHigh": {
+                        "type": "number"
+                    },
+                    "recent": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Sample"
+                        }
                     }
                 }
             },

@@ -10515,6 +10515,13 @@ export interface components {
             currentCategory?: string;
             answers?: string[];
             samples?: components["schemas"]["Sample"][];
+            /** Format: int32 */
+            allPayments?: number;
+            /** Format: date */
+            firstDate?: string;
+            typicalLow?: number;
+            typicalHigh?: number;
+            recent?: components["schemas"]["Sample"][];
         };
         Rest: {
             /** Format: int32 */

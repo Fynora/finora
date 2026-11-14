@@ -51,7 +51,6 @@ class LayerDependencyDirectionTest {
      */
     private static final Map<String, Set<String>> LEGACY_CONTROLLER_REPOSITORY_ACCESS = Map.of(
             "com.finora.controller.AdminBankController", Set.of("AuditLogRepository"),
-            "com.finora.controller.AdminController", Set.of("AuditLogRepository"),
             "com.finora.controller.CategoryController", Set.of("CategoryRepository"),
             "com.finora.controller.UserController", Set.of("UserRepository"));
 

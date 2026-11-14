@@ -997,7 +997,7 @@ describe('categorization review nudge', () => {
     expect(transactions.quickSort).toHaveBeenCalledWith(0, false, 'DASHBOARD');
   });
 
-  it("opens Transactions searched for the payee from the card's See all", async () => {
+  it("opens Transactions narrowed to the payee from the card's See all", async () => {
     transactions.quickSort.mockResolvedValueOnce({
       questions: [{
         id: 'vpa:ravi|EXPENSE', anchorTransactionId: 't-1', kind: 'PERSON_PAID', payee: 'RAVI K', payments: 2,
@@ -1017,7 +1017,7 @@ describe('categorization review nudge', () => {
     fireEvent.press(screen.getByRole('button', { name: 'See all 14 in Transactions' }));
 
     expect(navigate).toHaveBeenCalledWith('Transactions', {
-      filters: { keyword: 'RAVI K', label: 'RAVI K', nonce: expect.any(Number) },
+      filters: { payeeOf: 't-1', label: 'Payments to RAVI K', nonce: expect.any(Number) },
     });
   });
 

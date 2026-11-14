@@ -18,7 +18,7 @@ function rupees(n: number) {
  */
 export function QuickSortPattern({ question, onSeeAll }: {
   question: QuickSortQuestion;
-  onSeeAll?: (payee: string) => void;
+  onSeeAll?: (question: QuickSortQuestion) => void;
 }) {
   const c = useTheme();
   const [open, setOpen] = useState(false);
@@ -51,7 +51,7 @@ export function QuickSortPattern({ question, onSeeAll }: {
             </Text>
           ))}
           {more && onSeeAll ? (
-            <Pressable onPress={() => onSeeAll(question.payee)} accessibilityRole="button" style={styles.seeAll}>
+            <Pressable onPress={() => onSeeAll(question)} accessibilityRole="button" style={styles.seeAll}>
               <Text style={[styles.seeAllText, { color: c.primary }]}>See all {question.allPayments} in Transactions</Text>
             </Pressable>
           ) : null}

@@ -26,7 +26,8 @@ import { hapticError, hapticSuccess } from '../lib/haptics';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { spacing, useTheme } from '../theme';
-import type { CounterpartyGroup, MerchantGroup, MerchantGroupTransaction, Transaction } from '../types';
+import type { CounterpartyGroup, MerchantGroup, MerchantGroupTransaction, QuickSortQuestion, Transaction } from '../types';
+import { seeAllFilters } from '../lib/payeePattern';
 import { GlassScreen } from '../components/GlassScreen';
 import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
@@ -49,10 +50,10 @@ import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
  */
 export function CategoryReviewScreen() {
   const navigation = useNavigation<BottomTabNavigationProp<AppTabParamList>>();
-  // Quick sort's "See all N in Transactions": the Transactions tab, searched for that payee.
-  const openTransactionsFor = (payee: string) => {
+  // Quick sort's "See all N in Transactions": the Transactions tab, narrowed to that payee.
+  const openTransactionsFor = (question: QuickSortQuestion) => {
     trackNavigation('transactions', 'contextual');
-    navigation.navigate('Transactions', { filters: { keyword: payee, label: payee, nonce: Date.now() } });
+    navigation.navigate('Transactions', { filters: seeAllFilters(question, Date.now()) });
   };
   const c = useTheme();
   const tabBar = useTabBarSpace();

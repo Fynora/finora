@@ -229,6 +229,9 @@ export interface TransactionFilters {
   // in the requested order and ignores `page`, and its page/totalElements/totalPages then describe
   // only what is left (page 0 of the remainder). See LedgerScreen's LedgerPageParam.
   after?: string;
+  // A transaction id: only the payments to (or from) that row's payee that Quick sort's pattern line
+  // counts -- what its "See all N in Transactions" opens, so the list holds exactly N rows.
+  payeeOf?: string;
 }
 
 export interface PagedResponse<T> {

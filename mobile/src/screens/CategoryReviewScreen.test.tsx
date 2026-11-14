@@ -38,14 +38,14 @@ jest.mock('../components/QuickSortPanel', () => {
   const { useEffect } = jest.requireActual('react');
   const { Pressable, Text } = jest.requireActual('react-native');
   return {
-    QuickSortPanel: ({ onLoaded, onSeeAll }: { onLoaded?: (n: number) => void; onSeeAll?: (payee: string) => void }) => {
+    QuickSortPanel: ({ onLoaded, onSeeAll }: { onLoaded?: (n: number) => void; onSeeAll?: (question: { anchorTransactionId: string; payee: string; kind: string }) => void }) => {
       useEffect(() => { onLoaded?.(mockQuickSortQuestions); }, [onLoaded]);
       if (mockQuickSortQuestions === 0) return null;
       return (
         <>
           <Text>Quick sort stub</Text>
           {onSeeAll ? (
-            <Pressable accessibilityRole="button" onPress={() => onSeeAll('RAVI K')}><Text>Stub see all</Text></Pressable>
+            <Pressable accessibilityRole="button" onPress={() => onSeeAll({ anchorTransactionId: 'txn-1', payee: 'RAVI K', kind: 'PERSON_PAID' })}><Text>Stub see all</Text></Pressable>
           ) : null}
         </>
       );
@@ -138,7 +138,7 @@ beforeEach(() => {
 });
 
 describe('Quick sort first', () => {
-  it("opens Transactions searched for a payee from Quick sort's See all", async () => {
+  it("opens Transactions narrowed to the payee from Quick sort's See all", async () => {
     mockQuickSortQuestions = 1;
     const { navigate } = jest.requireMock('@react-navigation/native').useNavigation() as { navigate: jest.Mock };
     navigate.mockClear();
@@ -147,7 +147,7 @@ describe('Quick sort first', () => {
     fireEvent.press(await screen.findByText('Stub see all'));
 
     expect(navigate).toHaveBeenCalledWith('Transactions', {
-      filters: { keyword: 'RAVI K', label: 'RAVI K', nonce: expect.any(Number) },
+      filters: { payeeOf: 'txn-1', label: 'Payments to RAVI K', nonce: expect.any(Number) },
     });
   });
 

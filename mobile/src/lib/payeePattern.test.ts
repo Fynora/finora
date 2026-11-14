@@ -1,4 +1,4 @@
-import { patternLine } from './payeePattern';
+import { patternLine, seeAllFilters } from './payeePattern';
 import type { QuickSortQuestion, QuickSortSample } from '../types';
 
 function sample(date: string): QuickSortSample {
@@ -47,5 +47,17 @@ describe('patternLine', () => {
   it('is null without a pattern', () => {
     expect(patternLine(q({}))).toBeNull();
     expect(patternLine(q({ allPayments: null }))).toBeNull();
+  });
+});
+
+describe('seeAllFilters', () => {
+  it("narrows Transactions to the question's payee and names who was paid", () => {
+    expect(seeAllFilters({ anchorTransactionId: 'txn-1', payee: 'RAVI K', kind: 'PERSON_PAID' }, 7))
+      .toEqual({ payeeOf: 'txn-1', label: 'Payments to RAVI K', nonce: 7 });
+  });
+
+  it('says "from" for money that came in', () => {
+    expect(seeAllFilters({ anchorTransactionId: 'txn-2', payee: 'ASHA', kind: 'MONEY_IN' }, 1).label)
+      .toBe('Payments from ASHA');
   });
 });

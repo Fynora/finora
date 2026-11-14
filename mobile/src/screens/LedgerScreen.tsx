@@ -327,6 +327,8 @@ export function LedgerScreen() {
       // this -- needs no name resolution, since ImportScreen already has the confirmed account's
       // real id from the confirm response itself.
       accountId: activeDrillThrough?.accountId,
+      // Quick sort's "See all": one payee's counted payments (see LedgerDrillThroughFilters.payeeOf).
+      payeeOf: activeDrillThrough?.payeeOf,
       categoryId: resolvedCategoryId,
       dateFrom: manualDateFrom ?? activeDrillThrough?.dateFrom ?? undefined,
       dateTo: manualDateTo ?? activeDrillThrough?.dateTo ?? undefined,

@@ -60,6 +60,8 @@ import { visiblePlanCode } from '../lib/planDisplay';
 import { fonts, radius, shadows, spacing, typography, useTheme } from '../theme';
 import { trackNavSearch, trackNavigation } from '../lib/trackNavigation';
 import type { AppTabParamList } from '../navigation/types';
+import type { QuickSortQuestion } from '../types';
+import { seeAllFilters } from '../lib/payeePattern';
 import { StatementRefreshBanner } from '../components/StatementRefreshBanner';
 import { RecurringQuestion } from '../components/RecurringQuestion';
 import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
@@ -132,10 +134,10 @@ export function DashboardScreen() {
     trackNavigation('review-categories', 'contextual');
     navigation.navigate('More', { screen: 'CategoryReview' });
   };
-  // Quick sort's "See all N in Transactions": the Transactions tab, searched for that payee.
-  const openTransactionsFor = (payee: string) => {
+  // Quick sort's "See all N in Transactions": the Transactions tab, narrowed to that payee.
+  const openTransactionsFor = (question: QuickSortQuestion) => {
     trackNavigation('transactions', 'contextual');
-    navigation.navigate('Transactions', { filters: { keyword: payee, label: payee, nonce: Date.now() } });
+    navigation.navigate('Transactions', { filters: seeAllFilters(question, Date.now()) });
   };
   const queryClient = useQueryClient();
   const route = useRoute<RouteProp<AppTabParamList, 'Home'>>();

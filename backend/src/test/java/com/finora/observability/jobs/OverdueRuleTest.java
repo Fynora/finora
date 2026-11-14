@@ -25,7 +25,7 @@ class OverdueRuleTest {
 
     private static BackgroundJobStatus finished(Instant started, Instant finished, JobOutcome outcome) {
         return new BackgroundJobStatus("A.b", started, finished, outcome, 0, 0,
-                outcome == JobOutcome.OK ? finished : null, 0, null, null, null, null, "i");
+                outcome == JobOutcome.OK ? finished : null, 0, null, null, null, null, "i", null, null);
     }
 
     private static Instant local(int day, int hour, int minute) {
@@ -51,7 +51,7 @@ class OverdueRuleTest {
     void startedNeverFinished_isOverdueOnTheSameClock() {
         Instant started = APP_START.plus(Duration.ofHours(1));
         BackgroundJobStatus running = new BackgroundJobStatus("A.b", started, started.minusSeconds(40),
-                JobOutcome.OK, 0, 0, started.minusSeconds(40), 0, null, null, null, null, "i");
+                JobOutcome.OK, 0, 0, started.minusSeconds(40), 0, null, null, null, null, "i", null, null);
         assertThat(OverdueRule.state(EVERY_30S, running, APP_START, started.plus(ALLOWANCE))).isEqualTo(JobState.OK);
         assertThat(OverdueRule.state(EVERY_30S, running, APP_START, started.plus(ALLOWANCE).plusSeconds(1)))
                 .isEqualTo(JobState.OVERDUE);
@@ -122,7 +122,7 @@ class OverdueRuleTest {
         Instant appStart = local(10, 12, 0);
         Instant started = local(13, 3, 45);
         BackgroundJobStatus running = new BackgroundJobStatus("C.d", started, local(12, 3, 46), JobOutcome.OK,
-                0, 0, local(12, 3, 46), 0, null, null, null, null, "i");
+                0, 0, local(12, 3, 46), 0, null, null, null, null, "i", null, null);
         assertThat(OverdueRule.state(DAILY_0345, running, appStart, started.plus(Duration.ofMinutes(30))))
                 .isEqualTo(JobState.OK);
         assertThat(OverdueRule.state(DAILY_0345, running, appStart, started.plus(Duration.ofMinutes(31))))

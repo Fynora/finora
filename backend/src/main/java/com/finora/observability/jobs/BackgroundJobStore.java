@@ -84,6 +84,58 @@ public class BackgroundJobStore {
     }
 
     /**
+     * Records a GitHub workflow run (part 2). Writes only when this run id is not the one already
+     * recorded, or the recorded run was still going and this one has finished, so a run seen on
+     * every 15-minute poll is recorded once. A finished run applies the same success and failure
+     * counters as a backend run, and a CRASHED one adds one failure row. {@code finishedAt} and
+     * {@code outcome} are null while the run is in progress. Returns whether it wrote.
+     */
+    public boolean recordExternalRun(String jobKey, long runId, String url, Instant startedAt,
+                                     Instant finishedAt, JobOutcome outcome, String failureSummary) {
+        boolean finished = finishedAt != null;
+        boolean failing = finished && outcome == JobOutcome.CRASHED;
+        OffsetDateTime end = finished ? utc(finishedAt) : null;
+        Boolean wrote = ownTransaction.execute(status -> {
+            int rows = jdbc.update("""
+                    INSERT INTO background_job_status (job_key, last_started_at, last_finished_at, last_outcome,
+                        last_success_at, consecutive_failures, broken_since, last_instance,
+                        last_external_run_id, last_external_url, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 'github', ?, ?, now())
+                    ON CONFLICT (job_key) DO UPDATE SET
+                        last_started_at = EXCLUDED.last_started_at,
+                        last_finished_at = EXCLUDED.last_finished_at,
+                        last_outcome = COALESCE(EXCLUDED.last_outcome, background_job_status.last_outcome),
+                        last_success_at = COALESCE(EXCLUDED.last_success_at, background_job_status.last_success_at),
+                        consecutive_failures = CASE
+                            WHEN EXCLUDED.last_finished_at IS NULL THEN background_job_status.consecutive_failures
+                            WHEN EXCLUDED.consecutive_failures > 0 THEN background_job_status.consecutive_failures + 1
+                            ELSE 0 END,
+                        broken_since = CASE
+                            WHEN EXCLUDED.last_finished_at IS NULL THEN background_job_status.broken_since
+                            WHEN EXCLUDED.consecutive_failures > 0
+                                THEN COALESCE(background_job_status.broken_since, EXCLUDED.broken_since)
+                            ELSE NULL END,
+                        last_instance = 'github',
+                        last_external_run_id = EXCLUDED.last_external_run_id,
+                        last_external_url = EXCLUDED.last_external_url,
+                        updated_at = now()
+                    WHERE background_job_status.last_external_run_id IS DISTINCT FROM EXCLUDED.last_external_run_id
+                       OR (background_job_status.last_finished_at IS NULL AND EXCLUDED.last_finished_at IS NOT NULL)
+                    """,
+                    jobKey, utc(startedAt), end, finished ? outcome.name() : null,
+                    finished && !failing ? end : null, failing ? 1 : 0, failing ? end : null, runId, url);
+            if (rows == 1 && failing) {
+                jdbc.update("""
+                        INSERT INTO background_job_failures (job_key, occurred_at, outcome, failed_items, error_summary)
+                        VALUES (?, ?, 'CRASHED', 0, ?)
+                        """, jobKey, end, failureSummary);
+            }
+            return rows == 1;
+        });
+        return Boolean.TRUE.equals(wrote);
+    }
+
+    /**
      * Claims the right to send {@code kind} for a job: succeeds (returns 1) only if the job's last
      * email is still {@code expectedKind}, so when two instances decide the same email at once, one
      * sends it and the other gets 0 and stays quiet.
@@ -133,7 +185,8 @@ public class BackgroundJobStore {
                 outcome == null ? null : JobOutcome.valueOf(outcome),
                 rs.getInt("last_failed_items"), rs.getInt("last_handled"), instant(rs, "last_success_at"),
                 rs.getInt("consecutive_failures"), instant(rs, "broken_since"), rs.getString("last_email_kind"),
-                instant(rs, "last_email_at"), instant(rs, "last_broken_email_at"), rs.getString("last_instance"));
+                instant(rs, "last_email_at"), instant(rs, "last_broken_email_at"), rs.getString("last_instance"),
+                rs.getObject("last_external_run_id", Long.class), rs.getString("last_external_url"));
     }
 
     private static Instant instant(ResultSet rs, String column) throws SQLException {

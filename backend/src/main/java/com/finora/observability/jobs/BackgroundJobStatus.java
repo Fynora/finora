@@ -16,5 +16,7 @@ public record BackgroundJobStatus(
         String lastEmailKind,
         Instant lastEmailAt,
         Instant lastBrokenEmailAt,
-        String lastInstance
+        String lastInstance,
+        Long lastExternalRunId,
+        String lastExternalUrl
 ) {}

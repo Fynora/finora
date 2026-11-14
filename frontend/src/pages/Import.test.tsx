@@ -44,7 +44,7 @@ vi.mock('framer-motion', async (importOriginal) => {
 
 import Import, { UPLOAD_COMPLETE_DWELL_MS, setUploadCompleteDwellForTests } from './Import';
 import { AuthProvider } from '../context/AuthContext';
-import { importApi, importJobsApi, statementImportsApi, categoriesApi, accountsApi, activationApi, banksApi, inflowApi, invitePromptApi, type ImportJobProgress } from '../api/endpoints';
+import { importApi, importJobsApi, statementImportsApi, categoriesApi, accountsApi, activationApi, banksApi, inflowApi, invitePromptApi, aiSortApi, type ImportJobProgress } from '../api/endpoints';
 import type { Account, StagedAccountSection, StagedRow } from '../types';
 import { PDF_PASSWORD_REQUIRED, PDF_PASSWORD_INVALID, NO_HEADER_DETECTED, NO_TRANSACTIONS_FOUND, NO_ACTIVITY_IN_PERIOD, SCANNED_OCR_REQUIRED, CORRUPT_PDF, PAYMENT_APP_HISTORY, IMPORT_SESSION_ALREADY_CONFIRMED, ACCOUNT_LIMIT_REACHED, STATEMENT_PERIOD_TOO_LONG } from '../api/errorCodes';
 import { IMPORT_FAILURE_MESSAGES, PDF_PASSWORD_HINT, SERVER_FAILURE_MESSAGE, UNSUPPORTED_FILE_MESSAGE } from '../api/importFailureMessages';
@@ -66,6 +66,11 @@ vi.mock('../api/endpoints', () => ({
     unresolvedForImport: vi.fn().mockResolvedValue([]),
     kinds: vi.fn().mockResolvedValue([]),
     setChoice: vi.fn(), clearChoice: vi.fn(), createKind: vi.fn(),
+  },
+  // AiSortCard on the summary screens: not offered unless a test says so.
+  aiSortApi: {
+    offer: vi.fn().mockResolvedValue({ show: false, mode: null, payments: 0, amount: 0, payees: 0 }),
+    start: vi.fn(), run: vi.fn(),
   },
   // QuickSortCta on the summary screens counts waiting questions; nothing here is waiting.
   transactionsApi: {
@@ -2597,6 +2602,23 @@ describe('Import — multi-account summary screen warnings', () => {
     expect(inflowApi.unresolvedForImport).toHaveBeenCalledWith('stmt-Savings');
     expect(inflowApi.unresolvedForImport).toHaveBeenCalledWith('stmt-Credit Card');
     vi.mocked(inflowApi.unresolvedForImport).mockResolvedValue([]);
+  });
+
+  it('offers AI sorting on the Done screen for every account just imported', async () => {
+    vi.mocked(aiSortApi.offer).mockResolvedValueOnce({ show: true, mode: 'SORT', payments: 4, amount: 1200, payees: 2 });
+    vi.mocked(importApi.confirmMulti).mockReset().mockResolvedValue({
+      perAccount: [summaryFor('Savings'), summaryFor('Credit Card')],
+    } as never);
+    const user = userEvent.setup();
+    renderImport();
+
+    stageSections([section('Savings'), section('Credit Card')]);
+    await pickAndUploadPdf(user);
+    await screen.findByText(/this statement covers 2 accounts/i);
+    await user.click(confirmAll());
+
+    expect(await screen.findByText('AI can sort 4 shop payments (₹1,200)')).toBeInTheDocument();
+    expect(aiSortApi.offer).toHaveBeenCalledWith(['stmt-Savings', 'stmt-Credit Card']);
   });
 
   it('asks the server about the invite card with every account just imported, and shows it when told to', async () => {

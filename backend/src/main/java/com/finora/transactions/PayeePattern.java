@@ -25,6 +25,21 @@ public record PayeePattern(int payments, LocalDate firstDate, LocalDate latestDa
 
     static final int MAX_RECENT = 10;
 
+    /**
+     * Whether a row is a payment the pattern counts: the rows every total leaves out are left out here
+     * too (RefundNetting.reportable, RecurringService.countsAsAPayment) -- a duplicate or a row marked
+     * as one, a transfer, a refund or reversal leg, and a superseded row, which a refreshed statement
+     * leaves on file and which would otherwise count the same payment twice.
+     */
+    public static boolean counts(Transaction t) {
+        Transaction.ReconciliationStatus status = t.getReconciliationStatus();
+        return t.getIsDuplicateOf() == null && !t.isTransfer()
+                && status != Transaction.ReconciliationStatus.DUPLICATE
+                && status != Transaction.ReconciliationStatus.SUPERSEDED
+                && status != Transaction.ReconciliationStatus.REFUND
+                && status != Transaction.ReconciliationStatus.REVERSAL;
+    }
+
     /** The pattern of these payments, given in any order. */
     public static PayeePattern of(List<Transaction> payments) {
         List<Transaction> newestFirst = payments.stream()

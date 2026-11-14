@@ -84,6 +84,28 @@ class PayeePatternTest {
     }
 
     @Test
+    void countsOnlyRealPayments() {
+        Transaction real = payment("100", LocalDate.of(2026, 9, 1));
+        Transaction superseded = payment("100", LocalDate.of(2026, 9, 1));
+        superseded.setReconciliationStatus(Transaction.ReconciliationStatus.SUPERSEDED);
+        Transaction duplicateMark = payment("100", LocalDate.of(2026, 9, 1));
+        duplicateMark.setReconciliationStatus(Transaction.ReconciliationStatus.DUPLICATE);
+        Transaction duplicateOf = payment("100", LocalDate.of(2026, 9, 1));
+        duplicateOf.setIsDuplicateOf(java.util.UUID.randomUUID());
+        Transaction transfer = payment("100", LocalDate.of(2026, 9, 1));
+        transfer.setTransfer(true);
+        Transaction reversal = payment("100", LocalDate.of(2026, 9, 1));
+        reversal.setReconciliationStatus(Transaction.ReconciliationStatus.REVERSAL);
+        Transaction refund = payment("100", LocalDate.of(2026, 9, 1));
+        refund.setReconciliationStatus(Transaction.ReconciliationStatus.REFUND);
+
+        assertThat(PayeePattern.counts(real)).isTrue();
+        for (Transaction t : List.of(superseded, duplicateMark, duplicateOf, transfer, reversal, refund)) {
+            assertThat(PayeePattern.counts(t)).isFalse();
+        }
+    }
+
+    @Test
     void usesAbsoluteAmounts() {
         PayeePattern p = PayeePattern.of(payments("-200", "-100"));
         assertThat(p.typicalLow()).isEqualByComparingTo("100");

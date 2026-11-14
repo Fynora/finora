@@ -121,6 +121,23 @@ class QuickSortIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void patternLeavesOutRowsNoTotalCounts() throws Exception {
+        // A refreshed statement leaves its old rows on file as SUPERSEDED; with transfers and
+        // duplicate marks they are out of every total, so they are out of the count too.
+        seed(user.getId(), accountId, "vpa:samplea", 100);
+        seed(user.getId(), accountId, "vpa:samplea", 100);
+        UUID superseded = seed(user.getId(), accountId, "vpa:samplea", 100);
+        quickSorted(superseded, t -> t.setReconciliationStatus(Transaction.ReconciliationStatus.SUPERSEDED));
+        UUID transfer = seed(user.getId(), accountId, "vpa:samplea", 100);
+        quickSorted(transfer, t -> t.setTransfer(true));
+
+        JsonNode q = questionFor(batch(0), "vpa:samplea|EXPENSE");
+
+        assertThat(q.get("allPayments").asInt()).isEqualTo(2);
+        assertThat(q.get("recent")).hasSize(2);
+    }
+
+    @Test
     void rowQuestionHasNoPattern() throws Exception {
         seed(user.getId(), accountId, null, 100);
 

@@ -176,6 +176,24 @@ class QuickSortServiceTest {
     }
 
     @Test
+    void neutralPersonAnswersStayWithManyOwnPicks() {
+        // Own picks still come first, but never crowd out the two answers that guess nothing.
+        person("vpa:ravi", 300);
+        List<TransactionRepository.CategoryCount> picks = new java.util.ArrayList<>();
+        for (String name : List.of("Rent", "Dining", "Health", "Shopping")) {
+            TransactionRepository.CategoryCount count = mock(TransactionRepository.CategoryCount.class);
+            when(count.getCategoryId()).thenReturn(categoryIds.get(name));
+            when(count.getCount()).thenReturn(4L);
+            picks.add(count);
+        }
+        when(transactionRepository.countManualChoicesByCategory(userId, CounterpartyType.PERSON, Transaction.Type.EXPENSE))
+                .thenReturn(picks);
+
+        assertThat(service.batch(userId, 0).questions().get(0).answers())
+                .containsExactly("Rent", "Dining", "Health", "Personal Transfer", "Friend Repayment");
+    }
+
+    @Test
     void personQuestionSkipsADeletedCategory() {
         person("vpa:ravi", 300);
         categories.removeIf(c -> "Rent".equals(c.getName()));

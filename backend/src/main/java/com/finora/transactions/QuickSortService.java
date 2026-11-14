@@ -187,8 +187,7 @@ public class QuickSortService {
         Set<UUID> live = new java.util.HashSet<>(liveAccountIds);
         Map<String, List<Transaction>> byGroupId = new HashMap<>();
         for (Transaction t : transactionRepository.findByUserIdAndCounterpartyKeyIn(userId, keys)) {
-            if (!live.contains(t.getAccountId())) continue;
-            if (t.getReconciliationStatus() == Transaction.ReconciliationStatus.DUPLICATE) continue;
+            if (!live.contains(t.getAccountId()) || !PayeePattern.counts(t)) continue;
             byGroupId.computeIfAbsent(t.getCounterpartyKey() + "|" + t.getTxnType(), k -> new ArrayList<>()).add(t);
         }
         Map<String, PayeePattern> patterns = new HashMap<>();
@@ -211,9 +210,18 @@ public class QuickSortService {
         Set<String> answers = new LinkedHashSet<>();
         if (kind == QuickSortDto.Kind.GUESS && current != null) answers.add(current);
         String choicesKey = anchor.getCounterpartyType() + "|" + anchor.getTxnType();
-        answers.addAll(ownChoices.computeIfAbsent(choicesKey, k ->
+        List<String> own = ownChoices.computeIfAbsent(choicesKey, k ->
                 transactionRepository.countManualChoicesByCategory(userId, anchor.getCounterpartyType(), anchor.getTxnType())
-                        .stream().map(c -> categoryNames.get(c.getCategoryId())).filter(n -> n != null).toList()));
+                        .stream().map(c -> categoryNames.get(c.getCategoryId())).filter(n -> n != null).toList());
+        if (kind == QuickSortDto.Kind.PERSON_PAID) {
+            // Own picks first, but never so many that the answers that guess nothing ("Personal
+            // Transfer", "Friend Repayment") fall past the cap: those stay one tap away.
+            List<String> neutral = PERSON_DEFAULTS.subList(0, 2).stream().filter(categoryNames::containsValue).toList();
+            own.stream().filter(categoryNames::containsValue).filter(n -> !neutral.contains(n))
+                    .limit(MAX_ANSWERS - neutral.size()).forEach(answers::add);
+        } else {
+            answers.addAll(own);
+        }
         answers.addAll(defaultsFor(kind));
         List<String> offered = answers.stream().filter(categoryNames::containsValue).limit(MAX_ANSWERS).toList();
 

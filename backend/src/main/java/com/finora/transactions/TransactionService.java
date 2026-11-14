@@ -112,6 +112,10 @@ public class TransactionService {
     // sidestepping any JPA-provider-specific edge cases around empty IN(...) lists entirely.
     private static final String NO_BANK_MATCH_SENTINEL = "__NO_BANK_MATCH__";
 
+    // A payee key no row has ("none:" is not a CounterpartyIdentity prefix): a "See all" whose row
+    // cannot be found shows an empty list, never the unfiltered one.
+    private static final String NO_PAYEE_MATCH_SENTINEL = "none:__NO_PAYEE_MATCH__";
+
     // Same reasoning as NO_BANK_MATCH_SENTINEL just above, for the category-name half of the same
     // search: a nil UUID a real Category row can never carry (categoryRepository.save relies on
     // the entity's @GeneratedValue, never this all-zero literal), so `t.categoryId IN :categoryIds`
@@ -212,6 +216,17 @@ public class TransactionService {
         Optional<Transaction> lastRowHeld = f.after() == null
                 ? Optional.empty()
                 : transactionRepository.findByIdAndUserIdIncludingDeleted(f.after(), userId);
+        // "See all N in Transactions": the payee and direction of the named row, looked up among
+        // deleted rows too (the question's row may have been deleted since) and scoped to this user.
+        // A row that is not the caller's, or has no payee key, narrows the list to nothing rather
+        // than dropping the condition: an unfiltered list under "See all 14" would be wrong.
+        String payeeKey = null;
+        Transaction.Type payeeType = null;
+        if (f.payeeOf() != null) {
+            Optional<Transaction> payeeRow = transactionRepository.findByIdAndUserIdIncludingDeleted(f.payeeOf(), userId);
+            payeeKey = payeeRow.map(Transaction::getCounterpartyKey).filter(k -> !k.isBlank()).orElse(NO_PAYEE_MATCH_SENTINEL);
+            payeeType = payeeRow.map(Transaction::getTxnType).orElse(Transaction.Type.EXPENSE);
+        }
         Page<Transaction> page;
         if (lastRowHeld.isPresent()) {
             Transaction last = lastRowHeld.get();
@@ -223,6 +238,7 @@ public class TransactionService {
                     userId, f.accountId(), f.categoryId(), type, status,
                     f.dateFrom(), f.dateTo(), f.amountMin(), f.amountMax(),
                     keyword, bankIdsParam, categoryIdsParam, liveAccountIds, f.international(),
+                    payeeKey, payeeType,
                     place, last.getTxnDate(), last.getAmount(), last.getCreatedAt(), last.getId(),
                     // Always the first page of what is left: the place does the skipping.
                     PageRequest.of(0, safeSize, sort));
@@ -231,7 +247,7 @@ public class TransactionService {
                     userId, f.accountId(), f.categoryId(), type, status,
                     f.dateFrom(), f.dateTo(), f.amountMin(), f.amountMax(),
                     keyword, bankIdsParam, categoryIdsParam, liveAccountIds, f.international(),
-                    PageRequest.of(safePage, safeSize, sort));
+                    payeeKey, payeeType, PageRequest.of(safePage, safeSize, sort));
         }
         Map<UUID, String> namesById = categoryNamesById(userId);
         return PagedResponse.of(page.map(t -> TransactionDto.from(t, namesById.getOrDefault(t.getCategoryId(), "Uncategorized"))));

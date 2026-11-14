@@ -499,6 +499,14 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
           AND (:amountMin IS NULL OR t.amount >= :amountMin)
           AND (:amountMax IS NULL OR t.amount <= :amountMax)
           AND (CAST(:international AS Boolean) IS NULL OR t.international = :international)
+          AND (CAST(:payeeKey AS string) IS NULL
+               OR (t.counterpartyKey = :payeeKey AND t.txnType = :payeeType
+                   AND t.isDuplicateOf IS NULL AND t.isTransfer = false
+                   AND (t.reconciliationStatus IS NULL OR t.reconciliationStatus NOT IN (
+                        com.finora.entity.Transaction.ReconciliationStatus.DUPLICATE,
+                        com.finora.entity.Transaction.ReconciliationStatus.SUPERSEDED,
+                        com.finora.entity.Transaction.ReconciliationStatus.REFUND,
+                        com.finora.entity.Transaction.ReconciliationStatus.REVERSAL))))
           AND (:keyword IS NULL
                OR LOWER(t.description) LIKE LOWER(CONCAT('%', CAST(:keyword AS string), '%')) ESCAPE '\\'
                OR LOWER(t.merchant) LIKE LOWER(CONCAT('%', CAST(:keyword AS string), '%')) ESCAPE '\\'
@@ -539,6 +547,8 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
             @Param("categoryIds") List<UUID> categoryIds,
             @Param("liveAccountIds") List<UUID> liveAccountIds,
             @Param("international") Boolean international,
+            @Param("payeeKey") String payeeKey,
+            @Param("payeeType") Transaction.Type payeeType,
             @Param("place") int place,
             @Param("placeDate") LocalDate placeDate,
             @Param("placeAmount") BigDecimal placeAmount,
@@ -570,8 +580,25 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
                                      BigDecimal amountMin, BigDecimal amountMax, String keyword,
                                      List<String> bankIds, List<UUID> categoryIds, List<UUID> liveAccountIds,
                                      Boolean international, Pageable pageable) {
+        return search(userId, accountId, categoryId, type, status, dateFrom, dateTo, amountMin, amountMax,
+                keyword, bankIds, categoryIds, liveAccountIds, international, null, null, pageable);
+    }
+
+    /**
+     * The whole list, as above, optionally narrowed to one payee: {@code payeeKey} and
+     * {@code payeeType} (a counterparty key and direction, both or neither) keep only the rows Quick
+     * sort's pattern line counts for that payee -- the same rule as
+     * {@link com.finora.transactions.PayeePattern#counts}, so "See all 14" opens exactly 14 rows.
+     * Null {@code payeeKey}: no payee condition.
+     */
+    default Page<Transaction> search(UUID userId, UUID accountId, UUID categoryId, Transaction.Type type,
+                                     Transaction.ReconciliationStatus status, LocalDate dateFrom, LocalDate dateTo,
+                                     BigDecimal amountMin, BigDecimal amountMax, String keyword,
+                                     List<String> bankIds, List<UUID> categoryIds, List<UUID> liveAccountIds,
+                                     Boolean international, String payeeKey, Transaction.Type payeeType,
+                                     Pageable pageable) {
         return searchFromPlace(userId, accountId, categoryId, type, status, dateFrom, dateTo, amountMin, amountMax,
-                keyword, bankIds, categoryIds, liveAccountIds, international,
+                keyword, bankIds, categoryIds, liveAccountIds, international, payeeKey, payeeType,
                 WHOLE_LIST, LocalDate.EPOCH, BigDecimal.ZERO, Instant.EPOCH, new UUID(0L, 0L), pageable);
     }
 

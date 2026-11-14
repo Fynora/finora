@@ -1087,6 +1087,21 @@ describe('drill-through filters (Track C/C4)', () => {
     ));
   });
 
+  it("narrows the list to one payee from Quick sort's See all, and clearing it shows every payment", async () => {
+    mockRouteParams = { filters: filters({ payeeOf: 'txn-1', label: 'Payments to RAVI K' }) };
+    renderScreen();
+
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ payeeOf: 'txn-1', keyword: undefined })
+    ));
+    transactions.search.mockClear();
+    fireEvent.press(screen.getByLabelText('Clear filter: Payments to RAVI K'));
+
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ payeeOf: undefined })
+    ));
+  });
+
   // Regression: clearing a keyword-only drill-through (Insights' Top Merchant) used to only
   // dismiss the banner -- the search box and the actual results stayed silently narrowed to the
   // merchant, looking cleared while still filtering.

@@ -46,8 +46,9 @@ export function QuickSortPanel({ onLoaded, variant = 'full', accountEmail = null
   accountEmail?: string | null;
   /** Dashboard variant: open the full Quick sort. */
   onOpenFull?: () => void;
-  /** Open Transactions searched for this payee; without it the payments list offers no "See all". */
-  onSeeAll?: (payee: string) => void;
+  /** Open Transactions narrowed to this question's payee (see seeAllFilters); without it the payments
+   *  list offers no "See all". */
+  onSeeAll?: (question: QuickSortQuestion) => void;
 }) {
   const dashboard = variant === 'dashboard';
   // Dashboard: null until the stored "Not now" is read (SecureStore is async), so nothing flashes.

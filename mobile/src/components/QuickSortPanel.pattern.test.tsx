@@ -99,7 +99,7 @@ describe('QuickSortPanel pattern line', () => {
     renderPanel({ onSeeAll });
     fireEvent.press(await screen.findByRole('button', { name: LINE }));
     fireEvent.press(screen.getByRole('button', { name: 'See all 14 in Transactions' }));
-    expect(onSeeAll).toHaveBeenCalledWith('RAVI K');
+    expect(onSeeAll).toHaveBeenCalledWith(expect.objectContaining({ anchorTransactionId: 'txn-1', payee: 'RAVI K' }));
   });
 
   it('shows no See all without a handler', async () => {

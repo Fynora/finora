@@ -1,3 +1,4 @@
+import type { LedgerDrillThroughFilters } from '../navigation/types';
 import type { QuickSortQuestion } from '../types';
 
 /**
@@ -32,4 +33,19 @@ export function patternLine(q: QuickSortQuestion): string | null {
   const low = Math.round(q.typicalLow);
   const high = Math.round(q.typicalHigh);
   return low === high ? `${head} · usually ${rupees(low)}` : `${head} · usually ${rupees(low)}–${rupees(high)}`;
+}
+
+/**
+ * The Transactions tab narrowed to the payee of the question's row (its anchor): exactly the payments
+ * the pattern line counts. The chip names the payee and the direction the list keeps.
+ */
+export function seeAllFilters(
+  q: Pick<QuickSortQuestion, 'anchorTransactionId' | 'payee' | 'kind'>,
+  nonce: number,
+): LedgerDrillThroughFilters {
+  return {
+    payeeOf: q.anchorTransactionId,
+    label: `Payments ${q.kind === 'MONEY_IN' ? 'from' : 'to'} ${q.payee}`,
+    nonce,
+  };
 }

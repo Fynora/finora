@@ -200,18 +200,33 @@ public record TransactionDto(
      * its {@code totalElements} and {@code totalPages} cover that row's successors, so "more to
      * fetch" is still {@code page + 1 < totalPages}. Null, or anything that is not the caller's own
      * transaction: the list is paged by {@code page} as before.
+     *
+     * <p>{@code payeeOf}: one of the caller's own transactions; the list keeps only the payments to
+     * or from that row's payee, in that row's direction, that Quick sort's pattern line counts
+     * (PayeePattern.counts) -- what "See all N in Transactions" opens, so the list holds exactly N.
+     * A transaction id rather than the payee's key or name, so nothing personal goes in the URL.
+     * Not one of the caller's transactions, or a row with no payee key: an empty list.
      */
     public record FilterRequest(UUID accountId, UUID categoryId, String type, String status, LocalDate dateFrom,
                                  LocalDate dateTo, BigDecimal amountMin, BigDecimal amountMax,
                                  String keyword, int page, int size, String sortField, String sortDir,
-                                 Boolean international, UUID after) {
+                                 Boolean international, UUID after, UUID payeeOf) {
+        /** The arity before a list could be narrowed to one payee. */
+        public FilterRequest(UUID accountId, UUID categoryId, String type, String status, LocalDate dateFrom,
+                             LocalDate dateTo, BigDecimal amountMin, BigDecimal amountMax,
+                             String keyword, int page, int size, String sortField, String sortDir,
+                             Boolean international, UUID after) {
+            this(accountId, categoryId, type, status, dateFrom, dateTo, amountMin, amountMax, keyword,
+                    page, size, sortField, sortDir, international, after, null);
+        }
+
         /** The arity before a list could be continued from a row. */
         public FilterRequest(UUID accountId, UUID categoryId, String type, String status, LocalDate dateFrom,
                              LocalDate dateTo, BigDecimal amountMin, BigDecimal amountMax,
                              String keyword, int page, int size, String sortField, String sortDir,
                              Boolean international) {
             this(accountId, categoryId, type, status, dateFrom, dateTo, amountMin, amountMax, keyword,
-                    page, size, sortField, sortDir, international, null);
+                    page, size, sortField, sortDir, international, null, null);
         }
 
         /** Pre-international arity. */
@@ -219,7 +234,7 @@ public record TransactionDto(
                              LocalDate dateTo, BigDecimal amountMin, BigDecimal amountMax,
                              String keyword, int page, int size, String sortField, String sortDir) {
             this(accountId, categoryId, type, status, dateFrom, dateTo, amountMin, amountMax, keyword,
-                    page, size, sortField, sortDir, null, null);
+                    page, size, sortField, sortDir, null, null, null);
         }
     }
 

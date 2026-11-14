@@ -110,7 +110,7 @@ function txn(overrides: Partial<Transaction> = {}): Transaction {
   };
 }
 
-function renderLedger(entry = '/') {
+function renderLedger(entry: string | { pathname: string; search?: string; state?: unknown } = '/') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
@@ -1501,6 +1501,58 @@ describe('Ledger — Mark/Unmark as transfer (Phase 6)', () => {
     await screen.findByText('Amazon Pay');
     expect(screen.queryByTitle('Mark as transfer')).not.toBeInTheDocument();
     expect(screen.queryByTitle('Unmark as transfer')).not.toBeInTheDocument();
+  });
+});
+
+describe("Ledger — Quick sort's See all (one payee)", () => {
+  const PAYEE_ROW = '5f0c1a2b-0000-4000-8000-000000000001';
+  const searched = () => vi.mocked(transactionsApi.search).mock.calls.map((c) => c[0]);
+
+  beforeEach(() => {
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [txn()], page: 0, size: 10, totalElements: 1, totalPages: 1,
+    });
+    vi.mocked(transactionsApi.needsReview).mockReset().mockResolvedValue([]);
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+  });
+
+  it('asks only for that payee, from the very first request, the totals included', async () => {
+    renderLedger({ pathname: '/app/transactions', search: `?payee=${PAYEE_ROW}`, state: { payee: 'RAVI K' } });
+
+    await waitFor(() => expect(searched().length).toBeGreaterThan(1));
+    expect(searched().every((r) => r.payeeOf === PAYEE_ROW)).toBe(true);
+  });
+
+  it('says whose payments these are, and clearing shows every payment again', async () => {
+    renderLedger({ pathname: '/app/transactions', search: `?payee=${PAYEE_ROW}`, state: { payee: 'RAVI K' } });
+
+    expect(await screen.findByText('Payments to RAVI K')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Show all payments' }));
+
+    expect(screen.queryByText('Payments to RAVI K')).not.toBeInTheDocument();
+    await waitFor(() => expect(searched()[searched().length - 1]?.payeeOf).toBeUndefined());
+  });
+
+  it('says "from" for money that came in', async () => {
+    renderLedger({ pathname: '/app/transactions', search: `?payee=${PAYEE_ROW}`, state: { payee: 'RAVI K', incoming: true } });
+
+    expect(await screen.findByText('Payments from RAVI K')).toBeInTheDocument();
+  });
+
+  it('still says it is one payee when the link carried no name (a reload, a pasted link)', async () => {
+    renderLedger(`/app/transactions?payee=${PAYEE_ROW}`);
+
+    expect(await screen.findByText("One payee's payments")).toBeInTheDocument();
+  });
+
+  it('the Clear button drops the payee too', async () => {
+    renderLedger({ pathname: '/app/transactions', search: `?payee=${PAYEE_ROW}`, state: { payee: 'RAVI K' } });
+
+    await screen.findByText('Payments to RAVI K');
+    await userEvent.click(screen.getByTitle('Clear all filters'));
+
+    expect(screen.queryByText('Payments to RAVI K')).not.toBeInTheDocument();
+    await waitFor(() => expect(searched()[searched().length - 1]?.payeeOf).toBeUndefined());
   });
 });
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { motion, useReducedMotion } from 'framer-motion';
 import {
@@ -28,6 +28,7 @@ import {
   NO_ANCHORS, asWholeListPage, pagingSignature, rememberAnchors, requestFor, type PageAnchors,
 } from '../lib/ledgerPaging';
 import { categoryIdByName, parseLedgerUrlFilters } from '../lib/ledgerUrlFilters';
+import type { SeeAllState } from '../lib/payeePattern';
 import { ConfirmDialog, Button, IconButton, Skeleton, FinoraCard, Badge, useDialogA11y } from '../design-system';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
 import { useMemoryReinforcement } from '../hooks/useMemoryReinforcement';
@@ -286,8 +287,15 @@ export default function Ledger() {
   // followed by a second; the category waits for the user's categories (see the effect below).
   const [filters, setFilters] = useState<TransactionFilters>(() => {
     const fromUrl = parseLedgerUrlFilters(searchParams);
-    return { page: 0, size: 10, sortField: 'date', sortDir: 'desc', dateFrom: fromUrl.dateFrom, dateTo: fromUrl.dateTo };
+    return { page: 0, size: 10, sortField: 'date', sortDir: 'desc', dateFrom: fromUrl.dateFrom, dateTo: fromUrl.dateTo,
+      payeeOf: fromUrl.payeeOf };
   });
+  // Quick sort's "See all" names its payee in the link's state (never the URL). A reload or a pasted
+  // link has none, and the list is still that one payee's.
+  const seeAll = useLocation().state as Partial<SeeAllState> | null;
+  const payeeHeading = typeof seeAll?.payee === 'string' && seeAll.payee.trim()
+    ? `Payments ${seeAll.incoming ? 'from' : 'to'} ${seeAll.payee.trim()}`
+    : "One payee's payments";
   const [showAllWaiting, setShowAllWaiting] = useState(false);
   const [keywordInput, setKeywordInput] = useState(() => searchParams.get('q') ?? '');
   const debouncedKeyword = useDebouncedValue(keywordInput, 300);
@@ -358,13 +366,13 @@ export default function Ledger() {
   const activeFilters = { ...filters, keyword: debouncedKeyword || undefined };
   const hasActiveFilters = !!(activeFilters.type || activeFilters.status || activeFilters.categoryId
     || activeFilters.international !== undefined
-    || activeFilters.dateFrom || activeFilters.dateTo || activeFilters.keyword);
+    || activeFilters.dateFrom || activeFilters.dateTo || activeFilters.keyword || activeFilters.payeeOf);
   // Deliberately excludes categoryId, unlike hasActiveFilters above -- the KPI row's numbers
   // (see statsFilters below) never factor in the category chip, so labelling them "filtered"
   // when a chip is the ONLY active filter would be true of the label but false of the value.
   const hasStatsFilters = !!(activeFilters.type || activeFilters.status
     || activeFilters.international !== undefined
-    || activeFilters.dateFrom || activeFilters.dateTo || activeFilters.keyword);
+    || activeFilters.dateFrom || activeFilters.dateTo || activeFilters.keyword || activeFilters.payeeOf);
 
   // Moving to the next page continues from the last row on screen rather than counting rows from
   // the top -- see lib/ledgerPaging for why and how. `filters.page` stays the page the user is on;
@@ -398,6 +406,7 @@ export default function Ledger() {
       dateTo: urlFilters.dateTo ?? f.dateTo,
       // No matching category (a report's catch-all "Uncategorized") means no category filter.
       categoryId: (urlFilters.categoryName && categoryIdByName(categories, urlFilters.categoryName)) || f.categoryId,
+      payeeOf: urlFilters.payeeOf ?? f.payeeOf,
       page: 0,
     }));
   }, [urlFilters, urlSignature, appliedUrlSignature, categories, categoriesFailed]);
@@ -436,6 +445,7 @@ export default function Ledger() {
     dateFrom: activeFilters.dateFrom,
     dateTo: activeFilters.dateTo,
     keyword: activeFilters.keyword,
+    payeeOf: activeFilters.payeeOf,
     page: 0,
     size: STATS_PAGE_SIZE,
     sortField: 'date',
@@ -786,6 +796,19 @@ export default function Ledger() {
             </motion.button>
           </div>
         </div>
+
+        {filters.payeeOf && (
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="font-medium text-ink">{payeeHeading}</span>
+            <button
+              type="button"
+              onClick={() => setFilters((f) => ({ ...f, payeeOf: undefined, page: 0 }))}
+              className="text-primary underline"
+            >
+              Show all payments
+            </button>
+          </div>
+        )}
 
         {/* Category chips -- built from the user's own real categories (icon/color already wired
             into ICON_COMPONENTS/COLOR_HEX below), each count from `categoryChips` above. Only

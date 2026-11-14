@@ -59,8 +59,8 @@ Sid picked A on 2026-11-14, after choosing "smarter person question" over wideni
 4. **Seeing the payments behind the line** (Sid, 2026-11-14: the customer may want to look before choosing).
    Tapping the pattern line opens the list right inside the card, without leaving the question: the
    payee's latest payments, newest first, up to 10, each as date · amount · the bank's narration. When there
-   are more than 10, a "See all 14 in Transactions" link opens the Transactions page searched for that
-   payee. Tapping the line again closes the list. Answering works the same with the list open or closed.
+   are more than 10, a "See all 14 in Transactions" link opens the Transactions page showing exactly those
+   14 payments. Tapping the line again closes the list. Answering works the same with the list open or closed.
    This replaces the web's current "Show payments" (3 waiting rows) and is new on mobile and the Dashboard
    card.
 
@@ -81,8 +81,12 @@ What was this person paid for?
 - The list holds all live payments to the payee in that direction (not only waiting ones), capped at 10 and
   sent with the question, so opening it needs no extra request. Amounts in the list are rounded to whole
   rupees, like other lists in the app.
-- "See all" uses the Transactions page's existing search (`?q=` on web); the mobile equivalent is for the
-  builder to confirm, and if mobile has no such search the link is left out there rather than built here.
+- "See all" opens the Transactions list narrowed to exactly the payments the line counts (review fix,
+  2026-11-14). It first used the page's text search for the payee's name; a read-only production count
+  (aggregate only) showed that search fell short of the number for many payees and showed other payees'
+  rows for others. The list now takes `payeeOf` (the question's row id, so nothing personal goes in a
+  URL: web `?payee=<id>`, mobile a drill-through filter) and keeps that payee's counted payments in that
+  direction, under a "Payments to <name>" (or "from", for money in) chip that clears it.
 - Branch stacks on PR #2552's branch (same card and panel files); its PR opens against `main` once #2552 has
   merged, after checking its base.
 

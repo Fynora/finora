@@ -137,6 +137,67 @@ class QuickSortIT extends AbstractIntegrationTest {
         assertThat(q.get("recent")).hasSize(2);
     }
 
+    // "See all N in Transactions" opens the Transactions list narrowed to the question's payee
+    // (payeeOf). A text search for the payee's name, measured on production, fell short of N for
+    // many payees and showed other payees' rows for others; this list must hold exactly the N rows.
+    @Test
+    void seeAllListsExactlyThePaymentsThePatternCounts() throws Exception {
+        UUID waiting = seed(user.getId(), accountId, "vpa:samplea", 100);
+        UUID filed = seed(user.getId(), accountId, "vpa:samplea", 120);
+        quickSorted(filed, t -> { });
+        for (Transaction.ReconciliationStatus left : List.of(Transaction.ReconciliationStatus.SUPERSEDED,
+                Transaction.ReconciliationStatus.DUPLICATE, Transaction.ReconciliationStatus.REFUND,
+                Transaction.ReconciliationStatus.REVERSAL)) {
+            quickSorted(seed(user.getId(), accountId, "vpa:samplea", 100), t -> t.setReconciliationStatus(left));
+        }
+        quickSorted(seed(user.getId(), accountId, "vpa:samplea", 100), t -> t.setTransfer(true));
+        quickSorted(seed(user.getId(), accountId, "vpa:samplea", 100), t -> t.setIsDuplicateOf(waiting));
+        quickSorted(seed(user.getId(), accountId, "vpa:samplea", 100), t -> t.setTxnType(Transaction.Type.INCOME));
+        // Same printed name, another payee: a name search would show it.
+        seed(user.getId(), accountId, "vpa:sampleb", 100);
+
+        JsonNode q = questionFor(batch(0), "vpa:samplea|EXPENSE");
+        JsonNode list = transactions("size=50&payeeOf=" + q.get("anchorTransactionId").asText());
+
+        assertThat(q.get("allPayments").asInt()).isEqualTo(2);
+        assertThat(list.get("totalElements").asInt()).isEqualTo(2);
+        assertThat(ids(list)).containsExactlyInAnyOrder(waiting.toString(), filed.toString());
+    }
+
+    @Test
+    void seeAllContinuesFromARowWithinThePayee() throws Exception {
+        UUID newest = seed(user.getId(), accountId, "vpa:samplea", 100);
+        UUID middle = seed(user.getId(), accountId, "vpa:samplea", 100);
+        UUID oldest = seed(user.getId(), accountId, "vpa:samplea", 100);
+        seed(user.getId(), accountId, "vpa:sampleb", 100);
+
+        JsonNode rest = transactions("size=10&payeeOf=" + newest + "&after=" + newest);
+
+        assertThat(ids(rest)).containsExactly(middle.toString(), oldest.toString());
+    }
+
+    @Test
+    void seeAllForSomeoneElsesRowListsNothing() throws Exception {
+        seed(user.getId(), accountId, "vpa:samplea", 100);
+        User other = newUser();
+        UUID theirs = seed(other.getId(), newAccount(other.getId()), "vpa:samplea", 100);
+
+        JsonNode list = transactions("payeeOf=" + theirs);
+
+        assertThat(list.get("totalElements").asInt()).isZero();
+    }
+
+    private JsonNode transactions(String query) throws Exception {
+        return data(restTemplate.exchange("/api/v1/transactions?" + query, HttpMethod.GET,
+                new HttpEntity<>(bearerFor(user)), String.class));
+    }
+
+    private static List<String> ids(JsonNode page) {
+        List<String> ids = new ArrayList<>();
+        page.get("content").forEach(t -> ids.add(t.get("id").asText()));
+        return ids;
+    }
+
     @Test
     void rowQuestionHasNoPattern() throws Exception {
         seed(user.getId(), accountId, null, 100);

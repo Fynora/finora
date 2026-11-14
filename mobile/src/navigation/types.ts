@@ -195,6 +195,10 @@ export interface LedgerDrillThroughFilters {
   // Insights' "Top Merchant" row (Track C/C4-style drill-through, no category to filter by -- a
   // merchant isn't a category LedgerScreen already knows how to narrow on any other way).
   keyword?: string;
+  // Quick sort's "See all N in Transactions": a transaction id whose payee's counted payments the list
+  // keeps (the server's payeeOf), so it holds exactly N rows. A name search missed many of a payee's
+  // payments and showed other payees' rows.
+  payeeOf?: string;
   label: string;
   nonce: number;
 }

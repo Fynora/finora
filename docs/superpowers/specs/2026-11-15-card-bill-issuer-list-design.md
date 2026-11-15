@@ -81,6 +81,10 @@ payments in each reader. Every reader then agrees, including the Ledger badge.
 - `setTransfer(false)` (the user's "not a transfer", a statement removed or re-imported, a link
   released) puts the flag back only when the link had cleared it, and only if the user hasn't
   since chosen a category by hand. A payment that wasn't waiting before the link is left as it was.
+- While a payment is linked, a later "needs review" decision is held in the same column and
+  applied only when it is unlinked. Added during the build: a statement refresh re-decides the
+  flag for rows whose text it corrects (`StatementRefreshService.applyCategoryDecision`), and
+  without this the flag would come back on a row that is still linked.
 - Migration `V324`:
   - adds the column (not null, default false);
   - clears the flag on payments already linked and still waiting, marking them as cleared by the

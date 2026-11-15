@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, within, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import ReadingQualityByBank, { percent, weekRate } from './ReadingQualityByBank';
+import ReadingQualityByBank, { percent, weekLabel, weekRate } from './ReadingQualityByBank';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { mockAdminAuthState } from '../test/mockAdminAuth';
 import { adminReadingQualityApi } from '../api/endpoints';
@@ -80,6 +80,12 @@ describe('percent', () => {
   });
   it('zero', () => {
     expect(percent(0)).toBe('0%');
+  });
+});
+
+describe('weekLabel', () => {
+  it('namesSeptemberWithThreeLetters', () => {
+    expect(weekLabel('2026-09-07')).toBe('7 Sep');
   });
 });
 

@@ -8,10 +8,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.sql.Timestamp;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -135,8 +135,8 @@ public class ReadingQualityService {
         LocalDate thisWeek = now.atZone(UserZone.DEFAULT).toLocalDate()
                 .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
         LocalDate firstWeek = thisWeek.minusWeeks(weeks - 1L);
-        Timestamp from = Timestamp.from(firstWeek.atStartOfDay(UserZone.DEFAULT).toInstant());
-        Timestamp to = Timestamp.from(thisWeek.plusWeeks(1).atStartOfDay(UserZone.DEFAULT).toInstant());
+        OffsetDateTime from = firstWeek.atStartOfDay(UserZone.DEFAULT).toOffsetDateTime();
+        OffsetDateTime to = thisWeek.plusWeeks(1).atStartOfDay(UserZone.DEFAULT).toOffsetDateTime();
         List<LocalDate> weekStarts = new ArrayList<>();
         for (int i = 0; i < weeks; i++) weekStarts.add(firstWeek.plusWeeks(i));
 

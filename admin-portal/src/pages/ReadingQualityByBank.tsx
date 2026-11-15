@@ -4,6 +4,7 @@ import { Line, LineChart, Tooltip, YAxis } from 'recharts';
 import { AdminLayout } from '../components/AdminLayout';
 import { RequirePermission } from '../components/ProtectedRoute';
 import { adminReadingQualityApi } from '../api/endpoints';
+import { withSep } from '../lib/withSep';
 import type { ReadingQualityBankRow, ReadingQualityWeek } from '../types';
 
 type Period = 4 | 12;
@@ -20,8 +21,9 @@ export function weekRate(week: ReadingQualityWeek): number | null {
   return week.statementsRead === 0 ? null : week.holds / week.statementsRead;
 }
 
-function weekLabel(weekStart: string): string {
-  return new Date(`${weekStart}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+/** "7 Sep": the start of a week, as the trend's tooltip names it. */
+export function weekLabel(weekStart: string): string {
+  return withSep(new Date(`${weekStart}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }));
 }
 
 /** Hold rate week by week, small enough to sit in a table cell. */

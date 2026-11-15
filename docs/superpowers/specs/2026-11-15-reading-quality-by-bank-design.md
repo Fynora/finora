@@ -1,7 +1,8 @@
 # Reading quality by bank — design
 
 Date: 2026-11-15. Size: small change (one endpoint, one admin page). Approved by Sid in conversation:
-the ranking number, what counts as a fix, and approach A.
+the ranking number, what counts as a fix, and approach A. Revised the same day after a bug-and-gap
+review: Sid chose to add reader failures to the rate and to leave out internal accounts.
 
 ## Why
 
@@ -14,42 +15,58 @@ next reader fix goes there.
 A new admin page, **Reading quality by bank**, next to Import Health and Trust Review Metrics.
 
 - Period switch: last 4 weeks / last 12 weeks (weeks run Monday to Sunday, India time).
-- One row per bank, sorted by **hold rate**, highest first (Sid's choice):
-  - **Statements read** — customer uploads the reader parsed for that bank.
-  - **Rows read** — transactions extracted from those statements.
-  - **Holds** — those statements held for trust review.
-  - **Hold rate** — holds ÷ statements read.
-  - **Fixes** — reader fixes that landed for that bank (definition below).
-  - A small weekly trend of hold rate.
-- Banks with fewer than 10 statements in the period show "too few to judge" instead of a rate and
-  sort below every bank that has a rate.
-- One extra line, **Bank not known**: import holds (`HELD_FOR_REVIEW`) and fixes on them. The parse
-  failed before the bank was named, so the code never records one (`FixJobStarter`: "an import hold
-  never learns its bank"). Shown as counts only, no rate.
+- One row per bank, sorted by **held or failed**, highest first:
+  - **Statements read**: customer uploads the reader parsed for that bank.
+  - **Rows read**: transactions extracted from those statements.
+  - **Failed reads**: uploads the reader could not read for a reason of its own (Sid, review).
+  - **Holds**: statements held for review that are not already a failed read.
+  - **Held or failed**: (holds + failed reads) ÷ (statements read + failed reads). This started out
+    as holds ÷ statements read (Sid's first choice). Sid widened it at review.
+  - **Fixes**: reader fixes that landed for that bank (definition below).
+  - A small weekly trend of held or failed.
+- Banks with fewer than 10 statements tried (read plus failed) in the period show "too few to judge"
+  instead of a rate and sort below every bank that has a rate.
+- One extra line, **Bank not known**: holds and fixes whose upload never had its bank named. Shown as
+  counts only, with no rate.
+- Internal accounts (`users.internal_account`) and admin-scope accounts are left out, as on the
+  Activation page (Sid, review). A deleted customer's upload records stay and count.
 
 No file names, no customer ids, no references, no statement content: bank names and counts only.
 
 ## Where each number comes from
 
-All counts are live queries over existing tables. No migration.
+All counts are live queries over existing tables. No migration. `ReadingQualityService`'s class doc
+is the full statement.
 
-- **Bank** comes from one place for every number: `statement_analysis_sessions.bank_name`.
-  `held_statements.bank_name` is not used, because it is taken from a different field
-  (`DetectedAccountInfo.suggestedName`, which can be a generic fallback) than the evidence row
-  (`bank().officialName()`), so the two names can differ for the same bank.
-- **Statements read / rows read**: `statement_analysis_sessions` rows with `source = CUSTOMER_IMPORT`,
-  `outcome = PARSED`, `bank_name` set; count and `SUM(row_count)`; week from `created_at`.
-- **Holds**: `held_statements` row → `import_jobs` (`import_job_id`) → the latest evidence row with
-  the same `import_session_id` that names a bank → its `bank_name`. Week from
-  `held_statements.created_at`. Import holds (`import_jobs.was_held_for_review`) go through the same
-  link, dated by the job's `created_at`: normally they have no evidence row and land in "Bank not
-  known", but one that was later read under a bank counts for that bank (builder's call, so a later
-  fix on it and the hold sit in the same row). A job held both ways is one hold.
+- **Bank** comes from `statement_analysis_sessions.bank_name` for every number. A hold or fix finds
+  it through its import job, in this order:
+  1. The job's staging session (`import_session_id`): the latest upload record that names a bank.
+  2. When that session has no upload record at all: `held_statements.bank_name`, but only if that
+     exact name already appears in the upload records. A re-read of a held statement, whether an
+     admin's "re-run parser" or the Claude fix's re-read, moves the job to a new session that has no
+     record (`ImportJob.replaceHeldSession`). Before this rule, every Claude-fixed statement hold
+     fell into "Bank not known". Found at review.
+  3. The job's failed read: the latest reader failure of the same customer and file (`content_hash`)
+     that names a bank. This is how an import hold finds its bank.
+
+  Otherwise `held_statements.bank_name` is not used. It is `DetectedAccountInfo.suggestedName`,
+  possibly filled in from a layout profile, so its text can differ from the upload record's.
+- **Statements read / rows read**: upload records with `source = CUSTOMER_IMPORT`, `outcome =
+  PARSED` and a bank; count and `SUM(row_count)`; week from `created_at`.
+- **Failed reads**: `outcome = FAILED` records with a bank, where the failure is one of the reader's:
+  `IMPORT_NO_HEADER_DETECTED`, `IMPORT_NO_TRANSACTIONS_FOUND`, `IMPORT_SCANNED_OCR_REQUIRED`
+  (`ExtractionCheck` calls each of these the reader's, not the customer's), or an unexpected
+  exception (its `failure_code` is a class name, not an `ErrorCode`). Every other code is left out:
+  password, damaged, empty or wrong file, payment-app history, multi-account file, no activity, busy
+  server. Counted once per file (`user_id` + `content_hash`), so a worker's retry or a re-upload of
+  the same failing file counts once.
+- **Holds**: a `held_statements` row, or an import hold (`was_held_for_review`), one per job. Dated
+  by `held_statements.created_at`, or the job's `created_at` for an import hold. An import hold
+  whose failure names a bank is that bank's failed read, so it is not counted as a hold too.
 - **Fixes** (Sid's choice), counted once per hold even when both apply, dated by the earlier:
-  - Claude fix job reached `FIXED` (`claude_fix_jobs.state`, dated `updated_at`).
+  - The Claude fix job reached `FIXED` (`claude_fix_jobs.state`, dated `updated_at`, which is final).
   - An engineer recorded a fix reference on a held statement (`held_statements.fix_reference` not
     blank, dated by its latest `FINDINGS_UPDATED` event).
-  - Bank found through the same job → evidence row link.
 - Layout review resolutions are not counted: their table keeps no date or bank. False-positive
   approvals are not counted (Sid: not a reader fix).
 
@@ -61,19 +78,16 @@ All counts are live queries over existing tables. No migration.
 - B. Nightly weekly snapshot table. History never shrinks, but more code and it starts empty.
 - C. A bank section on Trust Review Metrics. Least code, but that page is about holds only.
 
-## Known limits (shown on the page in one line)
+## Known limits (shown on the page)
 
 - Uploads from before bank names were recorded (V239, no backfill) have no bank and are not counted.
+- An upload the engine named no bank for is not counted under any bank, even when a layout profile
+  later fills one in for the customer.
+- A file that failed and was later read counts as two tries, one of them failed.
 - Counts can drop slightly when customers delete their accounts.
 
 ## Rules it must follow
 
-- Backend: `GET /api/admin/...` with `@PreAuthorize` naming an admin permission (FG-024) and a
-  classification in `AdminReadAuditPolicy`.
-- Tests: backend integration test with made-up rows covering the bank link, the 10-statement cutoff,
-  fix de-duplication and the bank-not-known line; portal page test.
-
-## Left to the builder
-
-Endpoint path and permission (reuse the one Import Health / Trust Review Metrics use), response
-shape, nav placement, chart styling.
+- Backend: `GET /api/v1/admin/imports/reading-quality`, `PLATFORM_DIAGNOSTICS_VIEW`, classified in
+  `AdminReadAuditPolicy` (FG-024).
+- Tests: backend integration test with made-up rows for every rule above; portal page test.

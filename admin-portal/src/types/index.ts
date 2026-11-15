@@ -1482,6 +1482,8 @@ export interface ReadingQualityWeek {
   weekStart: string;
   statementsRead: number;
   rowsRead: number;
+  /** Uploads the reader failed on for a reason of its own, one per file. */
+  failedReads: number;
   holds: number;
   fixes: number;
 }
@@ -1490,9 +1492,11 @@ export interface ReadingQualityBankRow {
   bank: string;
   statementsRead: number;
   rowsRead: number;
+  failedReads: number;
   holds: number;
-  /** Holds / statements read; null when fewer than `minStatements` statements were read. */
-  holdRate: number | null;
+  /** (holds + failedReads) / (statementsRead + failedReads); null when fewer than `minStatements`
+   *  statements were tried. */
+  problemRate: number | null;
   fixes: number;
   weeks: ReadingQualityWeek[];
 }

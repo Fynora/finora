@@ -16,9 +16,10 @@ export function percent(rate: number): string {
   return `${Number((rate * 100).toFixed(1))}%`;
 }
 
-/** A week's hold rate, or null when nothing was read that week (a gap, not 0%). */
+/** A week's share held or failed, or null when nothing was tried that week (a gap, not 0%). */
 export function weekRate(week: ReadingQualityWeek): number | null {
-  return week.statementsRead === 0 ? null : week.holds / week.statementsRead;
+  const tried = week.statementsRead + week.failedReads;
+  return tried === 0 ? null : (week.holds + week.failedReads) / tried;
 }
 
 /** "7 Sep": the start of a week, as the trend's tooltip names it. */
@@ -26,13 +27,18 @@ export function weekLabel(weekStart: string): string {
   return withSep(new Date(`${weekStart}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }));
 }
 
-/** Hold rate week by week, small enough to sit in a table cell. */
+/** Share held or failed, week by week, small enough to sit in a table cell. */
 function Trend({ row }: { row: ReadingQualityBankRow }) {
-  const data = row.weeks.map((w) => ({ week: w.weekStart, rate: weekRate(w), holds: w.holds, read: w.statementsRead }));
+  const data = row.weeks.map((w) => ({
+    week: w.weekStart,
+    rate: weekRate(w),
+    problems: w.holds + w.failedReads,
+    tried: w.statementsRead + w.failedReads,
+  }));
   if (data.every((d) => d.rate == null)) return <span className="text-muted text-xs">—</span>;
   return (
     <LineChart width={140} height={32} data={data} margin={{ top: 4, right: 4, bottom: 4, left: 4 }}
-      aria-label={`${row.bank} hold rate by week`}>
+      aria-label={`${row.bank} held or failed by week`}>
       <YAxis hide domain={[0, 'dataMax']} />
       <Tooltip
         labelFormatter={(_, payload) => {
@@ -40,8 +46,8 @@ function Trend({ row }: { row: ReadingQualityBankRow }) {
           return week ? `Week of ${weekLabel(week)}` : '';
         }}
         formatter={(_value, _name, item) => {
-          const p = item.payload as { rate: number | null; holds: number; read: number };
-          return [p.rate == null ? 'nothing read' : `${percent(p.rate)} (${p.holds} of ${p.read})`, 'Hold rate'];
+          const p = item.payload as { rate: number | null; problems: number; tried: number };
+          return [p.rate == null ? 'nothing tried' : `${percent(p.rate)} (${p.problems} of ${p.tried})`, 'Held or failed'];
         }}
         contentStyle={{ background: 'var(--color-card)', border: '1px solid var(--color-border)', borderRadius: 8, fontSize: 12 }}
       />
@@ -77,8 +83,8 @@ function ReadingQualityContent() {
           ))}
         </div>
         <p className="text-xs text-muted">
-          Sorted by hold rate, highest first. Banks with fewer than {data?.minStatements ?? 10} statements read are
-          too few to judge and sit at the bottom.
+          Sorted by the share of statements held or failed, highest first. Banks with fewer than{' '}
+          {data?.minStatements ?? 10} statements tried are too few to judge and sit at the bottom.
         </p>
       </div>
 
@@ -97,10 +103,11 @@ function ReadingQualityContent() {
                   <th scope="col" className="px-4 py-3 font-medium">Bank</th>
                   <th scope="col" className="px-4 py-3 font-medium text-right">Statements read</th>
                   <th scope="col" className="px-4 py-3 font-medium text-right">Rows read</th>
+                  <th scope="col" className="px-4 py-3 font-medium text-right">Failed reads</th>
                   <th scope="col" className="px-4 py-3 font-medium text-right">Holds</th>
-                  <th scope="col" className="px-4 py-3 font-medium text-right">Hold rate</th>
+                  <th scope="col" className="px-4 py-3 font-medium text-right">Held or failed</th>
                   <th scope="col" className="px-4 py-3 font-medium text-right">Fixes</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Hold rate by week</th>
+                  <th scope="col" className="px-4 py-3 font-medium">Held or failed by week</th>
                 </tr>
               </thead>
               <tbody>
@@ -109,11 +116,12 @@ function ReadingQualityContent() {
                     <th scope="row" className="px-4 py-2 text-left font-medium text-ink">{row.bank}</th>
                     <td className="px-4 py-2 text-right tabular-nums">{count(row.statementsRead)}</td>
                     <td className="px-4 py-2 text-right tabular-nums">{count(row.rowsRead)}</td>
+                    <td className="px-4 py-2 text-right tabular-nums">{count(row.failedReads)}</td>
                     <td className="px-4 py-2 text-right tabular-nums">{count(row.holds)}</td>
                     <td className="px-4 py-2 text-right tabular-nums">
-                      {row.holdRate == null
+                      {row.problemRate == null
                         ? <span className="text-muted text-xs">too few to judge</span>
-                        : <span className="font-semibold text-ink">{percent(row.holdRate)}</span>}
+                        : <span className="font-semibold text-ink">{percent(row.problemRate)}</span>}
                     </td>
                     <td className="px-4 py-2 text-right tabular-nums">{count(row.fixes)}</td>
                     <td className="px-4 py-2"><Trend row={row} /></td>
@@ -122,6 +130,7 @@ function ReadingQualityContent() {
                 {(unknownHolds > 0 || data.bankNotKnown.fixes > 0) && (
                   <tr className="text-muted">
                     <th scope="row" className="px-4 py-2 text-left font-medium">Bank not known</th>
+                    <td className="px-4 py-2 text-right">—</td>
                     <td className="px-4 py-2 text-right">—</td>
                     <td className="px-4 py-2 text-right">—</td>
                     <td className="px-4 py-2 text-right tabular-nums">{count(unknownHolds)}</td>
@@ -140,9 +149,12 @@ function ReadingQualityContent() {
       ) : null}
 
       <p className="text-xs text-muted">
-        Holds: statements held for review. Fixes: a Claude fix that reached Fixed, or a fix reference an
-        engineer recorded on a hold — once per hold. Uploads from before bank names were recorded are not
-        counted, and counts drop slightly when customers delete their accounts.
+        Failed reads: uploads the reader could not read for a reason of its own (no table found, no rows
+        read, an image-only PDF, an unexpected error), once per file; wrong passwords and damaged files are
+        not counted. Holds: statements held for review. Held or failed: (holds + failed reads) ÷ (statements
+        read + failed reads). Fixes: a Claude fix that reached Fixed, or a fix reference an engineer recorded
+        on a hold, once per hold. Internal and admin accounts are left out. Uploads from before bank names
+        were recorded are not counted, and counts drop slightly when customers delete their accounts.
       </p>
     </div>
   );

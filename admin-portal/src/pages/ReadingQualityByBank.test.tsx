@@ -27,10 +27,11 @@ function bank(overrides: Partial<ReadingQualityBankRow>): ReadingQualityBankRow 
     bank: 'Sample Bank',
     statementsRead: 20,
     rowsRead: 1200,
+    failedReads: 0,
     holds: 2,
-    holdRate: 0.1,
+    problemRate: 0.1,
     fixes: 1,
-    weeks: WEEKS.map((weekStart) => ({ weekStart, statementsRead: 10, rowsRead: 600, holds: 1, fixes: 0 })),
+    weeks: WEEKS.map((weekStart) => ({ weekStart, statementsRead: 10, rowsRead: 600, failedReads: 0, holds: 1, fixes: 0 })),
     ...overrides,
   };
 }
@@ -90,11 +91,17 @@ describe('weekLabel', () => {
 });
 
 describe('weekRate', () => {
-  it('isNullWhenNothingWasRead', () => {
-    expect(weekRate({ weekStart: '2026-11-09', statementsRead: 0, rowsRead: 0, holds: 0, fixes: 0 })).toBeNull();
+  it('isNullWhenNothingWasTried', () => {
+    expect(weekRate({ weekStart: '2026-11-09', statementsRead: 0, rowsRead: 0, failedReads: 0, holds: 0, fixes: 0 })).toBeNull();
   });
   it('isHoldsOverStatements', () => {
-    expect(weekRate({ weekStart: '2026-11-09', statementsRead: 4, rowsRead: 9, holds: 1, fixes: 0 })).toBe(0.25);
+    expect(weekRate({ weekStart: '2026-11-09', statementsRead: 4, rowsRead: 9, failedReads: 0, holds: 1, fixes: 0 })).toBe(0.25);
+  });
+  it('countsFailedReadsAsTriedAndAsProblems', () => {
+    expect(weekRate({ weekStart: '2026-11-09', statementsRead: 3, rowsRead: 9, failedReads: 1, holds: 1, fixes: 0 })).toBe(0.5);
+  });
+  it('aWeekOfOnlyFailures_isAllProblems', () => {
+    expect(weekRate({ weekStart: '2026-11-09', statementsRead: 0, rowsRead: 0, failedReads: 2, holds: 0, fixes: 0 })).toBe(1);
   });
 });
 
@@ -107,8 +114,8 @@ describe('ReadingQualityByBank', () => {
   it('showsBanksInTheOrderServedWithTheirCounts', async () => {
     vi.mocked(adminReadingQualityApi.report).mockResolvedValue(report({
       banks: [
-        bank({ bank: 'Alpha Bank', statementsRead: 40, rowsRead: 2500, holds: 6, holdRate: 0.15, fixes: 2 }),
-        bank({ bank: 'Beta Bank', statementsRead: 12, rowsRead: 900, holds: 1, holdRate: 1 / 12, fixes: 0 }),
+        bank({ bank: 'Alpha Bank', statementsRead: 36, rowsRead: 2500, failedReads: 4, holds: 2, problemRate: 0.15, fixes: 2 }),
+        bank({ bank: 'Beta Bank', statementsRead: 12, rowsRead: 900, holds: 1, problemRate: 1 / 12, fixes: 0 }),
       ],
     }));
 
@@ -117,8 +124,12 @@ describe('ReadingQualityByBank', () => {
     expect(await screen.findByText('Alpha Bank')).toBeInTheDocument();
     const rows = bodyRows();
     expect(within(rows[0]).getByRole('rowheader')).toHaveTextContent('Alpha Bank');
-    expect(rows[0]).toHaveTextContent('2,500');
-    expect(rows[0]).toHaveTextContent('15%');
+    const alpha = within(rows[0]).getAllByRole('cell');
+    expect(alpha[0]).toHaveTextContent('36');
+    expect(alpha[1]).toHaveTextContent('2,500');
+    expect(alpha[2]).toHaveTextContent('4');
+    expect(alpha[3]).toHaveTextContent('2');
+    expect(alpha[4]).toHaveTextContent('15%');
     expect(within(rows[1]).getByRole('rowheader')).toHaveTextContent('Beta Bank');
     expect(rows[1]).toHaveTextContent('8.3%');
     expect(adminReadingQualityApi.report).toHaveBeenCalledWith(12);
@@ -126,7 +137,7 @@ describe('ReadingQualityByBank', () => {
 
   it('aBankWithoutARate_saysTooFewToJudge', async () => {
     vi.mocked(adminReadingQualityApi.report).mockResolvedValue(report({
-      banks: [bank({ bank: 'Gamma Bank', statementsRead: 3, holds: 1, holdRate: null })],
+      banks: [bank({ bank: 'Gamma Bank', statementsRead: 3, holds: 1, problemRate: null })],
     }));
 
     renderPage();
@@ -148,8 +159,8 @@ describe('ReadingQualityByBank', () => {
     expect(row).toHaveTextContent('3 import holds');
     expect(row).toHaveTextContent('1 statement holds');
     const cells = within(row).getAllByRole('cell');
-    expect(cells[2]).toHaveTextContent('4');
-    expect(cells[4]).toHaveTextContent('2');
+    expect(cells[3]).toHaveTextContent('4');
+    expect(cells[5]).toHaveTextContent('2');
   });
 
   it('hidesTheBankNotKnownLineWhenItIsEmpty', async () => {

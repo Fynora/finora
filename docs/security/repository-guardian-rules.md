@@ -121,7 +121,7 @@ Authorization, actor attribution, tenant scoping and input validation. Every one
 
 | ID | Category | Intent | Source | Introduced | Owner | Verification | Exceptions |
 |---|---|---|---|---|---|---|---|
-| `FG-024` | SECURITY | Every admin endpoint carries an authorization annotation. | Incident: unguarded admin endpoint | 2026-08-01 | architecture | SELF_TEST | None |
+| `FG-024` | SECURITY | Every admin endpoint carries an authorization annotation an ordinary customer cannot meet. | Incident: unguarded admin endpoint | 2026-08-01 | architecture | SELF_TEST | None |
 | `FG-025` | SECURITY | Every admin-reachable audit write records the acting actor. | Incident: unattributed admin audit write | 2026-08-05 | architecture | SELF_TEST | None |
 | `FG-026` | SECURITY | A filter reading the raw request URI must parse it, never string-compare it. | Incident: rate-limit bypass via percent-encoding | 2026-08-04 | architecture | MANUAL_FALSIFICATION | None |
 | `FG-027` | SECURITY | Every identity lookup on UserRepository is tenant-scoped. | Incident: unscoped identity lookup | 2026-08-03 | architecture | SELF_TEST | None |

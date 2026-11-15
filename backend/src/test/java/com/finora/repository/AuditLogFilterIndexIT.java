@@ -88,6 +88,27 @@ class AuditLogFilterIndexIT extends AbstractIntegrationTest {
 
     @Test
     @Transactional
+    void aCachedGenericPlan_madeWithSeqScansAllowed_isNotWhatIsMeasured() {
+        // What other tests on a pooled connection can do before this class gets it: run the query
+        // often enough, with seq scans allowed and audit_logs analyzed small, that Postgres caches a
+        // generic plan for it. On a table as small as the suite's (one page) that plan is a Seq Scan.
+        auditLogs.flush();
+        jdbc.execute("ANALYZE audit_logs");
+        for (int i = 0; i < 12; i++) {
+            auditLogs.findByEntityIdOrderByCreatedAtAsc(UUID.randomUUID());
+        }
+        assertThat(jdbc.queryForObject(
+                "SELECT coalesce(max(generic_plans), 0) FROM pg_prepared_statements"
+                        + " WHERE statement LIKE '%from audit_logs%entity_id=$1%'", Long.class))
+                .as("a cached generic plan for the transactions-history query on this connection")
+                .isPositive();
+
+        long scans = withoutSeqScans(() -> auditLogs.findByEntityIdOrderByCreatedAtAsc(customer));
+        assertThat(scans).as("sequential scans of audit_logs").isZero();
+    }
+
+    @Test
+    @Transactional
     void theCountIsZeroOnlyBecauseOfIndexes_aSeqScanIsCounted() {
         // The instrument itself: a query no index can answer must register, or the tests above prove nothing.
         long scans = withoutSeqScans(() -> jdbc.queryForObject(
@@ -108,9 +129,25 @@ class AuditLogFilterIndexIT extends AbstractIntegrationTest {
                 .containsExactlyInAnyOrder("TRUST_REVIEW_APPROVED", AdminUserDataReadAuditInterceptor.ACTION);
     }
 
-    /** Sequential scans of audit_logs made by {@code call}, in this transaction, with them disabled. */
+    /**
+     * Sequential scans of audit_logs made by {@code call}, in this transaction, with them disabled.
+     *
+     * <p>{@code plan_cache_mode = force_custom_plan} is what makes {@code enable_seqscan = off} reach
+     * every statement. The pool's connections outlive test classes, and pgjdbc turns a statement run
+     * five times on one connection into a server-side prepared statement, for which Postgres soon
+     * caches a generic plan. Changing {@code enable_seqscan} does not invalidate that cached plan. If
+     * other tests have run the transactions-history query on the connection this test gets, with seq
+     * scans allowed and audit_logs analyzed small (one page, so a scan is the cheaper generic plan),
+     * the cached Seq Scan runs here and counts 1. That is the count of the random failures on main
+     * (2026-11-14, 2026-11-15); the state of the CI connection was not captured, but
+     * {@link #aCachedGenericPlan_madeWithSeqScansAllowed_isNotWhatIsMeasured} sets it up on purpose
+     * and, without this setting, fails with exactly that count every run. A custom plan is made for
+     * each execution under the settings in force, so with it the count measures what the indexes
+     * can do.
+     */
     private long withoutSeqScans(Runnable call) {
         jdbc.execute("SET LOCAL enable_seqscan = off");
+        jdbc.execute("SET LOCAL plan_cache_mode = force_custom_plan");
         long before = seqScans();
         call.run();
         return seqScans() - before;

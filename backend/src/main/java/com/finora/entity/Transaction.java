@@ -228,6 +228,13 @@ public class Transaction extends BaseEntity {
     @Column(name = "review_cleared_by_inflow_answer", nullable = false)
     private boolean reviewClearedByInflowAnswer = false;
 
+    // V324. True when linking this row as a transfer between the user's own accounts (setTransfer)
+    // is what cleared needsCategoryReview: a linked transfer is out of the totals and has no
+    // category to ask about. Unlinking gives back exactly that flag, so a row that was not waiting
+    // never gains one from link-then-unlink. Spec 2026-11-15-card-bill-issuer-list-design.md.
+    @Column(name = "review_cleared_by_transfer", nullable = false)
+    private boolean reviewClearedByTransfer = false;
+
     // Plan 6, Track B -- see V204's migration comment. Distinct from needsCategoryReview: this
     // means "the bank's own reported value for this row may have changed or the row may have
     // vanished on a later re-fetch," never "the category guess is unconfirmed." Set only by
@@ -451,7 +458,23 @@ public class Transaction extends BaseEntity {
     public java.time.LocalDate getBalanceCoveredThrough() { return balanceCoveredThrough; }
     public void setBalanceCoveredThrough(java.time.LocalDate balanceCoveredThrough) { this.balanceCoveredThrough = balanceCoveredThrough; }
     public boolean isTransfer() { return isTransfer; }
-    public void setTransfer(boolean transfer) { isTransfer = transfer; }
+    /**
+     * Every link and unlink goes through here (reconciliation's passes, a MARK_TRANSFER rule, the
+     * user's own pairing and "not a transfer", a statement removed): linking a row that waits for a
+     * category stops it waiting; unlinking puts back the flag the link took, unless the user has
+     * chosen a category by hand since.
+     */
+    public void setTransfer(boolean transfer) {
+        if (transfer && !isTransfer && needsCategoryReview) {
+            needsCategoryReview = false;
+            reviewClearedByTransfer = true;
+        } else if (!transfer && isTransfer && reviewClearedByTransfer) {
+            needsCategoryReview = !categoryManuallySet;
+            reviewClearedByTransfer = false;
+        }
+        isTransfer = transfer;
+    }
+    public boolean isReviewClearedByTransfer() { return reviewClearedByTransfer; }
     public UUID getTransferPairId() { return transferPairId; }
     public void setTransferPairId(UUID transferPairId) { this.transferPairId = transferPairId; }
     public java.time.Instant getTransferRejectedAt() { return transferRejectedAt; }
@@ -465,7 +488,19 @@ public class Transaction extends BaseEntity {
     public Source getSource() { return source; }
     public void setSource(Source source) { this.source = source; }
     public boolean isNeedsCategoryReview() { return needsCategoryReview; }
-    public void setNeedsCategoryReview(boolean needsCategoryReview) { this.needsCategoryReview = needsCategoryReview; }
+    /**
+     * A linked transfer never waits for a category (see {@link #setTransfer}). A caller that decides
+     * the flag again while the row is linked -- a statement refresh re-reading corrected text, say --
+     * has its decision held in {@code reviewClearedByTransfer} and applied when the row is unlinked.
+     */
+    public void setNeedsCategoryReview(boolean needsCategoryReview) {
+        if (isTransfer) {
+            this.reviewClearedByTransfer = needsCategoryReview;
+            this.needsCategoryReview = false;
+            return;
+        }
+        this.needsCategoryReview = needsCategoryReview;
+    }
     public boolean isReviewClearedByInflowAnswer() { return reviewClearedByInflowAnswer; }
     public void setReviewClearedByInflowAnswer(boolean cleared) { this.reviewClearedByInflowAnswer = cleared; }
     public boolean isPendingBankCorrection() { return pendingBankCorrection; }

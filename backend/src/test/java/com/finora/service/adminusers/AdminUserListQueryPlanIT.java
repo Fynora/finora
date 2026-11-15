@@ -37,6 +37,8 @@ class AdminUserListQueryPlanIT extends AbstractIntegrationTest {
     private static final int USERS = 50_000;
     private static final long BOUND_MS = 2_000;
     private static final String DOMAIN = "@ulf-plan-it.example.com";
+    /** Matches the seeded users' email domain and nobody else's. */
+    private static final String SEARCH_TERM = "ulf-plan-it.example";
     private static final Set<String> PER_USER_TABLES =
             Set.of("accounts", "statement_imports", "user_activity_days", "subscriptions", "referral_grants");
 
@@ -101,7 +103,7 @@ class AdminUserListQueryPlanIT extends AbstractIntegrationTest {
         filters.put("last active to", UserListFilter.of(null, null, null, null, null, null, null, today.minusDays(30), null, null));
         filters.put("imports min", UserListFilter.of(null, null, null, null, null, null, null, null, 2, null));
         filters.put("imports none", UserListFilter.of(null, null, null, null, null, null, null, null, null, 0));
-        filters.put("all together", UserListFilter.of("plan it", "ACTIVE", "PLUS", "HDFC",
+        filters.put("all together", UserListFilter.of(SEARCH_TERM, "ACTIVE", "PLUS", "HDFC",
                 today.minusDays(40), today, today.minusDays(30), today.minusDays(2), 1, 3));
         return filters;
     }
@@ -131,7 +133,7 @@ class AdminUserListQueryPlanIT extends AbstractIntegrationTest {
     void theSeededDataMatchesWhatTheFiltersExpect() {
         // Guards the test itself: each filter has rows to find, so a fast plan is not a plan over nothing.
         long total = transactions.execute(status -> query.findIds(
-                UserListFilter.of("plan it", null, null, null, null, null, null, null, null, null),
+                UserListFilter.of(SEARCH_TERM, null, null, null, null, null, null, null, null, null),
                 PageRequest.of(0, 20)).getTotalElements());
         assertThat(total).isEqualTo(USERS);
         for (var entry : filters().entrySet()) {

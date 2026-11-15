@@ -65,6 +65,21 @@ class UserListFilterTest {
     }
 
     @Test
+    void datesOutsideYears1900To9999_are400() {
+        LocalDate farFuture = LocalDate.of(10_000, 1, 1);
+        LocalDate farPast = LocalDate.of(1899, 12, 31);
+        assertThatThrownBy(() -> UserListFilter.of(null, null, null, null, null, LocalDate.MAX, null, null, null, null))
+                .isInstanceOf(ApiException.class).hasMessageContaining("1900");
+        assertThatThrownBy(() -> UserListFilter.of(null, null, null, null, farPast, null, null, null, null, null))
+                .isInstanceOf(ApiException.class).hasMessageContaining("1900");
+        assertThatThrownBy(() -> UserListFilter.of(null, null, null, null, null, null, null, farFuture, null, null))
+                .isInstanceOf(ApiException.class).hasMessageContaining("1900");
+        UserListFilter edges = UserListFilter.of(null, null, null, null, LocalDate.of(1900, 1, 1), LocalDate.of(9999, 12, 31),
+                LocalDate.of(1900, 1, 1), LocalDate.of(9999, 12, 31), null, null);
+        assertThat(edges.joinedTo()).isEqualTo(LocalDate.of(9999, 12, 31));
+    }
+
+    @Test
     void negativeImports_is400() {
         assertThatThrownBy(() -> UserListFilter.of(null, null, null, null, null, null, null, null, -1, null))
                 .isInstanceOf(ApiException.class)

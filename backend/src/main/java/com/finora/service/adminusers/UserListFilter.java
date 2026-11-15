@@ -40,6 +40,9 @@ public record UserListFilter(
 
     public static final Set<String> PLANS = Set.of("FREE", "PLUS", "PREMIUM");
 
+    private static final LocalDate EARLIEST_DAY = LocalDate.of(1900, 1, 1);
+    private static final LocalDate LATEST_DAY = LocalDate.of(9999, 12, 31);
+
     public static UserListFilter of(String q, String status, String plan, String bankId,
                                     LocalDate joinedFrom, LocalDate joinedTo,
                                     LocalDate lastActiveFrom, LocalDate lastActiveTo,
@@ -50,6 +53,13 @@ public record UserListFilter(
             normalizedPlan = normalizedPlan.toUpperCase(Locale.ROOT);
             if (!PLANS.contains(normalizedPlan)) {
                 throw badRequest("Unknown plan. Choose Free, Plus or Premium.");
+            }
+        }
+        // A date input never sends anything outside these years, but the API accepts any ISO date:
+        // "+999999999-12-31" used to fail as a server error when the day after it was worked out.
+        for (LocalDate day : new LocalDate[] {joinedFrom, joinedTo, lastActiveFrom, lastActiveTo}) {
+            if (day != null && (day.isBefore(EARLIEST_DAY) || day.isAfter(LATEST_DAY))) {
+                throw badRequest("Dates must be between the years 1900 and 9999.");
             }
         }
         if (joinedFrom != null && joinedTo != null && joinedFrom.isAfter(joinedTo)) {

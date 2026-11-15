@@ -315,6 +315,26 @@ describe('Users', () => {
     expect(within(ninaRow).getByText('0')).toBeInTheDocument();
   });
 
+  // The Joined filter reads days in India time (the backend's reporting zone), so the column must
+  // show the same day: someone who signed up at 00:30 on 11 Nov in India is under 11 Nov, even for
+  // an admin whose browser is in another zone.
+  it('shows the joined day in India time, the day the Joined filter uses', async () => {
+    const zoneBefore = process.env.TZ;
+    process.env.TZ = 'America/New_York';
+    try {
+      mockAuth(['USER_VIEW']);
+      vi.mocked(adminUsersApi.list).mockResolvedValue(pagedResponse([{ ...AMY, createdAt: '2026-11-10T19:00:00Z' }]));
+
+      renderPage();
+
+      const row = (await screen.findByText('Amy Active')).closest('tr')!;
+      expect(within(row).getByText(new Date(2026, 10, 11).toLocaleDateString())).toBeInTheDocument();
+      expect(within(row).queryByText(new Date(2026, 10, 10).toLocaleDateString())).not.toBeInTheDocument();
+    } finally {
+      process.env.TZ = zoneBefore;
+    }
+  });
+
   it("shows the server's message when it refuses a filter", async () => {
     mockAuth(['USER_VIEW']);
     vi.mocked(adminUsersApi.list).mockRejectedValue({ response: { data: { message: 'Imports: the minimum is more than the maximum.' } } });

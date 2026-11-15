@@ -337,7 +337,13 @@ function UsersTable() {
       header: 'Plan',
       render: (u) => (u.planCode ? PLAN_LABELS[u.planCode] ?? u.planCode : <span className="text-muted">No plan</span>),
     },
-    { header: 'Joined', render: (u) => new Date(u.createdAt).toLocaleDateString(), cellClassName: 'text-muted' },
+    // India time, as the Joined filter reads days (same reason AuditLog.tsx groups by IST days): a
+    // user who signed up at 00:30 on 11 Nov in India shows under 11 Nov in every admin's browser.
+    {
+      header: 'Joined',
+      render: (u) => new Date(u.createdAt).toLocaleDateString(undefined, { timeZone: 'Asia/Kolkata' }),
+      cellClassName: 'text-muted',
+    },
     {
       header: 'Last active',
       render: (u) => (u.lastActiveDate ? formatDay(u.lastActiveDate) : 'Not seen'),

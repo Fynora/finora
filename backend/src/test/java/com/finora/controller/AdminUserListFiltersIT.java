@@ -310,9 +310,23 @@ class AdminUserListFiltersIT extends AbstractIntegrationTest {
         User admin = admin();
         for (String query : List.of("plan=GOLD", "importsMin=5&importsMax=2", "importsMin=-1",
                 "joinedFrom=2026-11-12&joinedTo=2026-11-01", "lastActiveFrom=2026-11-12&lastActiveTo=2026-11-01",
-                "joinedFrom=not-a-date")) {
+                "joinedFrom=not-a-date", "joinedFrom=0001-01-01")) {
             ResponseEntity<String> response = get(admin, query);
             assertThat(response.getStatusCode()).as(query).isEqualTo(HttpStatus.BAD_REQUEST);
+        }
+    }
+
+    @Test
+    void yearsFarOutsideAnyRealDate_are400_notAServerError() {
+        User admin = admin();
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(TestSessions.accessTokenFor(jwtService, refreshTokens, admin));
+        // %2B is a literal +: ISO dates past year 9999 carry a sign. Sent as a URI so it is not re-encoded.
+        for (String query : List.of("joinedTo=%2B999999999-12-31", "joinedFrom=%2B275760-09-13",
+                "lastActiveTo=%2B999999999-12-31", "lastActiveFrom=%2B275760-09-13")) {
+            java.net.URI uri = java.net.URI.create(restTemplate.getRootUri() + "/api/v1/admin/users?" + query);
+            ResponseEntity<String> response = restTemplate.exchange(uri, HttpMethod.GET, new HttpEntity<>(headers), String.class);
+            assertThat(response.getStatusCode()).as(query + " " + response.getBody()).isEqualTo(HttpStatus.BAD_REQUEST);
         }
     }
 

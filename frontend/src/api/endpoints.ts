@@ -13,6 +13,7 @@ import type {
   ImportSummary, MerchantGroup, QuickSortBatch, QuickSortKind, QuickSortSource, ReimportResult, StagedAccountSection, StagedRow, StatementSummary, SupersedeResult, Transaction,
   WorkspaceSettings, WorkspaceSummary, UnparseableRow, VerificationReport, TimelineEvent, GoalMomentum, Wrapped,
 } from '../types';
+import type { QuickSortAnswerResult } from '../lib/quickSortPayoff';
 
 // Which portal this account belongs to. The same person may hold a USER account and an ADMIN
 // account under one email and one mobile number, so login and password reset have to say which
@@ -333,7 +334,7 @@ export const transactionsApi = {
       params: { skip, ...(preview ? { preview } : {}), ...(source ? { source } : {}) },
     }).then((r) => r.data),
   quickSortAnswer: (anchorTransactionId: string, category: string, kind: QuickSortKind, source?: QuickSortSource) =>
-    api.post<{ filed: number }>('/transactions/quick-sort/answer',
+    api.post<QuickSortAnswerResult>('/transactions/quick-sort/answer',
       { anchorTransactionId, category, kind, ...(source ? { source } : {}) })
       .then((r) => r.data),
   quickSortMore: () => api.post('/transactions/quick-sort/more', {}),

@@ -13,7 +13,9 @@ import java.util.Set;
  * optional: null means "don't filter on this". What each filter means is in
  * docs/superpowers/specs/2026-11-15-user-list-filters-design.md (Sid, 2026-11-15).
  *
- * @param q              search text, trimmed and LIKE-escaped ({@link LikePatterns#escape})
+ * @param q              search text, trimmed and LIKE-escaped ({@link LikePatterns#escape}): it is
+ *                       bound into a LIKE, where % and _ are wildcards even inside a bound
+ *                       parameter, so searching "50%" used to match every row containing "50"
  * @param status         {@code users.status}
  * @param plan           FREE, PLUS or PREMIUM: the plan the user gets now (a user with no plan is FREE)
  * @param bankId         a live account at this bank ({@code accounts.bank_id})

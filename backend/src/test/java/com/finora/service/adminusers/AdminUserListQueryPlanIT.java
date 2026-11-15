@@ -67,6 +67,10 @@ class AdminUserListQueryPlanIT extends AbstractIntegrationTest {
                 + "FROM accounts a JOIN (" + seeded + ") s ON s.id = a.user_id, generate_series(1, s.i % 4) n");
         jdbc.update("INSERT INTO user_activity_days (user_id, activity_date) "
                 + "SELECT s.id, CURRENT_DATE - (s.i % 40) - n FROM (" + seeded + ") s, generate_series(0, s.i % 6) n");
+        analyze();
+    }
+
+    private void analyze() {
         for (String table : List.of("users", "subscriptions", "referral_grants", "accounts",
                 "statement_imports", "user_activity_days")) {
             jdbc.execute("ANALYZE " + table);
@@ -82,6 +86,8 @@ class AdminUserListQueryPlanIT extends AbstractIntegrationTest {
         jdbc.update("DELETE FROM subscriptions WHERE user_id IN (" + seededIds + ")");
         jdbc.update("DELETE FROM referral_grants WHERE user_id IN (" + seededIds + ")");
         jdbc.update("DELETE FROM users WHERE email LIKE '%" + DOMAIN + "'");
+        // Statistics that still describe 50,000 users would steer the plans of ITs that run later.
+        analyze();
     }
 
     private static Map<String, UserListFilter> filters() {

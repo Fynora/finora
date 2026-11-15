@@ -84,6 +84,12 @@ public class ProfileBankFiller {
         return new Filled<>(filled, conflict);
     }
 
+    /** The official name of the bank a file of this layout that names none is given -- the same rule
+     *  {@link #fill} applies, so a report that names such uploads names them as their customers saw. */
+    public Optional<String> fillBankName(String fingerprint) {
+        return profileBank(fingerprint).map(AccountDto.BankDto::officialName);
+    }
+
     /** The profile's bank id for this layout, if the layout is in a profile that has one. Says
      *  nothing about whether it may be used; see {@link #profileBank}. */
     public Optional<String> profileBankId(String fingerprint) {

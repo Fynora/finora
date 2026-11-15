@@ -5844,6 +5844,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/imports/reading-quality": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["readingQuality"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/imports/layouts": {
         parameters: {
             query?: never;
@@ -13950,6 +13966,65 @@ export interface components {
             amount?: number;
             /** Format: date */
             txnDate?: string;
+        };
+        ApiResponseReadingQualityReport: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["ReadingQualityReport"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        ReadingQualityBankRow: {
+            bank?: string;
+            /** Format: int64 */
+            statementsRead?: number;
+            /** Format: int64 */
+            rowsRead?: number;
+            /** Format: int64 */
+            failedReads?: number;
+            /** Format: int64 */
+            holds?: number;
+            /** Format: double */
+            problemRate?: number;
+            /** Format: int64 */
+            fixes?: number;
+            weeks?: components["schemas"]["ReadingQualityWeek"][];
+        };
+        ReadingQualityReport: {
+            /** Format: int32 */
+            weeks?: number;
+            /** Format: int32 */
+            minStatements?: number;
+            weekStarts?: string[];
+            banks?: components["schemas"]["ReadingQualityBankRow"][];
+            bankNotKnown?: components["schemas"]["ReadingQualityUnknownBank"];
+        };
+        ReadingQualityUnknownBank: {
+            /** Format: int64 */
+            importHolds?: number;
+            /** Format: int64 */
+            trustHolds?: number;
+            /** Format: int64 */
+            fixes?: number;
+        };
+        ReadingQualityWeek: {
+            /** Format: date */
+            weekStart?: string;
+            /** Format: int64 */
+            statementsRead?: number;
+            /** Format: int64 */
+            rowsRead?: number;
+            /** Format: int64 */
+            failedReads?: number;
+            /** Format: int64 */
+            holds?: number;
+            /** Format: int64 */
+            fixes?: number;
         };
         ApiResponseListLayoutSummary: {
             success?: boolean;
@@ -24921,6 +24996,28 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseImportRowTrace"];
+                };
+            };
+        };
+    };
+    readingQuality: {
+        parameters: {
+            query?: {
+                weeks?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseReadingQualityReport"];
                 };
             };
         };

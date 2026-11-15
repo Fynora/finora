@@ -13986,9 +13986,11 @@ export interface components {
             /** Format: int64 */
             rowsRead?: number;
             /** Format: int64 */
+            failedReads?: number;
+            /** Format: int64 */
             holds?: number;
             /** Format: double */
-            holdRate?: number;
+            problemRate?: number;
             /** Format: int64 */
             fixes?: number;
             weeks?: components["schemas"]["ReadingQualityWeek"][];
@@ -14017,6 +14019,8 @@ export interface components {
             statementsRead?: number;
             /** Format: int64 */
             rowsRead?: number;
+            /** Format: int64 */
+            failedReads?: number;
             /** Format: int64 */
             holds?: number;
             /** Format: int64 */

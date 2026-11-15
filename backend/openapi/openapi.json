@@ -34233,11 +34233,15 @@
                         "type": "integer",
                         "format": "int64"
                     },
+                    "failedReads": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
                     "holds": {
                         "type": "integer",
                         "format": "int64"
                     },
-                    "holdRate": {
+                    "problemRate": {
                         "type": "number",
                         "format": "double"
                     },
@@ -34311,6 +34315,10 @@
                         "format": "int64"
                     },
                     "rowsRead": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "failedReads": {
                         "type": "integer",
                         "format": "int64"
                     },

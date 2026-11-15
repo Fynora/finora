@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Users from './Users';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { mockAdminAuthState } from '../test/mockAdminAuth';
-import { adminUsersApi } from '../api/endpoints';
+import { adminUsersApi, banksApi } from '../api/endpoints';
 import type { UserSummaryDto } from '../types';
 
 // AdminLayout now renders ThemeToggle (dark-mode support), which calls useTheme() --
@@ -35,6 +35,8 @@ vi.mock('../api/endpoints', () => ({
   // only what's listed), and calling adminRolesApi.listRoles() would throw before any test
   // assertion runs, same class of bug the NotificationContext mock above already guards against.
   adminRolesApi: { listRoles: vi.fn(), assignRole: vi.fn() },
+  // The Bank filter's options.
+  banksApi: { search: vi.fn() },
 }));
 
 function renderPage() {
@@ -65,7 +67,24 @@ function pagedResponse(content: UserSummaryDto[], overrides: Partial<Record<stri
 const AMY: UserSummaryDto = {
   id: 'user-1', email: 'amy@example.com', fullName: 'Amy Active', phoneNumber: '+911234567890',
   phoneVerified: true, status: 'ACTIVE', roleNames: ['USER'], createdAt: new Date().toISOString(),
+  planCode: 'PLUS', lastActiveDate: '2026-11-12', importCount: 3,
 };
+
+const NEW_USER: UserSummaryDto = {
+  ...AMY, id: 'user-2', email: 'new@example.com', fullName: 'Nina New',
+  planCode: null, lastActiveDate: null, importCount: 0,
+};
+
+const HDFC = {
+  id: 'HDFC', officialName: 'HDFC Bank Ltd', shortName: 'HDFC Bank', colorHex: '#004C8F', initials: 'HD',
+  logoPath: '', category: null, websiteUrl: null, ifscPrefix: 'HDFC', supportedAccountTypes: [],
+};
+
+/** The keys of the n-th list call's filters, so a test can check empty filters are not sent. */
+function sentKeys(callIndex: number): string[] {
+  const args = vi.mocked(adminUsersApi.list).mock.calls[callIndex][0] as unknown as Record<string, unknown>;
+  return Object.keys(args).filter((k) => args[k] !== undefined).sort();
+}
 
 beforeEach(() => {
   localStorage.clear();
@@ -77,6 +96,8 @@ describe('Users', () => {
     vi.mocked(adminUsersApi.suspend).mockReset();
     vi.mocked(adminUsersApi.reactivate).mockReset();
     vi.mocked(adminUsersApi.create).mockReset();
+    vi.mocked(banksApi.search).mockReset();
+    vi.mocked(banksApi.search).mockResolvedValue([HDFC]);
     notifySuccess.mockReset();
     notifyError.mockReset();
   });
@@ -139,7 +160,7 @@ describe('Users', () => {
       { q: undefined, status: undefined, page: 0, size: 20 }
     ));
 
-    await user.selectOptions(screen.getByRole('combobox'), 'SUSPENDED');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Filter by status' }), 'SUSPENDED');
 
     await waitFor(() => expect(adminUsersApi.list).toHaveBeenCalledWith(
       { q: undefined, status: 'SUSPENDED', page: 0, size: 20 }
@@ -158,19 +179,169 @@ describe('Users', () => {
 
     const searchInput = screen.getByPlaceholderText('Search name, email, phone…');
     await user.type(searchInput, 'amy');
-    await user.selectOptions(screen.getByRole('combobox'), 'ACTIVE');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Filter by status' }), 'ACTIVE');
     await user.click(screen.getByRole('button', { name: /Views/ }));
     await user.click(screen.getByText('+ Save current filters'));
     await user.type(screen.getByPlaceholderText('View name'), 'Active Amys');
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
     await user.clear(searchInput);
-    await user.selectOptions(screen.getByRole('combobox'), '');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Filter by status' }), '');
     await user.click(screen.getByText('Active Amys'));
 
     await waitFor(() => expect(adminUsersApi.list).toHaveBeenCalledWith(
       { q: 'amy', status: 'ACTIVE', page: 0, size: 20 }
     ));
+  });
+
+  // Users list filters (Sid, 2026-11-15): plan, joined dates, last active dates, bank, imports.
+  it('sends each new filter to the server and goes back to the first page', async () => {
+    mockAuth(['USER_VIEW']);
+    vi.mocked(adminUsersApi.list).mockResolvedValue(pagedResponse([AMY], { totalElements: 45, totalPages: 3 }));
+    const user = userEvent.setup();
+
+    renderPage();
+    await waitFor(() => expect(adminUsersApi.list).toHaveBeenCalled());
+    await user.click(await screen.findByRole('button', { name: /next/i }));
+    await waitFor(() => expect(adminUsersApi.list).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1 })));
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Filter by plan' }), 'PLUS');
+    await waitFor(() => expect(adminUsersApi.list).toHaveBeenLastCalledWith(
+      expect.objectContaining({ plan: 'PLUS', page: 0 })));
+
+    await waitFor(() => expect(within(screen.getByRole('combobox', { name: 'Filter by bank' }))
+      .getByRole('option', { name: 'HDFC Bank' })).toBeInTheDocument());
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Filter by bank' }), 'HDFC');
+    fireEvent.change(screen.getByLabelText('Joined from'), { target: { value: '2026-10-01' } });
+    fireEvent.change(screen.getByLabelText('Joined to'), { target: { value: '2026-10-31' } });
+    fireEvent.change(screen.getByLabelText('Last active from'), { target: { value: '2026-11-01' } });
+    fireEvent.change(screen.getByLabelText('Last active to'), { target: { value: '2026-11-14' } });
+    fireEvent.change(screen.getByLabelText('Imports min'), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText('Imports max'), { target: { value: '5' } });
+
+    await waitFor(() => expect(adminUsersApi.list).toHaveBeenLastCalledWith({
+      plan: 'PLUS', bankId: 'HDFC', joinedFrom: '2026-10-01', joinedTo: '2026-10-31',
+      lastActiveFrom: '2026-11-01', lastActiveTo: '2026-11-14', importsMin: 1, importsMax: 5,
+      page: 0, size: 20,
+    }));
+  });
+
+  it('offers Unknown bank alongside the bank list', async () => {
+    mockAuth(['USER_VIEW']);
+    vi.mocked(adminUsersApi.list).mockResolvedValue(pagedResponse([AMY]));
+
+    renderPage();
+
+    const bank = screen.getByRole('combobox', { name: 'Filter by bank' });
+    await waitFor(() => expect(within(bank).getByRole('option', { name: 'HDFC Bank' })).toBeInTheDocument());
+    expect(within(bank).getByRole('option', { name: 'Unknown bank' })).toHaveValue('OTHER');
+  });
+
+  it('leaves empty filters out of the request', async () => {
+    mockAuth(['USER_VIEW']);
+    vi.mocked(adminUsersApi.list).mockResolvedValue(pagedResponse([AMY]));
+    const user = userEvent.setup();
+
+    renderPage();
+    await waitFor(() => expect(adminUsersApi.list).toHaveBeenCalled());
+    expect(sentKeys(0)).toEqual(['page', 'size']);
+
+    fireEvent.change(screen.getByLabelText('Imports max'), { target: { value: '0' } });
+    await waitFor(() => expect(adminUsersApi.list).toHaveBeenLastCalledWith(
+      expect.objectContaining({ importsMax: 0 })));
+    fireEvent.change(screen.getByLabelText('Imports max'), { target: { value: '' } });
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Filter by plan' }), 'FREE');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Filter by plan' }), '');
+
+    await waitFor(() => {
+      const last = vi.mocked(adminUsersApi.list).mock.calls.length - 1;
+      expect(sentKeys(last)).toEqual(['page', 'size']);
+    });
+  });
+
+  it('applies a view saved before the new filters, clearing them', async () => {
+    localStorage.setItem('finora-admin-views-users', JSON.stringify([{ name: 'Old view', values: { q: 'amy', status: 'ACTIVE' } }]));
+    mockAuth(['USER_VIEW']);
+    vi.mocked(adminUsersApi.list).mockResolvedValue(pagedResponse([AMY]));
+    const user = userEvent.setup();
+
+    renderPage();
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Filter by plan' }), 'PREMIUM');
+    fireEvent.change(screen.getByLabelText('Joined from'), { target: { value: '2026-10-01' } });
+    await user.click(screen.getByRole('button', { name: /Views/ }));
+    await user.click(screen.getByText('Old view'));
+
+    await waitFor(() => expect(adminUsersApi.list).toHaveBeenLastCalledWith({ q: 'amy', status: 'ACTIVE', page: 0, size: 20 }));
+    expect(screen.getByRole('combobox', { name: 'Filter by plan' })).toHaveValue('');
+    expect(screen.getByLabelText('Joined from')).toHaveValue('');
+  });
+
+  it('saves the new filters in a view and applies them again', async () => {
+    mockAuth(['USER_VIEW']);
+    vi.mocked(adminUsersApi.list).mockResolvedValue(pagedResponse([AMY]));
+    const user = userEvent.setup();
+
+    renderPage();
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Filter by plan' }), 'PLUS');
+    fireEvent.change(screen.getByLabelText('Last active to'), { target: { value: '2026-11-01' } });
+    fireEvent.change(screen.getByLabelText('Imports min'), { target: { value: '2' } });
+    await user.click(screen.getByRole('button', { name: /Views/ }));
+    await user.click(screen.getByText('+ Save current filters'));
+    await user.type(screen.getByPlaceholderText('View name'), 'Quiet Plus');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Filter by plan' }), '');
+    fireEvent.change(screen.getByLabelText('Last active to'), { target: { value: '' } });
+    fireEvent.change(screen.getByLabelText('Imports min'), { target: { value: '' } });
+    await user.click(screen.getByText('Quiet Plus'));
+
+    await waitFor(() => expect(adminUsersApi.list).toHaveBeenLastCalledWith(
+      { plan: 'PLUS', lastActiveTo: '2026-11-01', importsMin: 2, page: 0, size: 20 }));
+  });
+
+  it('shows plan, last active and imports for each user', async () => {
+    mockAuth(['USER_VIEW']);
+    vi.mocked(adminUsersApi.list).mockResolvedValue(pagedResponse([AMY, NEW_USER]));
+
+    renderPage();
+
+    const amyRow = (await screen.findByText('Amy Active')).closest('tr')!;
+    expect(within(amyRow).getByText('Plus')).toBeInTheDocument();
+    expect(within(amyRow).getByText(new Date(2026, 10, 12).toLocaleDateString())).toBeInTheDocument();
+    expect(within(amyRow).getByText('3')).toBeInTheDocument();
+    const ninaRow = screen.getByText('Nina New').closest('tr')!;
+    expect(within(ninaRow).getByText('No plan')).toBeInTheDocument();
+    expect(within(ninaRow).getByText('Not seen')).toBeInTheDocument();
+    expect(within(ninaRow).getByText('0')).toBeInTheDocument();
+  });
+
+  // The Joined filter reads days in India time (the backend's reporting zone), so the column must
+  // show the same day: someone who signed up at 00:30 on 11 Nov in India is under 11 Nov, even for
+  // an admin whose browser is in another zone.
+  it('shows the joined day in India time, the day the Joined filter uses', async () => {
+    const zoneBefore = process.env.TZ;
+    process.env.TZ = 'America/New_York';
+    try {
+      mockAuth(['USER_VIEW']);
+      vi.mocked(adminUsersApi.list).mockResolvedValue(pagedResponse([{ ...AMY, createdAt: '2026-11-10T19:00:00Z' }]));
+
+      renderPage();
+
+      const row = (await screen.findByText('Amy Active')).closest('tr')!;
+      expect(within(row).getByText(new Date(2026, 10, 11).toLocaleDateString())).toBeInTheDocument();
+      expect(within(row).queryByText(new Date(2026, 10, 10).toLocaleDateString())).not.toBeInTheDocument();
+    } finally {
+      process.env.TZ = zoneBefore;
+    }
+  });
+
+  it("shows the server's message when it refuses a filter", async () => {
+    mockAuth(['USER_VIEW']);
+    vi.mocked(adminUsersApi.list).mockRejectedValue({ response: { data: { message: 'Imports: the minimum is more than the maximum.' } } });
+
+    renderPage();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Imports: the minimum is more than the maximum.');
   });
 
   it('suspends an active user', async () => {

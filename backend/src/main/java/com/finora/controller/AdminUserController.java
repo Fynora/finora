@@ -11,10 +11,13 @@ import com.finora.dto.ApiResponse;
 import com.finora.dto.AuthDtos.RegisterRequest;
 import com.finora.security.CurrentUser;
 import com.finora.service.AdminUserService;
+import com.finora.service.adminusers.UserListFilter;
 import jakarta.validation.Valid;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.UUID;
 
 /**
@@ -43,9 +46,20 @@ public class AdminUserController {
     public ApiResponse<PagedResponse<UserSummaryDto>> list(
             @RequestParam(required = false) String q,
             @RequestParam(required = false) String status,
+            // Users list filters (Sid, 2026-11-15) -- meanings on UserListFilter.
+            @RequestParam(required = false) String plan,
+            @RequestParam(required = false) String bankId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate joinedFrom,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate joinedTo,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate lastActiveFrom,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate lastActiveTo,
+            @RequestParam(required = false) Integer importsMin,
+            @RequestParam(required = false) Integer importsMax,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ApiResponse.ok(adminUserService.list(q, status, page, size));
+        UserListFilter filter = UserListFilter.of(q, status, plan, bankId, joinedFrom, joinedTo,
+                lastActiveFrom, lastActiveTo, importsMin, importsMax);
+        return ApiResponse.ok(adminUserService.list(filter, page, size));
     }
 
     @GetMapping("/{id}")

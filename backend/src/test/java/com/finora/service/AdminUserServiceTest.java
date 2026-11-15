@@ -54,7 +54,8 @@ class AdminUserServiceTest {
         suspensionNotices = mock(AccountSuspensionNotices.class);
         adminUserService = new AdminUserService(
                 userRepository, accountRepository, transactionRepository, auditService,
-                mock(AuthService.class), refreshTokenService, accountPurgeSweepService, suspensionNotices);
+                mock(AuthService.class), refreshTokenService, accountPurgeSweepService, suspensionNotices,
+                mock(com.finora.service.adminusers.AdminUserListQuery.class));
     }
 
     private User user(UUID id, String status) {

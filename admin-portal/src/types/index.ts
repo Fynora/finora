@@ -8,7 +8,8 @@ import type { components } from '../api/generated-types';
 // see docs/engineering/openapi-contracts.md.
 export type ReconciliationStatus = NonNullable<components['schemas']['TransactionDto']['reconciliationStatus']>;
 
-export interface UserSummaryDto {
+/** The fields every user DTO carries (UserSummaryDto and UserDetailDto on the backend). */
+export interface UserCoreDto {
   id: string;
   email: string;
   fullName: string;
@@ -22,7 +23,17 @@ export interface UserSummaryDto {
   createdAt: string;
 }
 
-export interface UserDetailDto extends UserSummaryDto {
+/** A row of the admin Users list (AdminUserListQuery on the backend). */
+export interface UserSummaryDto extends UserCoreDto {
+  /** The plan the user gets now: FREE, PLUS or PREMIUM; null when they have none. */
+  planCode: string | null;
+  /** The latest day they used the app (yyyy-MM-dd); null when not seen since 3 Oct 2026. */
+  lastActiveDate: string | null;
+  /** Statements imported into accounts not deleted. */
+  importCount: number;
+}
+
+export interface UserDetailDto extends UserCoreDto {
   updatedAt: string;
   accountCount: number;
   transactionCount: number;

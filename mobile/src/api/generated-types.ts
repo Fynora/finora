@@ -7184,6 +7184,11 @@ export interface components {
             roleNames?: string[];
             /** Format: date-time */
             createdAt?: string;
+            planCode?: string;
+            /** Format: date */
+            lastActiveDate?: string;
+            /** Format: int64 */
+            importCount?: number;
         };
         AdminInternalAccountRequest: {
             internal: boolean;
@@ -19221,6 +19226,14 @@ export interface operations {
             query?: {
                 q?: string;
                 status?: string;
+                plan?: string;
+                bankId?: string;
+                joinedFrom?: string;
+                joinedTo?: string;
+                lastActiveFrom?: string;
+                lastActiveTo?: string;
+                importsMin?: number;
+                importsMax?: number;
                 page?: number;
                 size?: number;
             };

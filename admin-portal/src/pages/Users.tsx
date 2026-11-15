@@ -12,7 +12,7 @@ import { SuspendDialog } from '../components/SuspendDialog';
 import { useSavedViews } from '../hooks/useSavedViews';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { useNotify } from '../context/NotificationContext';
-import { adminUsersApi, adminRolesApi, type SuspensionReason } from '../api/endpoints';
+import { adminUsersApi, adminRolesApi, banksApi, type SuspensionReason, type UserListFilters } from '../api/endpoints';
 import type { UserSummaryDto, CreateUserRequest, RoleDto } from '../types';
 
 const PAGE_SIZE = 20;
@@ -161,11 +161,54 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 // Same reasoning as AuditFilterValues in AuditLog.tsx: the explicit index signature is required
-// for this to satisfy useSavedViews<T>/FilterBar<T>'s Record<string, string> constraint.
+// for this to satisfy useSavedViews<T>/FilterBar<T>'s Record<string, string> constraint. '' means
+// "no filter". Plan, bank, dates and imports were added 2026-11-15 (Sid); what each means is on the
+// backend's UserListFilter.
 interface UserFilterValues {
   [key: string]: string;
   q: string;
   status: string;
+  plan: string;
+  bankId: string;
+  joinedFrom: string;
+  joinedTo: string;
+  lastActiveFrom: string;
+  lastActiveTo: string;
+  importsMin: string;
+  importsMax: string;
+}
+
+const NO_FILTERS: UserFilterValues = {
+  q: '', status: '', plan: '', bankId: '', joinedFrom: '', joinedTo: '',
+  lastActiveFrom: '', lastActiveTo: '', importsMin: '', importsMax: '',
+};
+
+const TEXT_FILTERS = ['q', 'status', 'plan', 'bankId', 'joinedFrom', 'joinedTo', 'lastActiveFrom', 'lastActiveTo'] as const;
+const COUNT_FILTERS = ['importsMin', 'importsMax'] as const;
+
+/** The request for one page: only the filters that are set, so an empty one is never sent. A count
+ *  that is not a whole number is left out (the number field already shows it as invalid). */
+export function toListParams(filters: UserFilterValues, page: number, size: number): UserListFilters {
+  const params: UserListFilters = {};
+  for (const key of TEXT_FILTERS) {
+    if (filters[key]) params[key] = filters[key];
+  }
+  for (const key of COUNT_FILTERS) {
+    const value = filters[key].trim();
+    if (value !== '' && Number.isInteger(Number(value))) params[key] = Number(value);
+  }
+  params.page = page;
+  params.size = size;
+  return params;
+}
+
+export const PLAN_LABELS: Record<string, string> = { FREE: 'Free', PLUS: 'Plus', PREMIUM: 'Premium' };
+
+/** A yyyy-MM-dd day shown in the admin's locale -- parsed as a local date, since new Date('2026-11-12')
+ *  is midnight UTC and would show the day before west of UTC. */
+function formatDay(day: string): string {
+  const [year, month, date] = day.split('-').map(Number);
+  return new Date(year, month - 1, date).toLocaleDateString();
 }
 
 function UsersTable() {
@@ -175,9 +218,8 @@ function UsersTable() {
   const queryClient = useQueryClient();
   const notify = useNotify();
 
-  const [q, setQ] = useState('');
+  const [filters, setFilters] = useState<UserFilterValues>(NO_FILTERS);
   const [searchInput, setSearchInput] = useState('');
-  const [status, setStatus] = useState('');
   const [page, setPage] = useState(0);
   const [showCreate, setShowCreate] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -188,9 +230,26 @@ function UsersTable() {
   const savedViews = useSavedViews<UserFilterValues>('finora-admin-views-users');
 
   const { data, isLoading, error: loadError } = useQuery({
-    queryKey: ['admin-users', q, status, page],
-    queryFn: () => adminUsersApi.list({ q: q || undefined, status: status || undefined, page, size: PAGE_SIZE }),
+    queryKey: ['admin-users', filters, page],
+    queryFn: () => adminUsersApi.list(toListParams(filters, page, PAGE_SIZE)),
   });
+  const { data: banks } = useQuery({
+    queryKey: ['admin-users-bank-options'],
+    queryFn: () => banksApi.search(),
+  });
+  // Accounts whose bank was never recognised carry the id OTHER; the registry may or may not list it.
+  const bankOptions = [
+    ...(banks ?? []).filter((b) => b.id !== 'OTHER')
+      .map((b) => ({ label: b.shortName, value: b.id }))
+      .sort((a, b) => a.label.localeCompare(b.label)),
+    { label: 'Unknown bank', value: 'OTHER' },
+  ];
+
+  /** Any filter change goes back to the first page: page 3 of the old results means nothing. */
+  function setFilter(key: keyof UserFilterValues & string, value: string) {
+    setFilters((current) => ({ ...current, [key]: value }));
+    setPage(0);
+  }
 
   const suspendMutation = useMutation({
     mutationFn: ({ id, reason, message }: { id: string; reason: SuspensionReason; message?: string }) =>
@@ -246,14 +305,18 @@ function UsersTable() {
   });
 
   function runSearch() {
-    setQ(searchInput.trim());
-    setPage(0);
+    setFilter('q', searchInput.trim());
   }
 
+  // A view saved before the plan/bank/date/imports filters existed holds only q and status: the
+  // filters it doesn't name are cleared, not left as they were.
   function applyView(values: UserFilterValues) {
-    setSearchInput(values.q);
-    setQ(values.q);
-    setStatus(values.status);
+    const next = { ...NO_FILTERS };
+    for (const key of Object.keys(NO_FILTERS)) {
+      if (typeof values[key] === 'string') next[key] = values[key];
+    }
+    setSearchInput(next.q);
+    setFilters(next);
     setPage(0);
   }
 
@@ -270,7 +333,23 @@ function UsersTable() {
     { header: 'Email', render: (u) => u.email, cellClassName: 'text-muted' },
     { header: 'Roles', render: (u) => u.roleNames.join(', '), cellClassName: 'text-muted' },
     { header: 'Status', render: (u) => <StatusBadge status={u.status} /> },
-    { header: 'Joined', render: (u) => new Date(u.createdAt).toLocaleDateString(), cellClassName: 'text-muted' },
+    {
+      header: 'Plan',
+      render: (u) => (u.planCode ? PLAN_LABELS[u.planCode] ?? u.planCode : <span className="text-muted">No plan</span>),
+    },
+    // India time, as the Joined filter reads days (same reason AuditLog.tsx groups by IST days): a
+    // user who signed up at 00:30 on 11 Nov in India shows under 11 Nov in every admin's browser.
+    {
+      header: 'Joined',
+      render: (u) => new Date(u.createdAt).toLocaleDateString(undefined, { timeZone: 'Asia/Kolkata' }),
+      cellClassName: 'text-muted',
+    },
+    {
+      header: 'Last active',
+      render: (u) => (u.lastActiveDate ? formatDay(u.lastActiveDate) : 'Not seen'),
+      cellClassName: 'text-muted',
+    },
+    { header: 'Imports', render: (u) => String(u.importCount), headerClassName: 'text-right', cellClassName: 'text-right tabular-nums' },
   ];
   if (canModify) {
     columns.push({
@@ -322,8 +401,8 @@ function UsersTable() {
         fields={[
           { type: 'search', key: 'q', value: searchInput, onChange: setSearchInput, placeholder: 'Search name, email, phone…' },
           {
-            type: 'select', key: 'status', value: status,
-            onChange: (v) => { setStatus(v); setPage(0); },
+            type: 'select', key: 'status', value: filters.status,
+            onChange: (v) => setFilter('status', v),
             placeholder: 'All statuses',
             label: 'Filter by status',
             options: [
@@ -334,11 +413,35 @@ function UsersTable() {
               { label: 'Deleted', value: 'DELETED' },
             ],
           },
+          {
+            type: 'select', key: 'plan', value: filters.plan,
+            onChange: (v) => setFilter('plan', v),
+            placeholder: 'All plans',
+            label: 'Filter by plan',
+            options: [
+              { label: 'Free', value: 'FREE' },
+              { label: 'Plus', value: 'PLUS' },
+              { label: 'Premium', value: 'PREMIUM' },
+            ],
+          },
+          {
+            type: 'select', key: 'bankId', value: filters.bankId,
+            onChange: (v) => setFilter('bankId', v),
+            placeholder: 'All banks',
+            label: 'Filter by bank',
+            options: bankOptions,
+          },
+          { type: 'date', key: 'joinedFrom', label: 'Joined from', value: filters.joinedFrom, onChange: (v) => setFilter('joinedFrom', v) },
+          { type: 'date', key: 'joinedTo', label: 'Joined to', value: filters.joinedTo, onChange: (v) => setFilter('joinedTo', v) },
+          { type: 'date', key: 'lastActiveFrom', label: 'Last active from', value: filters.lastActiveFrom, onChange: (v) => setFilter('lastActiveFrom', v) },
+          { type: 'date', key: 'lastActiveTo', label: 'Last active to', value: filters.lastActiveTo, onChange: (v) => setFilter('lastActiveTo', v) },
+          { type: 'number', key: 'importsMin', label: 'Imports min', min: 0, value: filters.importsMin, onChange: (v) => setFilter('importsMin', v) },
+          { type: 'number', key: 'importsMax', label: 'Imports max', min: 0, value: filters.importsMax, onChange: (v) => setFilter('importsMax', v) },
         ]}
         onApply={runSearch}
         savedViews={{
           views: savedViews.views,
-          currentValues: { q: searchInput.trim(), status },
+          currentValues: { ...filters, q: searchInput.trim() },
           onApply: applyView,
           onSave: savedViews.save,
           onDelete: savedViews.remove,

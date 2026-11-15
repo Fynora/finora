@@ -29,7 +29,7 @@ public class AdminReadingQualityController {
 
     /** @param weeks 4 or 12: this week and the ones before it */
     @GetMapping
-    public ApiResponse<ReadingQualityDto.Report> report(@RequestParam(defaultValue = "12") int weeks) {
+    public ApiResponse<ReadingQualityDto.Report> readingQuality(@RequestParam(defaultValue = "12") int weeks) {
         return ApiResponse.ok(readingQuality.report(weeks, Instant.now()));
     }
 }

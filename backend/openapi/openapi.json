@@ -13416,6 +13416,38 @@
                 }
             }
         },
+        "/api/v1/admin/imports/reading-quality": {
+            "get": {
+                "tags": [
+                    "admin-reading-quality-controller"
+                ],
+                "operationId": "readingQuality",
+                "parameters": [
+                    {
+                        "name": "weeks",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int32",
+                            "default": 12
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseReadingQualityReport"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/imports/layouts": {
             "get": {
                 "tags": [
@@ -34156,6 +34188,139 @@
                     "txnDate": {
                         "type": "string",
                         "format": "date"
+                    }
+                }
+            },
+            "ApiResponseReadingQualityReport": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/ReadingQualityReport"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "ReadingQualityBankRow": {
+                "type": "object",
+                "properties": {
+                    "bank": {
+                        "type": "string"
+                    },
+                    "statementsRead": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "rowsRead": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "holds": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "holdRate": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "fixes": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "weeks": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ReadingQualityWeek"
+                        }
+                    }
+                }
+            },
+            "ReadingQualityReport": {
+                "type": "object",
+                "properties": {
+                    "weeks": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "minStatements": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "weekStarts": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    },
+                    "banks": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ReadingQualityBankRow"
+                        }
+                    },
+                    "bankNotKnown": {
+                        "$ref": "#/components/schemas/ReadingQualityUnknownBank"
+                    }
+                }
+            },
+            "ReadingQualityUnknownBank": {
+                "type": "object",
+                "properties": {
+                    "importHolds": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "trustHolds": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "fixes": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
+            "ReadingQualityWeek": {
+                "type": "object",
+                "properties": {
+                    "weekStart": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "statementsRead": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "rowsRead": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "holds": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "fixes": {
+                        "type": "integer",
+                        "format": "int64"
                     }
                 }
             },

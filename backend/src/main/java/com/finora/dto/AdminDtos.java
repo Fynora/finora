@@ -29,7 +29,13 @@ public class AdminDtos {
             boolean phoneVerified,
             String status,
             List<String> roleNames,
-            Instant createdAt
+            Instant createdAt,
+            // Users list filters (2026-11-15): the plan the user gets now (null = no plan), the
+            // latest day they used the app (null = not seen since tracking began, 3 Oct 2026), and
+            // statements imported into live accounts. See AdminUserListQuery.
+            String planCode,
+            java.time.LocalDate lastActiveDate,
+            long importCount
     ) {}
 
     /** UserSummaryDto plus the counts an admin reviewing a single account actually needs --

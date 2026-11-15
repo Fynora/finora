@@ -230,7 +230,8 @@ class PagedListSortEndsOnIdIT extends AbstractIntegrationTest {
 
     @Test
     void theAdminUserDirectory() {
-        assertSortEndsOnId(Sort.Direction.DESC, () -> adminUserService.list(null, null, 0, 20));
+        assertSortEndsOnId(Sort.Direction.DESC, () -> adminUserService.list(
+                com.finora.service.adminusers.UserListFilter.of(null, null, null, null, null, null, null, null, null, null), 0, 20));
     }
 
     @Test

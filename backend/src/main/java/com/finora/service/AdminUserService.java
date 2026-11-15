@@ -11,10 +11,11 @@ import com.finora.exception.ApiException;
 import com.finora.repository.AccountRepository;
 import com.finora.repository.TransactionRepository;
 import com.finora.repository.UserRepository;
-import com.finora.util.LikePatterns;
+import com.finora.service.adminusers.AdminUserListQuery;
+import com.finora.service.adminusers.AdminUserListQuery.UserListFacts;
+import com.finora.service.adminusers.UserListFilter;
 import com.finora.util.PhoneNumbers;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,12 +50,14 @@ public class AdminUserService {
     private final RefreshTokenService refreshTokenService;
     private final AccountPurgeSweepService accountPurgeSweepService;
     private final AccountSuspensionNotices suspensionNotices;
+    private final AdminUserListQuery listQuery;
 
     public AdminUserService(UserRepository userRepository, AccountRepository accountRepository,
                              TransactionRepository transactionRepository, AuditService auditService,
                              AuthService authService, RefreshTokenService refreshTokenService,
                              AccountPurgeSweepService accountPurgeSweepService,
-                             AccountSuspensionNotices suspensionNotices) {
+                             AccountSuspensionNotices suspensionNotices,
+                             AdminUserListQuery listQuery) {
         this.userRepository = userRepository;
         this.accountRepository = accountRepository;
         this.transactionRepository = transactionRepository;
@@ -63,6 +66,7 @@ public class AdminUserService {
         this.refreshTokenService = refreshTokenService;
         this.accountPurgeSweepService = accountPurgeSweepService;
         this.suspensionNotices = suspensionNotices;
+        this.listQuery = listQuery;
     }
 
     /** Support-assisted signup (USER_CREATE) -- delegates the actual user-creation work to
@@ -168,22 +172,29 @@ public class AdminUserService {
         return toSummary(user);
     }
 
+    /**
+     * The admin Users list: search, status and the 2026-11-15 filters (plan, joined dates, last
+     * active dates, bank, number of imports), all applied in the database by AdminUserListQuery.
+     * The filter arrives already checked ({@link UserListFilter#of}).
+     */
     @Transactional(readOnly = true)
-    public PagedResponse<UserSummaryDto> list(String q, String status, int page, int size) {
+    public PagedResponse<UserSummaryDto> list(UserListFilter filter, int page, int size) {
         // Clamped rather than rejected -- an admin typing a huge page size shouldn't 400, it
         // should just get a sane upper bound (mirrors how most paginated admin UIs behave).
         int safeSize = com.finora.util.PageBounds.safeSize(size, MAX_PAGE_SIZE);
         int safePage = com.finora.util.PageBounds.safePage(page);
-        // Blank search text is the same as "no filter" -- an admin clearing the search box
-        // shouldn't have to also know that empty string vs. null behaves differently server-side.
-        // LikePatterns.escape: the term is bound into a LIKE, where % and _ are wildcards even
-        // inside a bound parameter. Searching "50%" used to match every row containing "50".
-        String normalizedQ = (q == null || q.isBlank()) ? null : LikePatterns.escape(q.trim());
-        String normalizedStatus = (status == null || status.isBlank()) ? null : status.trim();
-
-        var pageResult = userRepository.search(normalizedQ, normalizedStatus,
-                PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "createdAt", "id")));
-        return PagedResponse.of(pageResult.map(this::toSummary));
+        var ids = listQuery.findIds(filter, PageRequest.of(safePage, safeSize));
+        Map<UUID, User> users = new java.util.HashMap<>();
+        userRepository.findAllById(ids.getContent()).forEach(u -> users.put(u.getId(), u));
+        Map<UUID, UserListFacts> facts = listQuery.factsFor(ids.getContent());
+        // findAllById returns rows in no particular order; the page keeps the query's order. A row
+        // removed between the two reads is dropped rather than failing the page.
+        List<UserSummaryDto> rows = new ArrayList<>();
+        for (UUID id : ids.getContent()) {
+            User user = users.get(id);
+            if (user != null) rows.add(toSummary(user, facts.get(id)));
+        }
+        return new PagedResponse<>(rows, ids.getNumber(), ids.getSize(), ids.getTotalElements(), ids.getTotalPages());
     }
 
     @Transactional(readOnly = true)
@@ -355,8 +366,14 @@ public class AdminUserService {
     }
 
     private UserSummaryDto toSummary(User user) {
+        return toSummary(user, listQuery.factsFor(List.of(user.getId())).get(user.getId()));
+    }
+
+    private UserSummaryDto toSummary(User user, UserListFacts facts) {
+        UserListFacts known = facts == null ? new UserListFacts(null, null, 0) : facts;
         return new UserSummaryDto(user.getId(), user.getEmail(), user.getFullName(), user.getPhoneNumber(),
-                user.isPhoneVerified(), user.getStatus(), roleNames(user), user.getCreatedAt());
+                user.isPhoneVerified(), user.getStatus(), roleNames(user), user.getCreatedAt(),
+                known.planCode(), known.lastActiveDate(), known.importCount());
     }
 
     /** Legacy User.role string plus any explicit user_roles grants, deduplicated -- same union

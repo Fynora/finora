@@ -32,14 +32,18 @@ import java.util.UUID;
  * {@code EntitlementService.effectivePlanCodeFor}: the higher of the ACTIVE/TRIAL subscription's
  * plan and an ACTIVE referral grant that has not passed its end date. Imports are statements not
  * deleted, in an account not deleted: deleting an account leaves its statements' rows undeleted.
+ *
+ * <p>Every per-user filter is a scalar subquery (a COUNT, MAX or rank), never an {@code EXISTS}.
+ * Postgres turns an {@code EXISTS} into a join, and with several filters combined it misjudged how
+ * many users would pass the others and chose a nested loop that read the whole of
+ * {@code user_activity_days} once per candidate user: 9.85 s on 50,000 users (AdminUserListQueryPlanIT,
+ * 2026-11-15). A scalar subquery stays a per-user lookup through the table's {@code user_id} index.
  */
 @Component
 public class AdminUserListQuery {
 
     /** A page row's plan code (null when the user has no plan), latest active day, and import count. */
-    public record UserListFacts(String planCode, LocalDate lastActiveDate, long importCount) {
-        static final UserListFacts NONE = new UserListFacts(null, null, 0);
-    }
+    public record UserListFacts(String planCode, LocalDate lastActiveDate, long importCount) {}
 
     private static final String RANK_OF_PLAN_CODE =
             "CASE %s WHEN 'PREMIUM' THEN 2 WHEN 'PLUS' THEN 1 ELSE 0 END";
@@ -58,6 +62,15 @@ public class AdminUserListQuery {
             + " JOIN accounts a ON a.id = si.account_id AND a.deleted_at IS NULL"
             + " WHERE si.user_id = u.id AND si.deleted_at IS NULL)";
 
+    /** The latest active day, or -infinity for a user never seen (so a "to" date matches them). */
+    private static final String LAST_ACTIVE =
+            "COALESCE((SELECT MAX(d.activity_date) FROM user_activity_days d WHERE d.user_id = u.id),"
+            + " DATE '-infinity')";
+
+    private static final String ACCOUNTS_AT_BANK =
+            "(SELECT COUNT(*) FROM accounts a"
+            + " WHERE a.user_id = u.id AND a.deleted_at IS NULL AND a.bank_id = :bankId)";
+
     @PersistenceContext
     private EntityManager entityManager;
 
@@ -71,7 +84,7 @@ public class AdminUserListQuery {
     public Page<UUID> findIds(UserListFilter filter, Pageable pageable) {
         Where where = where(filter);
 
-        Query count = entityManager.createNativeQuery("SELECT COUNT(*) FROM users u" + where.sql);
+        Query count = entityManager.createNativeQuery(countSql(where));
         where.params.forEach(count::setParameter);
         long total = ((Number) count.getSingleResult()).longValue();
 
@@ -137,9 +150,21 @@ public class AdminUserListQuery {
         return String.valueOf(query.getSingleResult());
     }
 
+    /** EXPLAIN (ANALYZE) of the count query, for the large-table test. */
+    String explainCountQuery(UserListFilter filter) {
+        Where where = where(filter);
+        Query query = entityManager.createNativeQuery("EXPLAIN (ANALYZE, FORMAT JSON) " + countSql(where));
+        where.params.forEach(query::setParameter);
+        return String.valueOf(query.getSingleResult());
+    }
+
+    private static String countSql(Where where) {
+        return "SELECT COUNT(*) FROM users u" + where.sql;
+    }
+
     private static String pageSql(Where where) {
         return "SELECT u.id FROM users u" + where.sql
-                + " ORDER BY u.created_at DESC, u.id DESC LIMIT :limit OFFSET :offset";
+                + " ORDER BY u.created_at DESC, u.id DESC OFFSET :offset ROWS FETCH FIRST :limit ROWS ONLY";
     }
 
     /** Same rule as EntitlementService: the grant wins only when it ranks strictly higher. */
@@ -177,19 +202,19 @@ public class AdminUserListQuery {
             sql.append(" AND u.created_at < :joinedBefore");
             params.put("joinedBefore", startOf(f.joinedTo().plusDays(1)));
         }
-        if (f.lastActiveFrom() != null) {
-            sql.append(" AND EXISTS (SELECT 1 FROM user_activity_days d"
-                    + " WHERE d.user_id = u.id AND d.activity_date >= :lastActiveFrom)");
+        if (f.lastActiveFrom() != null && f.lastActiveTo() != null) {
+            sql.append(" AND ").append(LAST_ACTIVE).append(" BETWEEN :lastActiveFrom AND :lastActiveTo");
             params.put("lastActiveFrom", f.lastActiveFrom());
-        }
-        if (f.lastActiveTo() != null) {
-            sql.append(" AND NOT EXISTS (SELECT 1 FROM user_activity_days d"
-                    + " WHERE d.user_id = u.id AND d.activity_date > :lastActiveTo)");
+            params.put("lastActiveTo", f.lastActiveTo());
+        } else if (f.lastActiveFrom() != null) {
+            sql.append(" AND ").append(LAST_ACTIVE).append(" >= :lastActiveFrom");
+            params.put("lastActiveFrom", f.lastActiveFrom());
+        } else if (f.lastActiveTo() != null) {
+            sql.append(" AND ").append(LAST_ACTIVE).append(" <= :lastActiveTo");
             params.put("lastActiveTo", f.lastActiveTo());
         }
         if (f.bankId() != null) {
-            sql.append(" AND EXISTS (SELECT 1 FROM accounts a"
-                    + " WHERE a.user_id = u.id AND a.deleted_at IS NULL AND a.bank_id = :bankId)");
+            sql.append(" AND ").append(ACCOUNTS_AT_BANK).append(" > 0");
             params.put("bankId", f.bankId());
         }
         if (f.importsMin() != null && f.importsMax() != null) {

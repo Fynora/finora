@@ -1,11 +1,11 @@
 import { useEffect } from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { StyleSheet } from 'react-native';
+import { AccessibilityInfo, StyleSheet } from 'react-native';
 import { QuickSortPanel } from './QuickSortPanel';
 import { CategoryPickerModal } from './CategoryPickerModal';
 import { transactionsApi } from '../api/endpoints';
-import { fmtDate } from '../lib/format';
+import { fmtCurrency, fmtDate } from '../lib/format';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { ThemeProvider, useThemeSetting } from '../theme';
 import { dark } from '../theme/palette';
@@ -349,7 +349,10 @@ describe('QuickSortPanel', () => {
     expect(StyleSheet.flatten(chipOf('Dining').props.style).opacity).toBeUndefined();
   });
 
-  it('says what was saved once the next question is up, and drops it on a skip', async () => {
+  // Spec 2026-11-15-quick-sort-answer-payoff-design.md: the saved line says what the answer filed.
+  it('says what the answer filed once the next question is up, and drops it on a skip', async () => {
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    tx.quickSortAnswer.mockResolvedValue({ filed: 3, amount: 2400, remembered: true });
     tx.quickSort.mockResolvedValue(batch([
       question(),
       question({ id: 'b', anchorTransactionId: 'txn-2', payee: 'SECOND SHOP' }),
@@ -357,10 +360,41 @@ describe('QuickSortPanel', () => {
     ]));
     renderPanel();
     fireEvent.press(await screen.findByText('Dining'));
-    expect(await screen.findByText('Saved Dining for SAMPLE STORE')).toBeTruthy();
+    const line = `✓ Dining · 3 payments filed (${fmtCurrency(2400)}). Fynora will remember this for SAMPLE STORE.`;
+    expect(await screen.findByTestId('quick-sort-payoff')).toHaveTextContent(line);
+    expect(screen.getByText('SECOND SHOP')).toBeTruthy();
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenCalledWith(line);
     fireEvent.press(screen.getByText('Skip for now'));
     expect(await screen.findByText('THIRD SHOP')).toBeTruthy();
-    expect(screen.queryByText(/^Saved /)).toBeNull();
+    expect(screen.queryByTestId('quick-sort-payoff')).toBeNull();
+    announce.mockRestore();
+  });
+
+  it('says "1 payment" for one', async () => {
+    tx.quickSortAnswer.mockResolvedValue({ filed: 1, amount: 99, remembered: true });
+    tx.quickSort.mockResolvedValue(batch([question(), question({ id: 'b', anchorTransactionId: 'txn-2', payee: 'SECOND SHOP' })]));
+    renderPanel();
+    fireEvent.press(await screen.findByText('Groceries'));
+    expect(await screen.findByTestId('quick-sort-payoff'))
+      .toHaveTextContent(`✓ Groceries · 1 payment filed (${fmtCurrency(99)}). Fynora will remember this for SAMPLE STORE.`);
+  });
+
+  it('shows the line together with "All sorted" after the last answer', async () => {
+    tx.quickSortAnswer.mockResolvedValue({ filed: 3, amount: 2400, remembered: true });
+    tx.quickSort.mockResolvedValue(batch([question()]));
+    renderPanel();
+    fireEvent.press(await screen.findByText('Groceries'));
+    expect(await screen.findByText(/All sorted/)).toBeTruthy();
+    expect(screen.getByTestId('quick-sort-payoff')).toHaveTextContent(/Fynora will remember this for SAMPLE STORE\.$/);
+  });
+
+  it('an older server that sends only the count gets "Filed as"', async () => {
+    tx.quickSortAnswer.mockResolvedValue({ filed: 3 });
+    tx.quickSort.mockResolvedValue(batch([question(), question({ id: 'b', anchorTransactionId: 'txn-2', payee: 'SECOND SHOP' })]));
+    renderPanel();
+    fireEvent.press(await screen.findByText('Groceries'));
+    expect(await screen.findByTestId('quick-sort-payoff')).toHaveTextContent('✓ Filed as Groceries.');
   });
 
   it('does not say anything was saved when the answer fails', async () => {
@@ -369,6 +403,6 @@ describe('QuickSortPanel', () => {
     renderPanel();
     fireEvent.press(await screen.findByText('Groceries'));
     expect(await screen.findByText("Couldn't save that answer — please try again.")).toBeTruthy();
-    expect(screen.queryByText(/^Saved /)).toBeNull();
+    expect(screen.queryByTestId('quick-sort-payoff')).toBeNull();
   });
 });

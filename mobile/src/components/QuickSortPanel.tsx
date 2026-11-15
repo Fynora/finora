@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { Card, SectionHeading } from './Card';
 import { CategoryPickerModal } from './CategoryPickerModal';
 import { QuickSortPattern } from './QuickSortPattern';
 import { patternLine } from '../lib/payeePattern';
+import { payoffLine } from '../lib/quickSortPayoff';
 import { ProgressBar } from './dashboard/ProgressBar';
 import { transactionsApi } from '../api/endpoints';
 import { fmtCurrency, fmtDate } from '../lib/format';
@@ -28,7 +29,7 @@ const PROMPT: Record<QuickSortKind, string> = {
  * Quick sort on mobile: a few payee questions, biggest money first, one at a time -- the same
  * questions, answers and wording as the web's QuickSortCard. The server (QuickSortService) decides
  * the batch and the answers offered. Laid out for a phone: the count sits beside the title over a
- * progress bar, the saved answer is named above the next question, and "Skip for now" sits apart
+ * progress bar, what the saved answer filed is named above the next question, and "Skip for now" sits apart
  * from the answer chips. {@code onLoaded} tells the screen how many questions the first batch
  * has, so it can keep its full review lists one tap away while there are questions to answer.
  *
@@ -67,8 +68,10 @@ export function QuickSortPanel({ onLoaded, variant = 'full', accountEmail = null
   // the rest is no longer offered. Questions skipped earlier are still waiting.
   const [restStopped, setRestStopped] = useState(false);
   // The answer just saved, named above the next question: without it the question swaps with
-  // nothing on screen saying the last one landed. Cleared by anything that is not a saved answer.
-  const [lastSaved, setLastSaved] = useState<{ category: string; payee: string } | null>(null);
+  // nothing on screen saying the last one landed. Since spec 2026-11-15-quick-sort-answer-payoff-design.md
+  // it also says what the answer filed and whether Fynora remembers the payee, and it stays above
+  // "All sorted" and the Dashboard ending. Cleared by anything that is not a saved answer.
+  const [lastSaved, setLastSaved] = useState<string | null>(null);
 
   function load(skip: number, first: boolean) {
     (dashboard ? transactionsApi.quickSort(skip, false, 'DASHBOARD') : transactionsApi.quickSort(skip))
@@ -146,13 +149,16 @@ export function QuickSortPanel({ onLoaded, variant = 'full', accountEmail = null
     setError(null);
     setLastSaved(null);
     try {
-      await (dashboard
+      const result = await (dashboard
         ? transactionsApi.quickSortAnswer(q.anchorTransactionId, category, q.kind, 'DASHBOARD')
         : transactionsApi.quickSortAnswer(q.anchorTransactionId, category, q.kind));
       hapticSuccess();
       setAnsweredInBatch((n) => n + q.total);
       setIndex((i) => i + 1);
-      setLastSaved({ category, payee: q.payee });
+      const line = payoffLine(result, category, q.payee, fmtCurrency);
+      setLastSaved(line);
+      // Announced here, once: iOS ignores accessibilityLiveRegion, and both would say it twice on Android.
+      AccessibilityInfo.announceForAccessibility(line);
       invalidateFinancialData(queryClient);
     } catch {
       hapticError();
@@ -240,10 +246,8 @@ export function QuickSortPanel({ onLoaded, variant = 'full', accountEmail = null
             </Text>
           ) : undefined}
         />
-        {lastSaved && current ? (
-          <Text style={[styles.saved, { color: c.successInk }]} accessibilityLiveRegion="polite">
-            Saved {lastSaved.category} for {lastSaved.payee}
-          </Text>
+        {lastSaved ? (
+          <Text style={[styles.saved, { color: c.successInk }]} testID="quick-sort-payoff">{lastSaved}</Text>
         ) : null}
         {current ? (
           <View>
@@ -316,10 +320,8 @@ export function QuickSortPanel({ onLoaded, variant = 'full', accountEmail = null
         You've sorted {sortedPct}% of your waiting money
       </Text>
 
-      {lastSaved && !allSorted ? (
-        <Text style={[styles.saved, { color: c.successInk }]} accessibilityLiveRegion="polite">
-          Saved {lastSaved.category} for {lastSaved.payee}
-        </Text>
+      {lastSaved ? (
+        <Text style={[styles.saved, { color: c.successInk }]} testID="quick-sort-payoff">{lastSaved}</Text>
       ) : null}
 
       {allSorted ? (

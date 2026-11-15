@@ -14,6 +14,7 @@ import type {
   WorkspaceSettings, UnparseableRow, WorkspaceSummary, TimelineEvent, GoalMomentum, Wrapped,
   ChoiceScope, CountsAs, InflowKind, SenderRule, UnresolvedSender,
 } from '../types';
+import type { QuickSortAnswerResult } from '../lib/quickSortPayoff';
 
 // Ported from frontend/src/api/endpoints.ts -- these are plain axios calls with TS types, no DOM
 // dependency, so almost everything here is unchanged from the web app. The two exceptions are
@@ -317,7 +318,7 @@ export const transactionsApi = {
       params: { skip, ...(preview ? { preview } : {}), ...(source ? { source } : {}) },
     }).then((r) => r.data),
   quickSortAnswer: (anchorTransactionId: string, category: string, kind: QuickSortKind, source?: QuickSortSource) =>
-    api.post<{ filed: number }>('/transactions/quick-sort/answer',
+    api.post<QuickSortAnswerResult>('/transactions/quick-sort/answer',
       { anchorTransactionId, category, kind, ...(source ? { source } : {}) })
       .then((r) => r.data),
   quickSortMore: () => api.post('/transactions/quick-sort/more', {}),

@@ -23,6 +23,11 @@ jest.mock('../api/endpoints', () => ({
 
 jest.mock('../lib/invalidateFinancialData', () => ({ invalidateFinancialData: jest.fn() }));
 jest.mock('../lib/haptics');
+// Held steady: unmocked, the Reduce Transparency store starts null and flips to false a tick after
+// the panel's Card first renders, once per test file. GlassSurface then swaps its root view, which
+// remounts the whole panel, so an element found just before the flip is already unmounted. Only the
+// file's first panel test meets the flip, so which test that is depends on order and `-t` filters.
+jest.mock('../lib/useReduceTransparency', () => ({ useReduceTransparency: jest.fn(() => false) }));
 
 // The full picker is CategoryPickerModal's own concern; here only that More... opens it and a
 // pick answers the question.
@@ -232,8 +237,7 @@ describe('QuickSortPanel', () => {
   it('draws a filled chip label in the theme on-primary colour, readable in dark mode', async () => {
     tx.quickSort.mockResolvedValue(batch([question({ kind: 'GUESS', currentCategory: 'Groceries', answers: ['Groceries'] })]));
     renderPanelDark();
-    const label = await screen.findByText('Correct');
-    await waitFor(() => expect(StyleSheet.flatten(label.props.style).color).toBe(dark.onPrimary));
+    await waitFor(() => expect(StyleSheet.flatten(screen.getByText('Correct').props.style).color).toBe(dark.onPrimary));
   });
 
   it('writes the latest payment date the way the rest of the app does', async () => {
@@ -322,9 +326,10 @@ describe('QuickSortPanel', () => {
   it('keeps Skip apart from the answers', async () => {
     tx.quickSort.mockResolvedValue(batch([question()]));
     renderPanel();
-    const answers = await screen.findByTestId('quick-sort-answers');
-    expect(within(answers).getByText('Groceries')).toBeTruthy();
-    expect(within(answers).queryByText('Skip for now')).toBeNull();
+    await screen.findByTestId('quick-sort-answers');
+    const answers = () => within(screen.getByTestId('quick-sort-answers'));
+    expect(answers().getByText('Groceries')).toBeTruthy();
+    expect(answers().queryByText('Skip for now')).toBeNull();
     expect(screen.getByText('Skip for now')).toBeTruthy();
   });
 

@@ -1,5 +1,6 @@
 package com.finora.architecture;
 
+import com.finora.architecture.AdminGuardRule.Violation;
 import com.finora.architecture.registry.GuardianSelfTest;
 import com.finora.architecture.registry.GuardianRule;
 import com.tngtech.archunit.core.domain.JavaClass;
@@ -10,18 +11,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
-import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.lang.annotation.Annotation;
 import java.util.ArrayList;
 import java.util.List;
 
+import static com.finora.architecture.AdminGuardRule.ADMIN_PATH_PREFIX;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -37,20 +33,17 @@ import static org.assertj.core.api.Assertions.assertThat;
  * how a non-admin came to be able to read other users' names and email addresses.
  *
  * <p>Fixing that one controller does not stop the 47th admin controller from repeating it. This
- * test does: it fails the build the moment any admin-mapped handler method is added without an
- * authorization annotation covering it, at class level or method level. It is deliberately scoped
+ * test does: it fails the build the moment any admin-mapped handler is added without a guard, or
+ * with a guard an ordinary customer can meet (see {@link AdminGuardRule}). It is deliberately scoped
  * to {@code /api/v1/admin} paths -- consumer endpoints are user-scoped and enforce access through
  * {@code CurrentUser} plus per-row ownership checks (see {@code OwnershipGuard}), not authorities,
  * so requiring {@code @PreAuthorize} on those would be wrong rather than merely noisy.
+ *
+ * <p>This reads compiled classes, so it fails fast without a database. {@link AdminEndpointAuthorizationIT}
+ * applies the same rule to the routes Spring actually registers, which also covers any way of
+ * declaring a route this file does not model (an inherited handler, say).
  */
 class AdminEndpointAuthorizationTest {
-
-    private static final String ADMIN_PATH_PREFIX = "/api/v1/admin";
-
-    /** Every annotation Spring treats as declaring a request-handling method. */
-    private static final List<Class<? extends Annotation>> MAPPING_ANNOTATIONS = List.of(
-            RequestMapping.class, GetMapping.class, PostMapping.class,
-            PutMapping.class, DeleteMapping.class, PatchMapping.class);
 
     private JavaClasses productionClasses() {
         return ProductionClasses.INSTANCE;
@@ -58,24 +51,21 @@ class AdminEndpointAuthorizationTest {
 
     /**
      * The rule itself, factored out so the exact same logic can be pointed at the deliberately
-     * vulnerable fixture below -- see {@link #theRuleDetectsAnUnguardedAdminEndpoint()}.
+     * vulnerable fixtures below -- see {@link #theRuleDetectsUnguardedAndWeaklyGuardedAdminEndpoints()}.
      */
-    private List<String> findUnguardedAdminHandlers(JavaClasses classes) {
-        List<String> unguarded = new ArrayList<>();
-
+    private List<Violation> findViolations(JavaClasses classes) {
+        List<Violation> violations = new ArrayList<>();
         for (JavaClass controller : classes) {
             if (!isController(controller)) continue;
-            // A class-level @PreAuthorize covers every handler in the class -- the majority
-            // style in this codebase (see AdminBankController). Only classes without one need
-            // each individual method checked.
-            boolean classGuarded = controller.isAnnotatedWith(PreAuthorize.class);
-
+            String classGuard = controller.tryGetAnnotationOfType(PreAuthorize.class).map(PreAuthorize::value).orElse(null);
             for (JavaMethod method : adminHandlers(controller)) {
-                if (classGuarded || method.isAnnotatedWith(PreAuthorize.class)) continue;
-                unguarded.add(controller.getSimpleName() + "." + method.getName() + "()");
+                // A method's own @PreAuthorize replaces the class's; without one, the class's applies.
+                String guard = method.tryGetAnnotationOfType(PreAuthorize.class).map(PreAuthorize::value).orElse(classGuard);
+                AdminGuardRule.check(controller.getSimpleName() + "." + method.getName() + "()", guard)
+                        .ifPresent(violations::add);
             }
         }
-        return unguarded;
+        return violations;
     }
 
     /**
@@ -84,13 +74,16 @@ class AdminEndpointAuthorizationTest {
      * route declared on the method of a consumer-prefixed class ({@code CapabilityCoverageController}
      * maps {@code /api/v1} and one method {@code /admin/users/{userId}/...}) and skipped classes with
      * no class-level mapping entirely -- an unguarded handler written either way passed the build.
+     * Mappings are read the way Spring reads them (merged, so a composed annotation or one declared
+     * on an interface method counts).
      */
     private List<JavaMethod> adminHandlers(JavaClass controller) {
         List<String> basePaths = paths(AnnotatedElementUtils.findMergedAnnotation(controller.reflect(), RequestMapping.class));
         List<JavaMethod> admin = new ArrayList<>();
         for (JavaMethod method : controller.getMethods()) {
-            if (!isRequestHandler(method)) continue;
-            List<String> methodPaths = paths(AnnotatedElementUtils.findMergedAnnotation(method.reflect(), RequestMapping.class));
+            RequestMapping mapping = AnnotatedElementUtils.findMergedAnnotation(method.reflect(), RequestMapping.class);
+            if (mapping == null) continue;
+            List<String> methodPaths = paths(mapping);
             boolean isAdmin = basePaths.stream()
                     .anyMatch(base -> methodPaths.stream().anyMatch(path -> join(base, path).startsWith(ADMIN_PATH_PREFIX)));
             if (isAdmin) admin.add(method);
@@ -104,50 +97,48 @@ class AdminEndpointAuthorizationTest {
         return List.of(mapping.path());
     }
 
-    private static String join(String base, String path) {
-        if (path.isEmpty()) return base;
-        return base + (path.startsWith("/") ? path : "/" + path);
+    /** Joins as Spring does: one leading slash, no doubled slashes ({@code "api/v1/" + "/admin"} is {@code /api/v1/admin}). */
+    static String join(String base, String path) {
+        return ("/" + base + "/" + path).replaceAll("/+", "/");
     }
 
     @GuardianRule(
             id = "FG-024",
             category = GuardianRule.Category.SECURITY,
-            intent = "Every admin endpoint carries an authorization annotation.",
+            intent = "Every admin endpoint carries an authorization annotation an ordinary customer cannot meet.",
             source = "Incident: unguarded admin endpoint",
             introduced = "2026-08-01",
             owner = "architecture",
             verification = GuardianRule.Verification.SELF_TEST)
     @Test
     void everyAdminEndpointIsGuardedByAnAuthorizationAnnotation() {
-        assertThat(findUnguardedAdminHandlers(productionClasses()))
+        assertThat(findViolations(productionClasses()))
                 .as("""
-                        Admin endpoints reachable by ANY authenticated user, including non-admins.
-                        SecurityConfig only enforces anyRequest().authenticated() -- it has no
-                        admin-path rule -- so an admin handler without @PreAuthorize is open to
-                        every logged-in consumer account. Add @PreAuthorize("hasAuthority('...')")
-                        to the method, or to the controller class to cover all of its handlers.""")
+                        Admin endpoints an ordinary customer could call. SecurityConfig only enforces
+                        anyRequest().authenticated() -- it has no admin-path rule -- so each admin handler
+                        needs @PreAuthorize with hasAuthority/hasAnyAuthority/hasRole/hasAnyRole checks
+                        (joined by 'and') naming an admin permission or role, on the method or on the
+                        controller class. See AdminGuardRule.""")
                 .isEmpty();
     }
 
     /**
-     * Guards the guard, part one: proves the rule genuinely detects the bug shape it exists to
-     * catch, by running the identical logic against a fixture that deliberately reproduces the
-     * original AdminSearchController vulnerability. A security rule that silently stopped
-     * detecting anything would otherwise look exactly like a clean codebase.
+     * Guards the guard, part one: proves the rule genuinely detects the bug shapes it exists to
+     * catch, by running the identical logic against fixtures that deliberately reproduce them. A
+     * security rule that silently stopped detecting anything would otherwise look exactly like a
+     * clean codebase.
      */
     @GuardianSelfTest(rule = "FG-024")
     @Test
-    void theRuleDetectsAnUnguardedAdminEndpoint() {
+    void theRuleDetectsUnguardedAndWeaklyGuardedAdminEndpoints() {
         JavaClasses fixtures = new ClassFileImporter().importPackages("com.finora.architecture.fixtures");
 
-        assertThat(findUnguardedAdminHandlers(fixtures))
-                .as("the rule must flag every unguarded admin handler -- admin path on the class, on "
-                        + "the method only, or on a class with no base path -- and must NOT flag the "
-                        + "correctly-@PreAuthorize'd siblings or a consumer route")
-                .containsExactlyInAnyOrder(
-                        "UnguardedAdminControllerFixture.unguardedHandler()",
-                        "MethodPathAdminControllerFixture.unguardedAdminHandler()",
-                        "NoBasePathAdminControllerFixture.unguardedHandler()");
+        assertThat(findViolations(fixtures))
+                .as("the rule must flag every unguarded or weakly guarded admin handler -- admin path on the "
+                        + "class, on the method only, or on a class with no base path; a weak method guard "
+                        + "replacing a strong class guard -- and must NOT flag guarded siblings or a consumer route")
+                .extracting(Violation::handler)
+                .containsExactlyInAnyOrderElementsOf(AdminGuardRule.FIXTURE_VIOLATIONS);
     }
 
     /**
@@ -175,12 +166,18 @@ class AdminEndpointAuthorizationTest {
                 .contains("CapabilityCoverageController.forUser()");
     }
 
+    @GuardianSelfTest(rule = "FG-024")
+    @Test
+    void pathsJoinTheWaySpringJoinsThem() {
+        assertThat(join("/api/v1/", "/admin/x")).isEqualTo("/api/v1/admin/x");
+        assertThat(join("api/v1", "admin")).isEqualTo("/api/v1/admin");
+        assertThat(join("", "/api/v1/admin/x")).isEqualTo("/api/v1/admin/x");
+        assertThat(join("/api/v1/admin", "")).isEqualTo("/api/v1/admin/");
+        assertThat(join("/api/v1/admin", "").startsWith(ADMIN_PATH_PREFIX)).isTrue();
+    }
+
     /** {@code @RestController}, or a plain {@code @Controller}, which can serve data the same way. */
     private boolean isController(JavaClass candidate) {
         return candidate.isAnnotatedWith(RestController.class) || candidate.isAnnotatedWith(Controller.class);
-    }
-
-    private boolean isRequestHandler(JavaMethod method) {
-        return MAPPING_ANNOTATIONS.stream().anyMatch(method::isAnnotatedWith);
     }
 }

@@ -92,6 +92,17 @@ public final class BankActivityCategory {
     // the shop's own id and does not carry these words.
     private static final Pattern CARD_BILL_PAID = words("cc billpay", "credclub", "cred club");
     private static final Pattern NET_BANKING_BILL_PAY = words("ib billpay");
+    /**
+     * The card itself named as the payee: "<issuer> Bank Credit Card", cut by the paying app or bank
+     * to "Cred", "Credi", "Credit" or "Credit Ca" (Paytm's "UPI/ICICI Bank Cred/&lt;ref&gt;/Sent using
+     * Paytm", ICICI net banking's "BIL/&lt;ref&gt;/ICICI BANK CREDIT CA/&lt;ref&gt;"). Only a curated
+     * list of card-issuing banks, so an unknown "... Bank Credit ..." line is never taken for a card
+     * bill; the cut must stop on a word boundary, so "HDFC Credila" (an education lender) is not one.
+     * Spec docs/superpowers/specs/2026-11-15-card-bill-issuer-list-design.md.
+     */
+    private static final Pattern ISSUER_CARD_BILL = Pattern.compile(
+            "\\b(?:icici|hdfc|sbi|axis|idfc|yes|kotak|indusind|rbl|federal|hsbc|citi|idbi|canara|pnb|union|bob)"
+                    + " bank cred(?:i(?:t(?: c(?:a(?:r(?:d)?)?)?)?)?)?\\b");
     private static final Pattern MASKED_CARD_NUMBER = Pattern.compile("\\b\\d{4,6}[Xx*]{4,8}\\d{4}\\b");
 
     public static Optional<String> of(String description, Transaction.Type direction) {
@@ -172,6 +183,7 @@ public final class BankActivityCategory {
 
     private static boolean namesCardBillPaid(String normalized, String description) {
         return CARD_BILL_PAID.matcher(normalized).find()
+                || ISSUER_CARD_BILL.matcher(normalized).find()
                 || (NET_BANKING_BILL_PAY.matcher(normalized).find() && MASKED_CARD_NUMBER.matcher(description).find());
     }
 

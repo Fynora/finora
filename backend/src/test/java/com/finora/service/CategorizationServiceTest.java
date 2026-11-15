@@ -242,6 +242,24 @@ class CategorizationServiceTest {
         assertThat(suggestion.decisionSource()).isEqualTo(Transaction.DecisionSource.KEYWORD_MATCH);
     }
 
+    // Spec 2026-11-15-card-bill-issuer-list-design.md: both shapes reach "Transfer" through the
+    // full waterfall, at staging and at write time, not only in BankActivityCategory alone.
+    @Test
+    void suggest_namesACardBillPaidToItsIssuerTransfer() {
+        UUID merchantId = UUID.randomUUID();
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(merchantId)));
+        when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
+
+        for (String narration : List.of("UPI/ICICI Bank Cred/100000000001/Sent using Paytm",
+                "BIL/100000000001/ICICI BANK CREDIT CA/100000000002")) {
+            var suggestion = categorizationService.suggest(userId, narration, null, null, Transaction.Type.EXPENSE);
+            assertThat(suggestion.category()).as(narration).isEqualTo("Transfer");
+            var staged = categorizationService.suggestReadOnly(List.of(), userId, narration, null, null, null,
+                    Transaction.Type.EXPENSE, null);
+            assertThat(staged.category()).as(narration).isEqualTo("Transfer");
+        }
+    }
+
     @Test
     void suggest_withoutADirection_leavesBankActivityUndecided() {
         UUID merchantId = UUID.randomUUID();

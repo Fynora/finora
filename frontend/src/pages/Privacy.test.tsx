@@ -49,9 +49,9 @@ describe('Privacy policy matches what the product does', () => {
   it('discloses that "Sort with AI" after an import sends that statement\'s shop payments, only on a tap', () => {
     const t = policyText();
     expect(t).toMatch(/An import never sends anything by itself/i);
-    expect(t).toMatch(/tap "Sort with AI" after an import to send the bank's description of each shop payment Fynora could not sort, the same way and with the same parts removed/i);
+    expect(t).toMatch(/tap "Sort with AI" after an import, the statement text of each shop payment Fynora could not sort is sent the same way, with the same parts removed/i);
     expect(t).toMatch(/Payments to people are never sent/i);
-    expect(t).toMatch(/category suggestions for hand-typed transactions and for imported shop payments you ask it to sort/i);
+    expect(t).toMatch(/category suggestions for transactions you add by hand or ask it to sort after an import, as described above/i);
   });
 
   it('says the typed description is free text', () => {

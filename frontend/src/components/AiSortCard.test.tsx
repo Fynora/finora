@@ -62,8 +62,8 @@ describe('AiSortCard', () => {
     renderCard();
 
     expect(await screen.findByText(AI_QUESTION)).toBeInTheDocument();
-    expect(AI_QUESTION).toBe('To sort these, Fynora sends each payment\'s bank description to Anthropic\'s AI, with the names '
-      + 'and account numbers it recognises hidden. You can turn AI off any time in Settings.');
+    expect(AI_QUESTION).toBe('Let AI sort these for you? Fynora sends the payment text from your statement to Anthropic\'s AI. '
+      + 'We hide the names and account numbers we can spot. You can turn AI off any time in Settings.');
     expect(screen.getByRole('button', { name: 'Turn on AI and sort' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'No thanks' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Sort with AI' })).not.toBeInTheDocument();

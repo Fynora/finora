@@ -6,8 +6,8 @@ import { useInvalidateMoneyFigures } from '../lib/invalidateMoneyFigures';
 import { trackNavigation } from '../lib/trackNavigation';
 
 /** Draft wording for counsel (spec docs/superpowers/specs/2026-11-14-ai-sort-after-import-design.md). */
-export const AI_QUESTION = 'To sort these, Fynora sends each payment\'s bank description to Anthropic\'s AI, with the names '
-  + 'and account numbers it recognises hidden. You can turn AI off any time in Settings.';
+export const AI_QUESTION = 'Let AI sort these for you? Fynora sends the payment text from your statement to Anthropic\'s AI. '
+  + 'We hide the names and account numbers we can spot. You can turn AI off any time in Settings.';
 
 /** How often a running run is read. */
 export const POLL_MS = 2000;

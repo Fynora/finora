@@ -134,7 +134,7 @@ class OverdueRuleTest {
         assertThat(OverdueRule.state(EVERY_30S, null, APP_START, APP_START.plusSeconds(5))).isEqualTo(JobState.OK);
     }
 
-    // ---- Part 2: GitHub workflows (UTC crons, 3 h allowance, 6 h running limit, no app-start exception)
+    // ---- Part 2: GitHub workflows (UTC crons, 12 h allowance, 6 h running limit, no app-start exception)
 
     private static JobSchedule github(String cron) {
         return new JobSchedule("github:Fynora/finora/x.yml", null, null, cron, "x", JobSchedule.Source.GITHUB, null);
@@ -145,22 +145,85 @@ class OverdueRuleTest {
                 0, 0, finished, 0, null, null, null, null, "github", 1L, "u");
     }
 
+    /**
+     * Measured 2026-11-15 over the last 60 scheduled runs of each nightly and 10 of the weekly CodeQL
+     * scan: GitHub started every one 3.9 to 8.7 hours after its cron time. A night like that is not late.
+     */
     @Test
-    void github_nightlyDelayed2h_isNotOverdue() {
+    void github_nightlyStartedAsLateAsGitHubHasEverStartedIt_isNotOverdue() {
         Instant fire = Instant.parse("2026-11-14T03:00:00Z");
         BackgroundJobStatus yesterday = githubRun(fire.minus(Duration.ofDays(1)), fire.minus(Duration.ofDays(1)).plusSeconds(600));
-        assertThat(OverdueRule.state(github("0 3 * * *"), yesterday, APP_START, fire.plus(Duration.ofHours(2))))
+        assertThat(OverdueRule.state(github("0 3 * * *"), yesterday, APP_START, fire.plus(Duration.ofMinutes(8 * 60 + 45))))
                 .isEqualTo(JobState.OK);
     }
 
     @Test
-    void github_3h1mAfterTheFireWithNoRun_isOverdue_inUtcWhateverTheJvmZone() {
+    void github_12hAfterTheFireWithNoRun_isOverdue_inUtcWhateverTheJvmZone() {
         Instant fire = Instant.parse("2026-11-14T03:00:00Z");
         BackgroundJobStatus yesterday = githubRun(fire.minus(Duration.ofDays(1)), fire.minus(Duration.ofDays(1)).plusSeconds(600));
-        assertThat(OverdueRule.state(github("0 3 * * *"), yesterday, APP_START, fire.plus(Duration.ofMinutes(179))))
+        assertThat(OverdueRule.state(github("0 3 * * *"), yesterday, APP_START, fire.plus(Duration.ofHours(12)).minusSeconds(1)))
                 .isEqualTo(JobState.OK);
-        assertThat(OverdueRule.state(github("0 3 * * *"), yesterday, APP_START, fire.plus(Duration.ofMinutes(181))))
+        assertThat(OverdueRule.state(github("0 3 * * *"), yesterday, APP_START, fire.plus(Duration.ofHours(12))))
+                .isEqualTo(JobState.OK);
+        assertThat(OverdueRule.state(github("0 3 * * *"), yesterday, APP_START, fire.plus(Duration.ofHours(12)).plusSeconds(1)))
                 .isEqualTo(JobState.OVERDUE);
+    }
+
+    /** The run GitHub finally starts, however late, ends the wait for that night. */
+    @Test
+    void github_aRunStarted11hLate_isNotOverdue() {
+        Instant fire = Instant.parse("2026-11-14T03:00:00Z");
+        BackgroundJobStatus today = githubRun(fire.plus(Duration.ofHours(11)), fire.plus(Duration.ofHours(11)).plusSeconds(600));
+        assertThat(OverdueRule.state(github("0 3 * * *"), today, APP_START, fire.plus(Duration.ofHours(20))))
+                .isEqualTo(JobState.OK);
+    }
+
+    /**
+     * A nightly that stopped running (GitHub disables schedules on idle repositories) stays Overdue:
+     * the next night's fire does not restart the clock, which would read as "working again" each
+     * morning and "needs attention" each evening.
+     */
+    @Test
+    void github_aMissedNight_staysOverdueThroughTheNextFire() {
+        Instant missedFire = Instant.parse("2026-11-13T03:00:00Z");
+        BackgroundJobStatus lastRun = githubRun(missedFire.minus(Duration.ofDays(1)).plus(Duration.ofHours(6)),
+                missedFire.minus(Duration.ofDays(1)).plus(Duration.ofHours(6)).plusSeconds(600));
+        JobSchedule nightly = github("0 3 * * *");
+        for (Instant now : new Instant[] {
+                missedFire.plus(Duration.ofHours(12)).plusSeconds(1),
+                missedFire.plus(Duration.ofDays(1)),                         // the next night's fire
+                missedFire.plus(Duration.ofDays(1)).plus(Duration.ofHours(1)),
+                missedFire.plus(Duration.ofDays(3))}) {
+            assertThat(OverdueRule.state(nightly, lastRun, APP_START, now)).as("at %s", now).isEqualTo(JobState.OVERDUE);
+        }
+        assertThat(OverdueRule.overdueAt(nightly, lastRun, APP_START)).isEqualTo(missedFire.plus(Duration.ofHours(12)));
+    }
+
+    /** The "broken since" time is the moment the rule turns Overdue, not a time near it. */
+    @Test
+    void github_overdueAt_isWhenTheRuleTurnsOverdue() {
+        Instant fire = Instant.parse("2026-11-14T03:00:00Z");
+        JobSchedule nightly = github("0 3 * * *");
+        BackgroundJobStatus yesterday = githubRun(fire.minus(Duration.ofDays(1)).plus(Duration.ofHours(7)),
+                fire.minus(Duration.ofDays(1)).plus(Duration.ofHours(7)).plusSeconds(600));
+        Instant overdueAt = OverdueRule.overdueAt(nightly, yesterday, APP_START);
+        assertThat(overdueAt).isEqualTo(fire.plus(OverdueRule.GITHUB_ALLOWANCE));
+        assertThat(OverdueRule.isOverdue(nightly, yesterday, APP_START, overdueAt)).isFalse();
+        assertThat(OverdueRule.isOverdue(nightly, yesterday, APP_START, overdueAt.plusSeconds(1))).isTrue();
+    }
+
+    /** Weekly (CodeQL, Mondays 04:00 UTC): last Monday's run covers the week; a missed Monday is late by 16:00. */
+    @Test
+    void github_weekly_isLate12hAfterAMissedMonday() {
+        JobSchedule weekly = github("0 4 * * 1");
+        Instant lastMonday = Instant.parse("2026-11-09T04:00:00Z");
+        BackgroundJobStatus ran = githubRun(lastMonday.plus(Duration.ofHours(8)), lastMonday.plus(Duration.ofHours(8)).plusSeconds(900));
+        Instant nextMonday = lastMonday.plus(Duration.ofDays(7));
+        assertThat(OverdueRule.state(weekly, ran, APP_START, nextMonday.minusSeconds(1))).isEqualTo(JobState.OK);
+        assertThat(OverdueRule.state(weekly, ran, APP_START, nextMonday.plus(Duration.ofHours(12)))).isEqualTo(JobState.OK);
+        assertThat(OverdueRule.state(weekly, ran, APP_START, nextMonday.plus(Duration.ofHours(12)).plusSeconds(1)))
+                .isEqualTo(JobState.OVERDUE);
+        assertThat(OverdueRule.overdueAt(weekly, ran, APP_START)).isEqualTo(nextMonday.plus(Duration.ofHours(12)));
     }
 
     @Test
@@ -194,6 +257,8 @@ class OverdueRuleTest {
         BackgroundJobStatus twoDaysAgo = githubRun(fire.minus(Duration.ofDays(2)), fire.minus(Duration.ofDays(2)).plusSeconds(60));
         assertThat(OverdueRule.state(github("0 3 * * *"), twoDaysAgo, appStart, fire.plus(Duration.ofHours(4))))
                 .isEqualTo(JobState.OVERDUE);
+        assertThat(OverdueRule.overdueAt(github("0 3 * * *"), twoDaysAgo, appStart))
+                .isEqualTo(fire.minus(Duration.ofDays(1)).plus(Duration.ofHours(12)));
     }
 
     /** No run read yet (just deployed, or the token is broken: the reader's own row says so). */

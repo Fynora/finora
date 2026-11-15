@@ -283,6 +283,60 @@ class AdminReadingQualityControllerIT extends AbstractIntegrationTest {
         assertThat(bankRow(report, holdsOwnName)).isNull();
     }
 
+    /**
+     * A re-read of a held statement (an admin's "re-run parser", or the Claude fix's re-read after
+     * its PR deploys -- both {@code HeldStatementService.rerunParser}) stages the new read under a
+     * new session and moves the job to it ({@code ImportJob.replaceHeldSession}). That session has
+     * no upload record, so the hold and its fix keep the bank through the hold's own name.
+     */
+    @Test
+    void aHoldReReadUnderANewSession_keepsItsBankAndItsFix() throws Exception {
+        String bank = bankName();
+        HeldStatement held = trustHold(read(bank, 3, Instant.now()));
+        jdbc.update("UPDATE held_statements SET bank_name = ? WHERE id = ?", bank, held.getId());
+        claudeFix(held.getImportJobId(), "FIXED", Instant.now());
+        jdbc.update("UPDATE import_jobs SET import_session_id = ? WHERE id = ?", UUID.randomUUID(), held.getImportJobId());
+
+        JsonNode row = bankRow(report(), bank);
+
+        assertThat(row.path("holds").asLong()).isEqualTo(1);
+        assertThat(row.path("fixes").asLong()).isEqualTo(1);
+    }
+
+    @Test
+    void aReReadHoldWhoseOwnBankNameNoUploadRecordUses_staysBankNotKnown() throws Exception {
+        JsonNode before = report().path("bankNotKnown");
+        String generic = "IT Generic " + UUID.randomUUID().toString().substring(0, 8);
+        HeldStatement held = trustHold(read(bankName(), 3, Instant.now()));
+        jdbc.update("UPDATE held_statements SET bank_name = ? WHERE id = ?", generic, held.getId());
+        jdbc.update("UPDATE import_jobs SET import_session_id = ? WHERE id = ?", UUID.randomUUID(), held.getImportJobId());
+
+        JsonNode report = report();
+
+        assertThat(bankRow(report, generic)).isNull();
+        assertThat(report.path("bankNotKnown").path("trustHolds").asLong()
+                - before.path("trustHolds").asLong()).isEqualTo(1);
+    }
+
+    /** The upload record exists and the engine named no bank: its read is not counted under any
+     *  bank, so neither is its hold, whatever name the hold itself carries. */
+    @Test
+    void anUploadTheEngineNamedNoBankFor_keepsItsHoldInBankNotKnown() throws Exception {
+        String known = bankName();
+        read(known, 1, Instant.now());
+        UUID session = UUID.randomUUID();
+        evidence(session, null, 3, "CUSTOMER_IMPORT", "PARSED", Instant.now());
+        JsonNode before = report().path("bankNotKnown");
+        HeldStatement held = trustHold(session);
+        jdbc.update("UPDATE held_statements SET bank_name = ? WHERE id = ?", known, held.getId());
+
+        JsonNode report = report();
+
+        assertThat(bankRow(report, known).path("holds").asLong()).isZero();
+        assertThat(report.path("bankNotKnown").path("trustHolds").asLong()
+                - before.path("trustHolds").asLong()).isEqualTo(1);
+    }
+
     @Test
     void holdsWithNoBank_goToBankNotKnown() throws Exception {
         JsonNode before = report().path("bankNotKnown");

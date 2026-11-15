@@ -37,9 +37,21 @@ import java.util.TreeMap;
  * which can be a generic fallback, so its text can differ from the evidence row's for the same bank
  * and a hold rate built from the two would divide one bank's holds by another name's statements.
  *
- * <p>A job with several evidence rows for its session (a re-read) takes the latest that names a
- * bank. A job with none -- an import hold, whose parse failed before the bank was named, or an
- * upload from before V239 -- is counted in "bank not known".
+ * <p>A job with several evidence rows for its session takes the latest that names a bank.
+ *
+ * <p>One exception. Re-reading a held statement -- an admin's "re-run parser", and the Claude fix's
+ * own re-read once its PR deploys, both {@code HeldStatementService.rerunParser} -- stages the new
+ * read under a new session and moves the job onto it ({@code ImportJob.replaceHeldSession}), and
+ * that re-read writes no evidence row. Nothing keeps the old session's id. Such a job, whose
+ * session has no evidence row at all, takes {@code held_statements.bank_name} instead, and only when
+ * that exact name is one the evidence table already uses: for a recognised bank both are
+ * {@code BankRegistry}'s official name, while the generic fallback ("Bank Statement Import") and a
+ * name no upload record carries go to "bank not known" rather than becoming a row of their own.
+ * A job whose session does have an evidence row naming no bank stays in "bank not known" even if
+ * the hold carries a name: its read is not counted under any bank, so its hold is not either.
+ *
+ * <p>A job with no bank either way -- an import hold, whose parse failed before the bank was named,
+ * or an upload from before V239 -- is counted in "bank not known".
  *
  * <h2>What a fix is</h2>
  *
@@ -62,16 +74,19 @@ public class ReadingQualityService {
 
     private static final String ZONE = UserZone.DEFAULT.getId();
 
-    /** The latest evidence row naming a bank for the job {@code j}'s staging session. */
+    /** Joins the bank of the job {@code j}; select it as {@code coalesce(ev.bank_name, kb.bank_name)}.
+     *  See the class doc. */
     private static final String BANK_OF_JOB = """
             LEFT JOIN LATERAL (
-                SELECT s.bank_name FROM statement_analysis_sessions s
-                WHERE j.import_session_id IS NOT NULL
-                  AND s.import_session_id = j.import_session_id
-                  AND s.bank_name IS NOT NULL
-                ORDER BY s.created_at DESC
-                LIMIT 1
-            ) b ON TRUE
+                SELECT count(*) > 0 AS has_evidence,
+                       (array_agg(s.bank_name ORDER BY s.created_at DESC)
+                            FILTER (WHERE s.bank_name IS NOT NULL))[1] AS bank_name
+                FROM statement_analysis_sessions s
+                WHERE j.import_session_id IS NOT NULL AND s.import_session_id = j.import_session_id
+            ) ev ON TRUE
+            LEFT JOIN held_statements hb ON hb.import_job_id = j.id
+            LEFT JOIN (SELECT DISTINCT bank_name FROM statement_analysis_sessions WHERE bank_name IS NOT NULL) kb
+              ON NOT ev.has_evidence AND kb.bank_name = hb.bank_name
             """;
 
     private static final String READS = """
@@ -92,7 +107,7 @@ public class ReadingQualityService {
             ), per_job AS (
                 SELECT job_id, min(held_at) AS held_at, bool_or(trust) AS trust FROM held GROUP BY job_id
             )
-            SELECT b.bank_name, (date_trunc('week', p.held_at AT TIME ZONE ?))::date AS week_start, p.trust, count(*)
+            SELECT coalesce(ev.bank_name, kb.bank_name), (date_trunc('week', p.held_at AT TIME ZONE ?))::date AS week_start, p.trust, count(*)
             FROM per_job p
             JOIN import_jobs j ON j.id = p.job_id
             """ + BANK_OF_JOB + """
@@ -113,7 +128,7 @@ public class ReadingQualityService {
             ), per_job AS (
                 SELECT job_id, min(fixed_at) AS fixed_at FROM fix_dates GROUP BY job_id
             )
-            SELECT b.bank_name, (date_trunc('week', p.fixed_at AT TIME ZONE ?))::date AS week_start, count(*)
+            SELECT coalesce(ev.bank_name, kb.bank_name), (date_trunc('week', p.fixed_at AT TIME ZONE ?))::date AS week_start, count(*)
             FROM per_job p
             JOIN import_jobs j ON j.id = p.job_id
             """ + BANK_OF_JOB + """

@@ -31,6 +31,14 @@ const PROMPT: Record<QuickSortKind, string> = {
 const AFFECTED_QUERIES = ['transactions', 'recent-transactions', 'dashboard-summary', 'insights', 'budgets'];
 
 /**
+ * What the last answer filed (spec 2026-11-15-quick-sort-answer-payoff-design.md). Always rendered,
+ * empty when there is nothing to say, so a screen reader announces each new line once.
+ */
+function PayoffLine({ text }: { text: string | null }) {
+  return <p role="status" className={text ? 'text-sm text-ink' : 'sr-only'}>{text ?? ''}</p>;
+}
+
+/**
  * Quick sort: a few payee questions, biggest money first, in place of studying every waiting row.
  * The server (QuickSortService) decides the batch -- 80% of the waiting money or 10 questions --
  * and the answers offered; this card asks one question at a time. Progress is the money sorted
@@ -43,11 +51,6 @@ const AFFECTED_QUERIES = ['transactions', 'recent-transactions', 'dashboard-summ
  * about these": nothing leaves the queue from the Dashboard unless it is answered. "Not now" hides it
  * until tomorrow for accountEmail on this device. Loading, empty and failed all render nothing.
  */
-/** Always rendered, empty when there is nothing to say, so a screen reader announces each new line once. */
-function PayoffLine({ text }: { text: string | null }) {
-  return <p role="status" className={text ? 'text-sm text-ink' : 'sr-only'}>{text ?? ''}</p>;
-}
-
 export function QuickSortCard({ variant = 'full', accountEmail = null }: {
   variant?: 'full' | 'dashboard';
   /** The signed-in account, for the dashboard variant's "Not now". */

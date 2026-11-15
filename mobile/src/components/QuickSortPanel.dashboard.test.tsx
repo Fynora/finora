@@ -21,6 +21,11 @@ jest.mock('../lib/safeStorage', () => ({
 jest.mock('../lib/invalidateFinancialData', () => ({ invalidateFinancialData: jest.fn() }));
 jest.mock('../lib/haptics');
 jest.mock('./CategoryPickerModal', () => ({ CategoryPickerModal: () => null }));
+// Held steady: unmocked, the Reduce Transparency store starts null and flips to false a tick after
+// the panel's Card first renders, once per test file. GlassSurface then swaps its root view, which
+// remounts the whole card, so an element found just before the flip is already unmounted: pressing
+// it does nothing and toBeOnTheScreen() fails on it.
+jest.mock('../lib/useReduceTransparency', () => ({ useReduceTransparency: jest.fn(() => false) }));
 
 const tx = transactionsApi as jest.Mocked<typeof transactionsApi>;
 const storage = safeStorage as jest.Mocked<typeof safeStorage>;

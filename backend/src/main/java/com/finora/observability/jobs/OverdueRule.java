@@ -26,8 +26,19 @@ final class OverdueRule {
 
     static final Duration INTERVAL_SLACK = Duration.ofMinutes(5);
     static final Duration CRON_ALLOWANCE = Duration.ofMinutes(30);
-    /** GitHub starts scheduled runs late under load, sometimes by an hour or more. */
-    static final Duration GITHUB_ALLOWANCE = Duration.ofHours(3);
+    /**
+     * How long after a scheduled workflow's UTC cron time GitHub may take to start it. Measured
+     * 2026-11-15 over the last 60 scheduled runs of each daily workflow the page watches (e2e,
+     * Maestro, gitleaks and image-scan nightlies; the private repository's traces and retention, 30
+     * each: all they have) and the last 10 weekly CodeQL scans: GitHub started every one 3.9 to 8.7
+     * hours late, median 6.4, none on time, no night without a run. The 3 hours this was before made
+     * every nightly "needs attention" every morning and "working again" when it ran. 12 hours keeps a
+     * margin of more than 3 hours over the latest start seen, and still says a nightly did not run
+     * on the day it should have (by 15:00 UTC for a 03:00 cron). A run GitHub skips (the e2e and
+     * Maestro nightlies skip their only job while the repository is private) is not counted by the
+     * poller, so those nights are still Overdue: the check did not run.
+     */
+    static final Duration GITHUB_ALLOWANCE = Duration.ofHours(12);
     /** GitHub's own limit for one job; a run going longer than this is stuck. */
     static final Duration GITHUB_RUNNING_LIMIT = Duration.ofHours(6);
     private static final ZoneId UTC = ZoneId.of("UTC");
@@ -51,9 +62,8 @@ final class OverdueRule {
     static Instant overdueAt(JobSchedule schedule, BackgroundJobStatus status, Instant appStartedAt) {
         if (schedule.source() == JobSchedule.Source.GITHUB) {
             if (isRunning(status)) return status.lastStartedAt().plus(GITHUB_RUNNING_LIMIT);
-            if (schedule.cron() == null) return null;
-            Instant expected = mostRecentGitHubFire(schedule.cron(), Instant.now());
-            return expected == null ? null : expected.plus(GITHUB_ALLOWANCE);
+            Instant owed = owedGitHubFire(schedule.cron(), status);
+            return owed == null ? null : owed.plus(GITHUB_ALLOWANCE);
         }
         if (schedule.cron() != null) {
             if (isRunning(status)) return status.lastStartedAt().plus(CRON_ALLOWANCE);
@@ -93,36 +103,36 @@ final class OverdueRule {
 
     /**
      * GitHub workflows: a run in progress for more than 6 hours is stuck; a scheduled workflow is late
-     * 3 hours after a UTC fire time with no run started at or after it; one started by a push is never
-     * late. No "before the app started" exception: GitHub runs whether or not the backend is up. A
-     * workflow with no run read yet is not late: right after a deploy every row is empty, and a broken
-     * token already shows on the reader's own row, so eight "late" emails would only repeat it.
+     * {@link #GITHUB_ALLOWANCE} (12 hours) after the first UTC fire time after its last run started,
+     * and stays late until a run starts; one started by a push is never late. Counting from the first
+     * fire it missed, not the latest one, keeps a workflow that stopped running Overdue: otherwise each
+     * new fire would restart the clock and the row would read fine for 12 hours a day. No "before the
+     * app started" exception: GitHub runs whether or not the backend is up. A workflow with no run read
+     * yet is not late: right after a deploy every row is empty, and a broken token already shows on the
+     * reader's own row, so eight "late" emails would only repeat it.
      */
     private static boolean githubOverdue(String cron, BackgroundJobStatus status, Instant now) {
         if (isRunning(status)) return now.isAfter(status.lastStartedAt().plus(GITHUB_RUNNING_LIMIT));
-        // No run read yet: just deployed, or the reader cannot reach GitHub, which its own row shows.
-        if (cron == null || status == null || status.lastStartedAt() == null) return false;
-        Instant expected = mostRecentGitHubFire(cron, now);
-        if (expected == null) return false;
-        Instant lastStart = status == null ? null : status.lastStartedAt();
-        if (lastStart != null && !lastStart.isBefore(expected)) return false;
-        return now.isAfter(expected.plus(GITHUB_ALLOWANCE));
+        Instant owed = owedGitHubFire(cron, status);
+        return owed != null && now.isAfter(owed.plus(GITHUB_ALLOWANCE));
     }
 
-    /** A GitHub 5-field cron's latest fire at or before {@code now}, in UTC, looking back 8 days (weekly runs). */
-    static Instant mostRecentGitHubFire(String githubCron, Instant now) {
-        return mostRecentFire("0 " + githubCron, now, UTC, Duration.ofDays(8));
+    /**
+     * The first fire of a GitHub 5-field cron (read in UTC) after the workflow's last run started: the
+     * run GitHub owes it. Null when the workflow has no cron (push-started) or no run has been read
+     * yet (just deployed, or the reader cannot reach GitHub, which its own row shows).
+     */
+    static Instant owedGitHubFire(String githubCron, BackgroundJobStatus status) {
+        if (githubCron == null || status == null || status.lastStartedAt() == null) return null;
+        ZonedDateTime next = CronExpression.parse("0 " + githubCron).next(status.lastStartedAt().atZone(UTC));
+        return next == null ? null : next.toInstant();
     }
 
     /** The latest time at or before {@code now} the cron fires, looking back up to 25 hours. */
     static Instant mostRecentFire(String cron, Instant now) {
-        return mostRecentFire(cron, now, ZoneId.systemDefault(), Duration.ofHours(25));
-    }
-
-    private static Instant mostRecentFire(String cron, Instant now, ZoneId zone, Duration lookBack) {
         CronExpression expression = CronExpression.parse(cron);
-        ZonedDateTime cursor = now.minus(lookBack).atZone(zone);
-        ZonedDateTime end = now.atZone(zone);
+        ZonedDateTime cursor = now.minus(Duration.ofHours(25)).atZone(ZoneId.systemDefault());
+        ZonedDateTime end = now.atZone(ZoneId.systemDefault());
         Instant last = null;
         for (ZonedDateTime next = expression.next(cursor); next != null && !next.isAfter(end); next = expression.next(next)) {
             last = next.toInstant();

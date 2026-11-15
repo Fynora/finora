@@ -97,8 +97,13 @@ public PR" (a person finishes it from the private PR). Any other failed step, su
 
 ### Overdue
 
-Scheduled workflows use part 1's cron rule with a GitHub allowance of **3 hours** after the expected
-UTC fire time (GitHub delays scheduled runs under load and silently disables them on idle repos).
+Scheduled workflows are Overdue **12 hours** after the first UTC fire time after their last run
+started, and stay Overdue until a run starts (GitHub delays scheduled runs and silently disables them
+on idle repos). The first version allowed 3 hours after the latest fire time; measured on 2026-11-15,
+GitHub had started every scheduled run of the six nightlies and the weekly CodeQL scan 3.9 to 8.7
+hours late, so every nightly alerted each morning and recovered when it ran. Counting from the first
+missed fire, not the latest, keeps a workflow that stopped running Overdue through the next night's
+fire.
 Push-triggered workflows (privacy scan, Claude fix) are never Overdue. The cron is read in UTC, not the
 JVM's zone. The "fire before the app started" exception does not apply: GitHub runs whether or not
 the backend is up.

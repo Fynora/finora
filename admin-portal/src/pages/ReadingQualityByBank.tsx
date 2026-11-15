@@ -68,7 +68,7 @@ function ReadingQualityContent() {
               type="button"
               aria-pressed={period === p}
               onClick={() => setPeriod(p)}
-              className={`px-3 py-1.5 text-sm ${period === p ? 'bg-primary text-white' : 'bg-card text-ink hover:bg-surface'}`}
+              className={`px-3 py-1.5 text-sm ${period === p ? 'bg-primary text-on-primary' : 'bg-card text-ink hover:bg-surface'}`}
             >
               Last {p} weeks
             </button>

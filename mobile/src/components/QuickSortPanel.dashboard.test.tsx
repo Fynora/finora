@@ -83,6 +83,20 @@ describe('QuickSortPanel on the Dashboard', () => {
     expect(onOpenFull).toHaveBeenCalledTimes(1);
   });
 
+  it('shows the payoff line after an answer, and above the ending', async () => {
+    tx.quickSortAnswer.mockResolvedValue({ filed: 2, amount: 500, remembered: true });
+    tx.quickSort.mockResolvedValue(batch(shops(5), { rest: { questions: 4, payments: 9, amount: 900, transactionIds: [] } }));
+    renderDashboardPanel();
+    for (const payee of ['SHOP 1', 'SHOP 2', 'SHOP 3']) {
+      expect(await screen.findByText(payee)).toBeOnTheScreen();
+      fireEvent.press(screen.getByRole('button', { name: 'Groceries' }));
+      await waitFor(() => expect(screen.getByTestId('quick-sort-payoff'))
+        .toHaveTextContent(new RegExp(`Fynora will remember this for ${payee}\\.$`)));
+    }
+    expect(await screen.findByText('6 payees still waiting')).toBeOnTheScreen();
+    expect(screen.getByTestId('quick-sort-payoff')).toHaveTextContent(/2 payments filed .*SHOP 3\.$/);
+  });
+
   it('sends the Dashboard source with the batch and the answer', async () => {
     tx.quickSort.mockResolvedValue(batch(shops(2)));
     renderDashboardPanel();

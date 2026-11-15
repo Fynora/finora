@@ -9,6 +9,7 @@ import type { QuickSortBatch, QuickSortKind, QuickSortQuestion } from '../types'
 import { formatDate } from '../utils/date';
 import { trackNavigation } from '../lib/trackNavigation';
 import { patternLine } from '../lib/payeePattern';
+import { payoffLine } from '../lib/quickSortPayoff';
 import { QuickSortPattern } from './QuickSortPattern';
 import { safeStorage } from '../lib/safeStorage';
 import {
@@ -28,6 +29,14 @@ const PROMPT: Record<QuickSortKind, string> = {
 
 /** Query keys every review card refreshes after a category change. */
 const AFFECTED_QUERIES = ['transactions', 'recent-transactions', 'dashboard-summary', 'insights', 'budgets'];
+
+/**
+ * What the last answer filed (spec 2026-11-15-quick-sort-answer-payoff-design.md). Always rendered,
+ * empty when there is nothing to say, so a screen reader announces each new line once.
+ */
+function PayoffLine({ text }: { text: string | null }) {
+  return <p role="status" className={text ? 'text-sm text-ink' : 'sr-only'}>{text ?? ''}</p>;
+}
 
 /**
  * Quick sort: a few payee questions, biggest money first, in place of studying every waiting row.
@@ -55,6 +64,9 @@ export function QuickSortCard({ variant = 'full', accountEmail = null }: {
   const [index, setIndex] = useState(0);
   const [startTotal, setStartTotal] = useState<number | null>(null);
   const [answeredInBatch, setAnsweredInBatch] = useState(0);
+  // The line after an answer (spec 2026-11-15-quick-sort-answer-payoff-design.md): until the next
+  // answer or skip.
+  const [payoff, setPayoff] = useState<string | null>(null);
   const [skipped, setSkipped] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -113,9 +125,10 @@ export function QuickSortCard({ variant = 'full', accountEmail = null }: {
     setSaving(true);
     setError(null);
     try {
-      await (dashboard
+      const result = await (dashboard
         ? transactionsApi.quickSortAnswer(q.anchorTransactionId, category, q.kind, 'DASHBOARD')
         : transactionsApi.quickSortAnswer(q.anchorTransactionId, category, q.kind));
+      setPayoff(payoffLine(result, category, q.payee, fmt));
       setAnsweredInBatch((n) => n + q.total);
       setIndex((i) => i + 1);
       setShowMore(false);
@@ -129,6 +142,7 @@ export function QuickSortCard({ variant = 'full', accountEmail = null }: {
   }
 
   function skip() {
+    setPayoff(null);
     setSkipped((n) => n + 1);
     setIndex((i) => i + 1);
     setShowMore(false);
@@ -184,6 +198,7 @@ export function QuickSortCard({ variant = 'full', accountEmail = null }: {
           </h2>
           {current && <span className="text-xs text-muted">{index + 1} of {asked}</span>}
         </div>
+        <PayoffLine text={payoff} />
 
         {current ? (
           <div className="space-y-3">
@@ -274,6 +289,7 @@ export function QuickSortCard({ variant = 'full', accountEmail = null }: {
         </h2>
         <p className="text-xs text-muted">You've sorted {sortedPct}% of your waiting money</p>
       </div>
+      <PayoffLine text={payoff} />
 
       {allSorted && <p className="text-sm text-ink">All sorted. You can change any category later from the Ledger.</p>}
 

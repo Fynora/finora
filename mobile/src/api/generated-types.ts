@@ -7858,6 +7858,8 @@ export interface components {
         AnswerResult: {
             /** Format: int32 */
             filed?: number;
+            amount?: number;
+            remembered?: boolean;
         };
         ApiResponseAnswerResult: {
             success?: boolean;

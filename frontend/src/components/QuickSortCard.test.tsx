@@ -400,6 +400,67 @@ describe('QuickSortCard', () => {
     expect(await screen.findByText("Couldn't save that answer — please try again.")).toBeInTheDocument();
     expect(screen.getByText('SAMPLE STORE')).toBeInTheDocument();
   });
+
+  // Spec 2026-11-15-quick-sort-answer-payoff-design.md: one line after each answer.
+  const REMEMBERED = '✓ Groceries · 3 payments filed (₹2,400). Fynora will remember this for SAMPLE STORE.';
+
+  it('after an answer, says what it filed and that Fynora will remember the payee', async () => {
+    vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch([question(),
+      question({ id: 'vpa:other|EXPENSE', anchorTransactionId: 'txn-2', payee: 'OTHER SHOP' })]));
+    vi.mocked(transactionsApi.quickSortAnswer).mockResolvedValue({ filed: 3, amount: 2400, remembered: true });
+    renderCard();
+    const status = await screen.findByRole('status');
+    expect(status).toHaveTextContent(/^$/);
+    await userEvent.click(await screen.findByRole('button', { name: 'Groceries' }));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(REMEMBERED));
+    expect(await screen.findByText('OTHER SHOP')).toBeInTheDocument();
+  });
+
+  it('replaces the line on the next answer and clears it on a skip', async () => {
+    vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch([question(),
+      question({ id: 'vpa:other|EXPENSE', anchorTransactionId: 'txn-2', payee: 'OTHER SHOP' }),
+      question({ id: 'vpa:third|EXPENSE', anchorTransactionId: 'txn-3', payee: 'THIRD SHOP' })]));
+    vi.mocked(transactionsApi.quickSortAnswer)
+      .mockResolvedValueOnce({ filed: 3, amount: 2400, remembered: true })
+      .mockResolvedValueOnce({ filed: 1, amount: 99, remembered: true });
+    renderCard();
+    await userEvent.click(await screen.findByRole('button', { name: 'Groceries' }));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(REMEMBERED));
+    await screen.findByText('OTHER SHOP');
+    await userEvent.click(screen.getByRole('button', { name: 'Dining' }));
+    await waitFor(() => expect(screen.getByRole('status'))
+      .toHaveTextContent('✓ Dining · 1 payment filed (₹99). Fynora will remember this for OTHER SHOP.'));
+    await screen.findByText('THIRD SHOP');
+    await userEvent.click(screen.getByRole('button', { name: 'Skip' }));
+    expect(screen.getByRole('status')).toHaveTextContent(/^$/);
+  });
+
+  it('shows the line together with "All sorted" after the last answer', async () => {
+    vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch([question()]));
+    vi.mocked(transactionsApi.quickSortAnswer).mockResolvedValue({ filed: 3, amount: 2400, remembered: true });
+    renderCard();
+    await userEvent.click(await screen.findByRole('button', { name: 'Groceries' }));
+    expect(await screen.findByText(/All sorted/)).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(REMEMBERED);
+  });
+
+  it('a failed answer shows no line', async () => {
+    vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch([question()]));
+    vi.mocked(transactionsApi.quickSortAnswer).mockRejectedValue(new Error('boom'));
+    renderCard();
+    await userEvent.click(await screen.findByRole('button', { name: 'Groceries' }));
+    expect(await screen.findByText("Couldn't save that answer — please try again.")).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(/^$/);
+  });
+
+  it('an older server that sends only the count gets "Filed as"', async () => {
+    vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch([question()]));
+    vi.mocked(transactionsApi.quickSortAnswer).mockResolvedValue({ filed: 3 });
+    renderCard();
+    await userEvent.click(await screen.findByRole('button', { name: 'Groceries' }));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('✓ Filed as Groceries.'));
+    expect(screen.getByRole('status')).not.toHaveTextContent(/undefined|NaN/);
+  });
 });
 
 describe('QuickSortCard on the Dashboard', () => {
@@ -446,6 +507,22 @@ describe('QuickSortCard on the Dashboard', () => {
     expect(screen.getByRole('link', { name: 'Open Quick sort' })).toHaveAttribute('href', '/app/transactions');
     expect(screen.queryByText('SHOP 4')).not.toBeInTheDocument();
     expect(transactionsApi.quickSortAnswer).toHaveBeenCalledTimes(3);
+  });
+
+  it('shows the payoff line after an answer, and above the ending', async () => {
+    vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch(shops(5), {
+      rest: { questions: 4, payments: 9, amount: 900, transactionIds: [] },
+    }));
+    vi.mocked(transactionsApi.quickSortAnswer).mockResolvedValue({ filed: 2, amount: 500, remembered: true });
+    renderDashboardCard();
+    for (const payee of ['SHOP 1', 'SHOP 2', 'SHOP 3']) {
+      expect(await screen.findByText(payee)).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: 'Groceries' }));
+      await waitFor(() => expect(screen.getByRole('status'))
+        .toHaveTextContent(`✓ Groceries · 2 payments filed (₹500). Fynora will remember this for ${payee}.`));
+    }
+    expect(await screen.findByText('6 payees still waiting')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Fynora will remember this for SHOP 3.');
   });
 
   it('records the way to the full Quick sort as a contextual navigation', async () => {

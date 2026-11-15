@@ -18231,6 +18231,12 @@
                     "filed": {
                         "type": "integer",
                         "format": "int32"
+                    },
+                    "amount": {
+                        "type": "number"
+                    },
+                    "remembered": {
+                        "type": "boolean"
                     }
                 }
             },

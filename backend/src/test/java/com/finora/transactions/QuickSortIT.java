@@ -74,6 +74,8 @@ class QuickSortIT extends AbstractIntegrationTest {
                 "{\"anchorTransactionId\":\"" + a + "\",\"category\":\"Groceries\",\"kind\":\"SHOP\"}", user));
 
         assertThat(answer.get("filed").asInt()).isEqualTo(3);
+        assertThat(answer.get("amount").decimalValue()).isEqualByComparingTo("300");
+        assertThat(answer.get("remembered").asBoolean()).isTrue();
         for (UUID id : List.of(a, b, c)) {
             Transaction t = reload(id);
             assertThat(t.isCategoryManuallySet()).isTrue();
@@ -293,6 +295,7 @@ class QuickSortIT extends AbstractIntegrationTest {
 
         // The question showed the two waiting payments; only those are filed.
         assertThat(answer.get("filed").asInt()).isEqualTo(2);
+        assertThat(answer.get("amount").decimalValue()).isEqualByComparingTo("200");
         assertThat(reload(b).isNeedsCategoryReview()).isFalse();
         Transaction untouched = reload(filedByRule);
         assertThat(untouched.getCategoryId()).isEqualTo(shoppingId);
@@ -304,6 +307,24 @@ class QuickSortIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void theMoneyFiledLeavesOutAWaitingPaymentTheUserChoseByHand() throws Exception {
+        UUID a = seed(user.getId(), accountId, "vpa:samplea", 100);
+        UUID b = seed(user.getId(), accountId, "vpa:samplea", 40);
+        UUID chosen = seed(user.getId(), accountId, "vpa:samplea", 700);
+        Transaction byHand = reload(chosen);
+        byHand.setCategoryManuallySet(true);
+        transactionRepository.save(byHand);
+
+        JsonNode answer = data(post("/api/v1/transactions/quick-sort/answer",
+                "{\"anchorTransactionId\":\"" + a + "\",\"category\":\"Groceries\",\"kind\":\"SHOP\"}", user));
+
+        assertThat(answer.get("filed").asInt()).isEqualTo(2);
+        assertThat(answer.get("amount").decimalValue()).isEqualByComparingTo("140");
+        assertThat(answer.get("remembered").asBoolean()).isTrue();
+        assertThat(reload(chosen).getQuickSortedAt()).isNull();
+    }
+
+    @Test
     void answeringARowOnAKeyThatNamesNoOneFilesOnlyThatRow() throws Exception {
         UUID a = seed(user.getId(), accountId, "cut:samplepay.12", 100);
         UUID b = seed(user.getId(), accountId, "cut:samplepay.12", 90);
@@ -312,6 +333,8 @@ class QuickSortIT extends AbstractIntegrationTest {
                 "{\"anchorTransactionId\":\"" + a + "\",\"category\":\"Dining\",\"kind\":\"SHOP\"}", user));
 
         assertThat(answer.get("filed").asInt()).isEqualTo(1);
+        assertThat(answer.get("amount").decimalValue()).isEqualByComparingTo("100");
+        assertThat(answer.get("remembered").asBoolean()).isFalse();
         assertThat(reload(a).isNeedsCategoryReview()).isFalse();
         assertThat(reload(b).isNeedsCategoryReview()).isTrue();
         assertThat(reload(b).getQuickSortedAt()).isNull();

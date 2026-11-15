@@ -99,13 +99,17 @@ public class QuickSortService {
                 Transaction::getUserId, userId, "Transaction");
         boolean onePayee = CounterpartyIdentity.identifiesOnePayee(anchor.getCounterpartyKey());
         List<UUID> otherWaiting = new ArrayList<>();
+        // The money this answer files, for the line shown after it: the anchor and the rows filed with it.
+        java.math.BigDecimal amount = anchor.getAmount() == null ? java.math.BigDecimal.ZERO : anchor.getAmount().abs();
         if (onePayee) {
             List<UUID> liveAccountIds = accountRepository.findByUserId(userId).stream().map(Account::getId).toList();
             if (!liveAccountIds.isEmpty()) {
-                transactionRepository.findByUserIdAndCounterpartyKeyAndTxnTypeAndIdNotAndAccountIdIn(userId,
-                                anchor.getCounterpartyKey(), anchor.getTxnType(), anchor.getId(), liveAccountIds)
-                        .stream().filter(t -> t.isNeedsCategoryReview() && !t.isCategoryManuallySet())
-                        .forEach(t -> otherWaiting.add(t.getId()));
+                for (Transaction t : transactionRepository.findByUserIdAndCounterpartyKeyAndTxnTypeAndIdNotAndAccountIdIn(
+                        userId, anchor.getCounterpartyKey(), anchor.getTxnType(), anchor.getId(), liveAccountIds)) {
+                    if (!t.isNeedsCategoryReview() || t.isCategoryManuallySet()) continue;
+                    otherWaiting.add(t.getId());
+                    if (t.getAmount() != null) amount = amount.add(t.getAmount().abs());
+                }
             }
         }
         // Read before the answer re-files the row: was it the AI's guess, and did the customer keep it?
@@ -121,7 +125,8 @@ public class QuickSortService {
         filed.add(anchor.getId());
         transactionRepository.stampQuickSorted(userId, filed, java.time.Instant.now());
         metrics.answered(req.kind().name(), req.sourceOrDefault());
-        return new QuickSortDto.AnswerResult(filed.size());
+        // onePayee is exactly when updateCategory above (default scope) pinned the payee.
+        return new QuickSortDto.AnswerResult(filed.size(), amount, onePayee);
     }
 
     /** "Stop asking about these": the rows keep their category and leave the review queue. */

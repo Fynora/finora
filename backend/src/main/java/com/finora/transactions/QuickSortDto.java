@@ -84,10 +84,17 @@ public final class QuickSortDto {
         }
     }
 
-    /** @param filed how many of the payee's rows the answer filed: the anchor, and for a key that names
-     *               one payee every other row of it the user had not chosen by hand (waiting or not,
-     *               as "apply to all similar" does) */
-    public record AnswerResult(int filed) {}
+    /**
+     * What one answer did, for the line the client shows after it (spec
+     * 2026-11-15-quick-sort-answer-payoff-design.md).
+     *
+     * @param filed      how many rows the answer filed: the anchor, and for a key that names one payee
+     *                   the payee's other rows still waiting that the user had not chosen by hand
+     * @param amount     the money those rows add up to, as a positive number
+     * @param remembered true when the answer was saved for the payee, so later imports can file it:
+     *                   exactly when the key names one payee. A "row:" question remembers nothing.
+     */
+    public record AnswerResult(int filed, java.math.BigDecimal amount, boolean remembered) {}
 
     /** "Stop asking about these": the rest's ids from the batch. Capped so one request stays bounded. */
     public record KeepRestRequest(@jakarta.validation.constraints.NotNull

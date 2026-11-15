@@ -276,6 +276,37 @@ class BankActivityCategoryTest {
 
     // --- paysCardBill: the card-bill test on its own, shared with Insights ---
 
+    // Spec 2026-11-15-card-bill-issuer-list-design.md: the payee is the card itself, "<issuer> Bank
+    // Credit Card", cut by the paying app or bank to "Cred", "Credi", "Credit" or "Credit Ca".
+    @Test
+    void aCardBillNamedByItsIssuer_isTransfer() {
+        for (String narration : new String[] {
+                "UPI/ICICI Bank Cred/100000000001/Sent using Paytm",
+                "UPI/SBI Bank Credit/100000000001/Sent using Paytm",
+                "UPI/IDFC Bank Credi/100000000001/Sent using Paytm",
+                "UPI/Axis Bank Credi/100000000001/Sent using Paytm",
+                "UPI/HDFC Bank Credi/100000000001/Sent using Paytm",
+                "UPI/Yes Bank Credit/100000000001/Sent using Paytm",
+                "UPI/Kotak Bank Credit Card/100000000001/Sent using Paytm",
+                "BIL/100000000001/ICICI BANK CREDIT CA/100000000002"}) {
+            assertThat(of(narration, EXPENSE)).as(narration).isEqualTo("Transfer");
+            assertThat(BankActivityCategory.paysCardBill(narration)).as(narration).isTrue();
+        }
+    }
+
+    @Test
+    void issuerCardBill_notCaught() {
+        // An education-loan company: "credila" is not the start of "credit card".
+        assertThat(of("UPI/HDFC Bank Credila/100000000001/fees", EXPENSE)).isNull();
+        // A payments portal for fees, not a card.
+        assertThat(of("UPI-STATE BANK COLLECT-STATEBANKCOLLECT@SBI-SBIN0XXXXXX-100000000001-PAYMENT", EXPENSE)).isNull();
+        // Money in is never a card bill paid.
+        assertThat(of("UPI/ICICI Bank Credit/100000000001/refund", INCOME)).isNull();
+        // Only the listed issuers.
+        assertThat(of("UPI/SAMPLE Bank Cred/100000000001/Sent using Paytm", EXPENSE)).isNull();
+        assertThat(BankActivityCategory.paysCardBill("UPI/SAMPLE Bank Cred/100000000001/Sent using Paytm")).isFalse();
+    }
+
     @Test
     void paysCardBill_trueForCardBillAppAndSelfTransferWording() {
         assertThat(BankActivityCategory.paysCardBill("UPI-CREDCLUB-CREDCLUB@ICICI-XXXX0000114-")).isTrue(); // synthetic-ok

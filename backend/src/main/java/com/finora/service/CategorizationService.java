@@ -91,7 +91,9 @@ public class CategorizationService {
      */
     // 7: a card instalment worded "... 2ND OF 3 INSTALLMENTS PRINCIPAL" is "Loan EMI", and its
     //    "... INSTALLMENTS INTEREST" is "Fees/Interest" (BankActivityCategory, 2026-10-14).
-    public static final short SUGGESTION_VERSION = 7;
+    // 8: a card bill named by its issuing bank ("<issuer> Bank Cred...", paid through Paytm or ICICI
+    //    net banking) is "Transfer" (BankActivityCategory, 2026-11-15).
+    public static final short SUGGESTION_VERSION = 8;
 
     /** {@code Suggestion.source()} for a Trusted shared-corpus row (spec §5/§9). */
     public static final String SHARED_CORPUS_SOURCE = "shared_corpus";

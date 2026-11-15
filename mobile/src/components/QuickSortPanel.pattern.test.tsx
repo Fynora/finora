@@ -20,6 +20,10 @@ jest.mock('../lib/safeStorage', () => ({
 jest.mock('../lib/invalidateFinancialData', () => ({ invalidateFinancialData: jest.fn() }));
 jest.mock('../lib/haptics');
 jest.mock('./CategoryPickerModal', () => ({ CategoryPickerModal: () => null }));
+// Held steady: unmocked, the Reduce Transparency store starts null and flips to false a tick after
+// the panel's Card first renders, once per test file. GlassSurface then swaps its root view, which
+// remounts the whole panel, so an element found just before the flip is already unmounted.
+jest.mock('../lib/useReduceTransparency', () => ({ useReduceTransparency: jest.fn(() => false) }));
 
 const tx = transactionsApi as jest.Mocked<typeof transactionsApi>;
 const storage = safeStorage as jest.Mocked<typeof safeStorage>;
@@ -64,10 +68,9 @@ describe('QuickSortPanel pattern line', () => {
   it("opens and closes the payee's payments from the pattern line", async () => {
     tx.quickSort.mockResolvedValue(batch([question()]));
     renderPanel();
-    const line = await screen.findByRole('button', { name: LINE });
-    expect(line).toBeCollapsed();
+    await waitFor(() => expect(screen.getByRole('button', { name: LINE })).toBeCollapsed());
     expect(screen.queryByText(/UPI\/RAVI K\/REF0/)).not.toBeOnTheScreen();
-    fireEvent.press(line);
+    fireEvent.press(screen.getByRole('button', { name: LINE }));
     expect(screen.getByRole('button', { name: LINE })).toBeExpanded();
     expect(screen.getAllByText(/UPI\/RAVI K\/REF/)).toHaveLength(10);
     fireEvent.press(screen.getByRole('button', { name: LINE }));

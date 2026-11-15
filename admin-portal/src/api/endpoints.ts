@@ -164,6 +164,18 @@ export const phoneApi = {
 export interface UserListFilters {
   q?: string;
   status?: string;
+  /** FREE, PLUS or PREMIUM -- the plan the user gets now. */
+  plan?: string;
+  bankId?: string;
+  /** yyyy-MM-dd, India time, both ends included. */
+  joinedFrom?: string;
+  joinedTo?: string;
+  /** yyyy-MM-dd on the latest active day; a "to" date also matches users never seen. */
+  lastActiveFrom?: string;
+  lastActiveTo?: string;
+  /** Statements imported, both ends included. */
+  importsMin?: number;
+  importsMax?: number;
   page?: number;
   size?: number;
 }

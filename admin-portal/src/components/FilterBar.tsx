@@ -10,7 +10,10 @@ export type FilterField =
   // three bare selects. Separate from `placeholder`, which only supplies the visible "all/any"
   // option's text and isn't itself an accessible-name mechanism for <select>.
   | { type: 'select'; key: string; value: string; onChange: (v: string) => void; options: { label: string; value: string }[]; placeholder?: string; label: string }
-  | { type: 'date'; key: string; value: string; onChange: (v: string) => void; label: string };
+  | { type: 'date'; key: string; value: string; onChange: (v: string) => void; label: string }
+  // A whole number (e.g. a count range's ends); the value stays a string so saved views keep one
+  // Record<string, string> shape, '' meaning "no filter".
+  | { type: 'number'; key: string; value: string; onChange: (v: string) => void; label: string; min?: number };
 
 interface FilterBarSavedViewsProps<T extends Record<string, string>> {
   views: SavedView<T>[];
@@ -87,6 +90,25 @@ export function FilterBar<T extends Record<string, string>>({
               {field.placeholder && <option value="">{field.placeholder}</option>}
               {field.options.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
             </select>
+          );
+        }
+        if (field.type === 'number') {
+          return (
+            <div key={field.key} className="flex items-center gap-1.5">
+              <label htmlFor={`filterbar-${field.key}`} className="text-xs font-medium text-muted whitespace-nowrap">
+                {field.label}
+              </label>
+              <input
+                id={`filterbar-${field.key}`}
+                type="number"
+                inputMode="numeric"
+                step={1}
+                min={field.min}
+                value={field.value}
+                onChange={(e) => field.onChange(e.target.value)}
+                className="w-20 bg-card border border-border rounded-lg px-2.5 py-2 text-sm shadow-card"
+              />
+            </div>
           );
         }
         return (

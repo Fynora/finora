@@ -190,7 +190,9 @@ describe('UserDetail — profile actions', () => {
   // one, and every suspension shows what the customer was told.
   it('shows a suspension with no reason, and records one, sending the notice', async () => {
     vi.mocked(adminUsersApi.get).mockResolvedValue({ ...USER, status: 'SUSPENDED', suspendedAt: '2026-10-01T00:00:00Z' });
-    vi.mocked(adminUsersApi.suspend).mockResolvedValue({ ...USER, status: 'SUSPENDED' });
+    vi.mocked(adminUsersApi.suspend).mockResolvedValue({
+      ...USER, status: 'SUSPENDED', planCode: null, lastActiveDate: null, importCount: 0,
+    });
     renderWith(['USER_VIEW', 'USER_DELETE']);
     await screen.findByText('Target User');
 

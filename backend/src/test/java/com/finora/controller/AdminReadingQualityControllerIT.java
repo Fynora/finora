@@ -633,11 +633,12 @@ class AdminReadingQualityControllerIT extends AbstractIntegrationTest {
         String fileBank = bankName();
         String fingerprint = layoutInProfile(id, "MANUAL");
         upload(owner, fingerprint, fileBank, true, "PARSED", null);
+        upload(owner, fingerprint, null, true, "PARSED", null); // same layout, a file that named none
 
         JsonNode report = report();
 
         assertThat(bankRow(report, fileBank).path("statementsRead").asLong()).isEqualTo(1);
-        assertThat(bankRow(report, profileBank)).isNull();
+        assertThat(bankRow(report, profileBank).path("statementsRead").asLong()).isEqualTo(1);
     }
 
     @Test

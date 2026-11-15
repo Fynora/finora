@@ -2,7 +2,8 @@
 
 Date: 2026-11-15. Size: small change (one endpoint, one admin page). Approved by Sid in conversation:
 the ranking number, what counts as a fix, and approach A. Revised the same day after a bug-and-gap
-review: Sid chose to add reader failures to the rate and to leave out internal accounts.
+review: Sid chose to add reader failures to the rate, to leave out internal accounts, and to count
+uploads whose file named no bank under their layout profile's bank.
 
 ## Why
 
@@ -38,16 +39,22 @@ No file names, no customer ids, no references, no statement content: bank names 
 All counts are live queries over existing tables. No migration. `ReadingQualityService`'s class doc
 is the full statement.
 
-- **Bank** comes from `statement_analysis_sessions.bank_name` for every number. A hold or fix finds
-  it through its import job, in this order:
-  1. The job's staging session (`import_session_id`): the latest upload record that names a bank.
+- **Bank of an upload record**: `statement_analysis_sessions.bank_name`. When detection ran and the
+  file named no bank (`identity_checked`, no `bank_name`), the bank its layout's profile gives such a
+  file (Sid, review: "count them"). This uses `ProfileBankFiller.fillBankName`, the same rule that
+  named it for the customer on the review screen: an admin-attached layout's profile bank straight
+  away, and an automatically grouped one only once two different uploaders' files named it and none
+  named another. It applies the profiles as they stand now. Records from before V239 are not named
+  this way, because whether their file named a bank was never recorded.
+- **Bank of a hold or fix**: through its import job, in this order:
+  1. The job's staging session (`import_session_id`): the latest upload record with a bank.
   2. When that session has no upload record at all: `held_statements.bank_name`, but only if that
      exact name already appears in the upload records. A re-read of a held statement, whether an
      admin's "re-run parser" or the Claude fix's re-read, moves the job to a new session that has no
      record (`ImportJob.replaceHeldSession`). Before this rule, every Claude-fixed statement hold
      fell into "Bank not known". Found at review.
   3. The job's failed read: the latest reader failure of the same customer and file (`content_hash`)
-     that names a bank. This is how an import hold finds its bank.
+     with a bank. This is how an import hold finds its bank.
 
   Otherwise `held_statements.bank_name` is not used. It is `DetectedAccountInfo.suggestedName`,
   possibly filled in from a layout profile, so its text can differ from the upload record's.
@@ -81,8 +88,8 @@ is the full statement.
 ## Known limits (shown on the page)
 
 - Uploads from before bank names were recorded (V239, no backfill) have no bank and are not counted.
-- An upload the engine named no bank for is not counted under any bank, even when a layout profile
-  later fills one in for the customer.
+- An upload whose file named no bank, and whose layout's profile doesn't name one either, is not
+  counted under any bank.
 - A file that failed and was later read counts as two tries, one of them failed.
 - Counts can drop slightly when customers delete their accounts.
 

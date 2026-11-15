@@ -153,8 +153,10 @@ function ReadingQualityContent() {
         read, an image-only PDF, an unexpected error), once per file; wrong passwords and damaged files are
         not counted. Holds: statements held for review. Held or failed: (holds + failed reads) ÷ (statements
         read + failed reads). Fixes: a Claude fix that reached Fixed, or a fix reference an engineer recorded
-        on a hold, once per hold. Internal and admin accounts are left out. Uploads from before bank names
-        were recorded are not counted, and counts drop slightly when customers delete their accounts.
+        on a hold, once per hold. A file that names no bank counts under its layout profile's bank, as the
+        customer saw it on the review screen. Internal and admin accounts are left out. Uploads from before
+        bank names were recorded are not counted, and counts drop slightly when customers delete their
+        accounts.
       </p>
     </div>
   );

@@ -3,6 +3,7 @@ package com.finora.controller;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.AbstractIntegrationTest;
+import com.finora.accounts.AccountDto;
 import com.finora.entity.HeldStatement;
 import com.finora.entity.ImportJob;
 import com.finora.entity.Permission;
@@ -16,6 +17,7 @@ import com.finora.repository.RefreshTokenRepository;
 import com.finora.repository.RoleRepository;
 import com.finora.repository.UserRepository;
 import com.finora.security.JwtService;
+import com.finora.service.BankManagementService;
 import com.finora.testsupport.TestSessions;
 import com.finora.util.UserZone;
 import org.junit.jupiter.api.BeforeEach;
@@ -60,6 +62,7 @@ class AdminReadingQualityControllerIT extends AbstractIntegrationTest {
     @Autowired private JwtService jwtService;
     @Autowired private RefreshTokenRepository refreshTokens;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private BankManagementService banks;
     private final ObjectMapper mapper = new ObjectMapper();
 
     private User admin;
@@ -183,6 +186,48 @@ class AdminReadingQualityControllerIT extends AbstractIntegrationTest {
                 INSERT INTO held_statement_events (held_statement_id, event_type, created_at)
                 VALUES (?, 'FINDINGS_UPDATED', ?)
                 """, held.getId(), Timestamp.from(at));
+    }
+
+    /** A made-up custom bank, so no other test's rows share its name. Returns its official name. */
+    private String customBank(String id) {
+        String name = "IT Profile Bank " + id;
+        banks.createCustom(admin.getId(), new AccountDto.BankDto.CreateRequest(
+                id, name, "ITPB", null, null, null, null, null));
+        return name;
+    }
+
+    private static String customBankId() {
+        return "ITPB_" + UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase();
+    }
+
+    /** A layout whose profile carries {@code bankId}, linked by an admin ({@code MANUAL}) or grouped
+     *  automatically ({@code AUTO}). Returns the layout's fingerprint. */
+    private String layoutInProfile(String bankId, String linkSource) {
+        String fingerprint = "IT" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+        UUID profile = UUID.randomUUID();
+        jdbc.update("INSERT INTO layout_profile (id, name, bank_id, created_at, updated_at) VALUES (?, ?, ?, now(), now())",
+                profile, "IT profile " + fingerprint, bankId);
+        jdbc.update("""
+                INSERT INTO layout_registry (id, fingerprint, first_seen, last_seen, profile_id, profile_version,
+                                             profile_link_source)
+                VALUES (?, ?, now(), now(), ?, 1, ?)
+                """, UUID.randomUUID(), fingerprint, profile, linkSource);
+        return fingerprint;
+    }
+
+    /** A customer upload of layout {@code fingerprint}; {@code bank} is what the file itself named. */
+    private UUID upload(User uploader, String fingerprint, String bank, boolean identityChecked, String outcome,
+                        String failureCode) {
+        UUID session = "PARSED".equals(outcome) ? UUID.randomUUID() : null;
+        jdbc.update("""
+                INSERT INTO statement_analysis_sessions
+                    (id, reference, user_id, source, outcome, row_count, import_session_id, layout_fingerprint,
+                     identity_checked, bank_name, failure_code, content_hash)
+                VALUES (?, ?, ?, 'CUSTOMER_IMPORT', ?, 5, ?, ?, ?, ?, ?, ?)
+                """, UUID.randomUUID(), "SA-IT-" + UUID.randomUUID().toString().substring(0, 12),
+                uploader.getId(), outcome, session, fingerprint, identityChecked, bank, failureCode,
+                "hash-" + UUID.randomUUID());
+        return session;
     }
 
     private ResponseEntity<String> get(User user, String query) {
@@ -349,7 +394,7 @@ class AdminReadingQualityControllerIT extends AbstractIntegrationTest {
     /** The upload record exists and the engine named no bank: its read is not counted under any
      *  bank, so neither is its hold, whatever name the hold itself carries. */
     @Test
-    void anUploadTheEngineNamedNoBankFor_keepsItsHoldInBankNotKnown() throws Exception {
+    void anUploadTheEngineNamedNoBankForAndNoProfileNames_keepsItsHoldInBankNotKnown() throws Exception {
         String known = bankName();
         read(known, 1, Instant.now());
         UUID session = UUID.randomUUID();
@@ -555,6 +600,61 @@ class AdminReadingQualityControllerIT extends AbstractIntegrationTest {
                 """, UUID.randomUUID(), "SA-IT-" + UUID.randomUUID().toString().substring(0, 12), gone, bank);
 
         assertThat(bankRow(report(), bank).path("statementsRead").asLong()).isEqualTo(1);
+    }
+
+    @Test
+    void anAdminAttachedProfile_namesTheReadsFailuresAndHoldsOfFilesThatNamedNoBank() throws Exception {
+        String id = customBankId();
+        String bank = customBank(id);
+        String fingerprint = layoutInProfile(id, "MANUAL");
+        List<UUID> sessions = new ArrayList<>();
+        for (int i = 0; i < 9; i++) sessions.add(upload(owner, fingerprint, null, true, "PARSED", null));
+        upload(owner, fingerprint, null, true, "FAILED", "IMPORT_NO_TRANSACTIONS_FOUND");
+        upload(owner, fingerprint, null, true, "FAILED", "IMPORT_PDF_PASSWORD_INVALID"); // the customer's
+        upload(owner, fingerprint, null, false, "PARSED", null); // before V239: never named this way
+        HeldStatement held = trustHold(sessions.get(0));
+        claudeFix(held.getImportJobId(), "FIXED", Instant.now());
+
+        JsonNode row = bankRow(report(), bank);
+
+        assertThat(row).isNotNull();
+        assertThat(row.path("statementsRead").asLong()).isEqualTo(9);
+        assertThat(row.path("rowsRead").asLong()).isEqualTo(45);
+        assertThat(row.path("failedReads").asLong()).isEqualTo(1);
+        assertThat(row.path("holds").asLong()).isEqualTo(1);
+        assertThat(row.path("fixes").asLong()).isEqualTo(1);
+        assertThat(row.path("problemRate").asDouble()).isEqualTo(0.2);
+    }
+
+    @Test
+    void aFileThatNamedItsOwnBank_keepsItEvenInAProfileOfAnother() throws Exception {
+        String id = customBankId();
+        String profileBank = customBank(id);
+        String fileBank = bankName();
+        String fingerprint = layoutInProfile(id, "MANUAL");
+        upload(owner, fingerprint, fileBank, true, "PARSED", null);
+
+        JsonNode report = report();
+
+        assertThat(bankRow(report, fileBank).path("statementsRead").asLong()).isEqualTo(1);
+        assertThat(bankRow(report, profileBank)).isNull();
+    }
+
+    @Test
+    void anAutomaticallyGroupedProfile_namesFilesOnlyOnceTwoUploadersFilesAgree() throws Exception {
+        String id = customBankId();
+        String bank = customBank(id);
+        String fingerprint = layoutInProfile(id, "AUTO");
+        upload(owner, fingerprint, null, true, "PARSED", null);
+        upload(owner, fingerprint, bank, true, "PARSED", null);
+
+        JsonNode oneUploader = bankRow(report(), bank);
+
+        upload(customer(false), fingerprint, bank, true, "PARSED", null);
+        JsonNode twoUploaders = bankRow(report(), bank);
+
+        assertThat(oneUploader.path("statementsRead").asLong()).isEqualTo(1);
+        assertThat(twoUploaders.path("statementsRead").asLong()).isEqualTo(3);
     }
 
     @Test

@@ -1,8 +1,11 @@
 package com.finora.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.dto.ReadingQualityDto;
 import com.finora.exception.ApiException;
 import com.finora.exception.ErrorCode;
+import com.finora.imports.ProfileBankFiller;
 import com.finora.util.UserZone;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -57,35 +60,43 @@ import java.util.stream.Collectors;
  * accounts are left out, as on the activation page (Sid, 2026-11-15). A deleted customer's upload
  * records stay (no foreign key to users) and are counted.
  *
- * <h2>Where the bank comes from</h2>
+ * <h2>The bank of an upload record</h2>
  *
- * <p>From {@code statement_analysis_sessions.bank_name}, the engine's own detection
- * ({@code DocumentIdentity}: the bank's official name, never the generic fallback), for every
- * number. A hold or fix reaches it through its import job, in this order:
+ * <p>{@code statement_analysis_sessions.bank_name}, the engine's own detection
+ * ({@code DocumentIdentity}: the bank's official name, never the generic fallback). When detection
+ * ran and the file named no bank ({@code identity_checked}, no {@code bank_name}), the bank its
+ * layout's profile gives such a file -- {@link ProfileBankFiller#fillBankName}, the same rule that
+ * named it for the customer on the review screen (Sid, 2026-11-15: count them). The rule is applied
+ * as the profiles stand now, so attaching a layout to a profile names its earlier uploads too. A
+ * record from before V239 ({@code identity_checked} false) is not named this way: whether its file
+ * named a bank was never recorded, and the profile rule only ever fills a file that named none.
+ *
+ * <h2>The bank of a hold or fix</h2>
+ *
+ * <p>Through its import job, in this order:
  *
  * <ol>
  *   <li>The job's staging session: the worker holds a job with the session it staged
  *       ({@code ImportJob.holdForTrustReview}), and that upload's record carries the same
  *       {@code import_session_id} ({@code StatementAnalysisRecorder.recordParsed}). The latest
- *       record naming a bank wins.</li>
+ *       record with a bank wins.</li>
  *   <li>When that session has no upload record at all: {@code held_statements.bank_name}, and only
- *       if that exact name is one the upload records already use. Re-reading a held statement -- an
- *       admin's "re-run parser", and the Claude fix's own re-read once its PR deploys, both
+ *       if that exact name is one an upload record has. Re-reading a held statement -- an admin's
+ *       "re-run parser", and the Claude fix's own re-read once its PR deploys, both
  *       {@code HeldStatementService.rerunParser} -- stages the re-read under a new session, moves the
  *       job onto it ({@code ImportJob.replaceHeldSession}) and writes no upload record, and nothing
- *       keeps the old session's id. For a recognised bank the hold's name and the record's are both
- *       {@code BankRegistry}'s official name. The generic fallback ("Bank Statement Import") and a
- *       name no record carries go to "bank not known" rather than becoming a row of their own.
- *       Not used when the session's record exists and names no bank: that read is under no bank,
- *       so its hold is not either.</li>
+ *       keeps the old session's id. For a bank the hold's name and the record's are the same
+ *       official name. The generic fallback ("Bank Statement Import") and a name no record has go to
+ *       "bank not known" rather than becoming a row of their own. Not used when the session's record
+ *       exists and has no bank: that read is under no bank, so its hold is not either.</li>
  *   <li>The job's failed read: the latest reader failure of the same customer and file
- *       ({@code content_hash}) naming a bank. This is what names an import hold's bank.</li>
+ *       ({@code content_hash}) with a bank. This is what names an import hold's bank.</li>
  * </ol>
  *
  * <p>{@code held_statements.bank_name} is not used otherwise: it is
- * {@code DetectedAccountInfo.suggestedName}, possibly filled from a layout profile, so for the same
- * statement it can differ from the record's, and a rate built from both would divide one name's
- * holds by another name's reads. A job with no bank by any route is counted in "bank not known".
+ * {@code DetectedAccountInfo.suggestedName}, so for the same statement it can differ from the
+ * record's, and a rate built from both would divide one name's holds by another name's reads. A job
+ * with no bank by any route is counted in "bank not known".
  *
  * <p>Live counts over the tables as they stand: a customer who deletes their account takes their
  * import jobs and holds with them ({@code ON DELETE CASCADE}), so past weeks can go down.
@@ -131,47 +142,76 @@ public class ReadingQualityService {
                          AND (u.internal_account OR u.account_scope <> 'USER'))
             """;
 
+    /**
+     * The CTE {@code pb(fingerprint, bank_name)}: each layout's profile bank for a file that named
+     * none, bound from one JSON object parameter. First in every query, so its parameter comes first.
+     */
+    private static final String PROFILE_BANKS = """
+            pb AS (SELECT key AS fingerprint, value AS bank_name FROM jsonb_each_text(CAST(? AS jsonb)))
+            """;
+
+    /** Joins {@code pb} to the upload record {@code %1$s} as {@code %1$s_pb}; see {@link #bankOf}. */
+    private static final String PROFILE_BANK_OF = """
+            LEFT JOIN pb %1$s_pb ON %1$s.identity_checked AND %1$s.bank_name IS NULL
+                                AND %1$s_pb.fingerprint = %1$s.layout_fingerprint
+            """;
+
+    /** The bank of the upload record {@code alias}, once {@link #PROFILE_BANK_OF} is joined. */
+    private static String bankOf(String alias) {
+        return "coalesce(%1$s.bank_name, %1$s_pb.bank_name)".formatted(alias);
+    }
+
     /** Joins the bank of the job {@code j}; select it as {@link #BANK}. See the class doc. */
     private static final String BANK_OF_JOB = """
             LEFT JOIN LATERAL (
                 SELECT count(*) > 0 AS has_evidence,
-                       (array_agg(s.bank_name ORDER BY s.created_at DESC)
-                            FILTER (WHERE s.bank_name IS NOT NULL))[1] AS bank_name
+                       (array_agg(%2$s ORDER BY s.created_at DESC) FILTER (WHERE %2$s IS NOT NULL))[1] AS bank_name
                 FROM statement_analysis_sessions s
+                %1$s
                 WHERE j.import_session_id IS NOT NULL AND s.import_session_id = j.import_session_id
             ) ev ON TRUE
             LEFT JOIN held_statements hb ON hb.import_job_id = j.id
-            LEFT JOIN (SELECT DISTINCT bank_name FROM statement_analysis_sessions WHERE bank_name IS NOT NULL) kb
+            LEFT JOIN (SELECT bank_name FROM statement_analysis_sessions WHERE bank_name IS NOT NULL
+                       UNION SELECT bank_name FROM pb) kb
               ON NOT ev.has_evidence AND kb.bank_name = hb.bank_name
             LEFT JOIN LATERAL (
-                SELECT f.bank_name FROM statement_analysis_sessions f
+                SELECT %4$s AS bank_name FROM statement_analysis_sessions f
+                %3$s
                 WHERE j.content_hash IS NOT NULL AND f.user_id = j.user_id AND f.content_hash = j.content_hash
-                  AND f.bank_name IS NOT NULL AND %s
+                  AND %4$s IS NOT NULL AND %5$s
                 ORDER BY f.created_at DESC
                 LIMIT 1
             ) fb ON TRUE
-            """.formatted(READER_FAILURE);
+            """.formatted(PROFILE_BANK_OF.formatted("s"), bankOf("s"),
+                          PROFILE_BANK_OF.formatted("f"), bankOf("f"), READER_FAILURE);
 
     private static final String BANK = "coalesce(ev.bank_name, kb.bank_name, fb.bank_name)";
 
     private static final String READS = """
-            SELECT s.bank_name, (date_trunc('week', s.created_at AT TIME ZONE ?))::date AS week_start,
-                   count(*), coalesce(sum(s.row_count), 0)
-            FROM statement_analysis_sessions s
-            WHERE s.source = 'CUSTOMER_IMPORT' AND s.outcome = 'PARSED' AND s.bank_name IS NOT NULL
-              AND s.created_at >= ? AND s.created_at < ?
-              AND %s
+            WITH %s, r AS (
+                SELECT %s AS bank_name, s.created_at, s.row_count
+                FROM statement_analysis_sessions s
+                %s
+                WHERE s.source = 'CUSTOMER_IMPORT' AND s.outcome = 'PARSED'
+                  AND s.created_at >= ? AND s.created_at < ?
+                  AND %s
+            )
+            SELECT bank_name, (date_trunc('week', created_at AT TIME ZONE ?))::date AS week_start,
+                   count(*), coalesce(sum(row_count), 0)
+            FROM r
+            WHERE bank_name IS NOT NULL
             GROUP BY 1, 2
-            """.formatted(CUSTOMER.formatted("s.user_id"));
+            """.formatted(PROFILE_BANKS, bankOf("s"), PROFILE_BANK_OF.formatted("s"), CUSTOMER.formatted("s.user_id"));
 
-    /** One per file, dated by its first failure in the period, under the bank its first row names. */
+    /** One per file, dated by its first failure in the period, under the bank its first row has. */
     private static final String FAILED_READS = """
-            WITH files AS (
+            WITH %s, files AS (
                 SELECT coalesce(f.user_id::text || ':' || f.content_hash, f.id::text) AS file_key,
                        min(f.created_at) AS failed_at,
-                       (array_agg(f.bank_name ORDER BY f.created_at))[1] AS bank_name
+                       (array_agg(%s ORDER BY f.created_at))[1] AS bank_name
                 FROM statement_analysis_sessions f
-                WHERE %s AND f.bank_name IS NOT NULL
+                %s
+                WHERE %s AND %s IS NOT NULL
                   AND f.created_at >= ? AND f.created_at < ?
                   AND %s
                 GROUP BY 1
@@ -179,14 +219,15 @@ public class ReadingQualityService {
             SELECT bank_name, (date_trunc('week', failed_at AT TIME ZONE ?))::date AS week_start, count(*)
             FROM files
             GROUP BY 1, 2
-            """.formatted(READER_FAILURE, CUSTOMER.formatted("f.user_id"));
+            """.formatted(PROFILE_BANKS, bankOf("f"), PROFILE_BANK_OF.formatted("f"), READER_FAILURE, bankOf("f"),
+                          CUSTOMER.formatted("f.user_id"));
 
     /**
      * One hold per job: a job held for import review and later for trust review is one statement.
-     * An import-only hold whose failure names a bank is that bank's failed read, so not a hold too.
+     * An import-only hold whose failure has a bank is that bank's failed read, so not a hold too.
      */
     private static final String HOLDS = """
-            WITH held AS (
+            WITH %s, held AS (
                 SELECT h.import_job_id AS job_id, h.created_at AS held_at, TRUE AS trust FROM held_statements h
                 UNION ALL
                 SELECT j.id, j.created_at, FALSE FROM import_jobs j WHERE j.was_held_for_review
@@ -201,10 +242,10 @@ public class ReadingQualityService {
               AND (p.trust OR fb.bank_name IS NULL)
               AND %s
             GROUP BY 1, 2, 3
-            """.formatted(BANK, BANK_OF_JOB, CUSTOMER.formatted("j.user_id"));
+            """.formatted(PROFILE_BANKS, BANK, BANK_OF_JOB, CUSTOMER.formatted("j.user_id"));
 
     private static final String FIXES = """
-            WITH fix_dates AS (
+            WITH %s, fix_dates AS (
                 SELECT c.job_id, c.updated_at AS fixed_at FROM claude_fix_jobs c WHERE c.state = 'FIXED'
                 UNION ALL
                 SELECT h.import_job_id, e.last_at
@@ -223,15 +264,26 @@ public class ReadingQualityService {
             WHERE p.fixed_at >= ? AND p.fixed_at < ?
               AND %s
             GROUP BY 1, 2
-            """.formatted(BANK, BANK_OF_JOB, CUSTOMER.formatted("j.user_id"));
+            """.formatted(PROFILE_BANKS, BANK, BANK_OF_JOB, CUSTOMER.formatted("j.user_id"));
+
+    /** Layouts with a customer upload whose file named no bank: the ones a profile may name. */
+    private static final String UNNAMED_LAYOUTS = """
+            SELECT DISTINCT layout_fingerprint FROM statement_analysis_sessions
+            WHERE source = 'CUSTOMER_IMPORT' AND identity_checked AND bank_name IS NULL
+              AND layout_fingerprint IS NOT NULL
+            """;
 
     // Cell slots per bank and week.
     private static final int READ = 0, ROWS = 1, FAILED = 2, HELD = 3, FIXED = 4;
 
     private final JdbcTemplate jdbc;
+    private final ProfileBankFiller profileBanks;
+    private final ObjectMapper objectMapper;
 
-    public ReadingQualityService(JdbcTemplate jdbc) {
+    public ReadingQualityService(JdbcTemplate jdbc, ProfileBankFiller profileBanks, ObjectMapper objectMapper) {
         this.jdbc = jdbc;
+        this.profileBanks = profileBanks;
+        this.objectMapper = objectMapper;
     }
 
     /** Counts for this week and the {@code weeks - 1} before it. */
@@ -246,6 +298,7 @@ public class ReadingQualityService {
         OffsetDateTime to = thisWeek.plusWeeks(1).atStartOfDay(UserZone.DEFAULT).toOffsetDateTime();
         List<LocalDate> weekStarts = new ArrayList<>();
         for (int i = 0; i < weeks; i++) weekStarts.add(firstWeek.plusWeeks(i));
+        String profileBankJson = profileBankJson();
 
         // bank -> week -> cell; sorted by name for a stable tie order
         Map<String, Map<LocalDate, long[]>> byBank = new TreeMap<>();
@@ -255,11 +308,11 @@ public class ReadingQualityService {
             long[] c = cell(byBank, rs.getString(1), rs.getObject(2, LocalDate.class));
             c[READ] += rs.getLong(3);
             c[ROWS] += rs.getLong(4);
-        }, ZONE, from, to);
+        }, profileBankJson, from, to, ZONE);
 
         jdbc.query(FAILED_READS, rs -> {
             cell(byBank, rs.getString(1), rs.getObject(2, LocalDate.class))[FAILED] += rs.getLong(3);
-        }, from, to, ZONE);
+        }, profileBankJson, from, to, ZONE);
 
         jdbc.query(HOLDS, rs -> {
             String bank = rs.getString(1);
@@ -269,7 +322,7 @@ public class ReadingQualityService {
             } else {
                 cell(byBank, bank, rs.getObject(2, LocalDate.class))[HELD] += count;
             }
-        }, ZONE, from, to);
+        }, profileBankJson, ZONE, from, to);
 
         jdbc.query(FIXES, rs -> {
             String bank = rs.getString(1);
@@ -279,7 +332,7 @@ public class ReadingQualityService {
             } else {
                 cell(byBank, bank, rs.getObject(2, LocalDate.class))[FIXED] += count;
             }
-        }, ZONE, from, to);
+        }, profileBankJson, ZONE, from, to);
 
         List<ReadingQualityDto.BankRow> rows = new ArrayList<>();
         byBank.forEach((bank, byWeek) -> rows.add(row(bank, byWeek, weekStarts)));
@@ -287,6 +340,19 @@ public class ReadingQualityService {
 
         return new ReadingQualityDto.Report(weeks, MIN_STATEMENTS, weekStarts, rows,
                 new ReadingQualityDto.Unknown(unknown[0], unknown[1], unknown[2]));
+    }
+
+    /** {"fingerprint": "bank name", ...} for every layout whose profile names a file that names none. */
+    private String profileBankJson() {
+        Map<String, String> byLayout = new HashMap<>();
+        for (String fingerprint : jdbc.queryForList(UNNAMED_LAYOUTS, String.class)) {
+            profileBanks.fillBankName(fingerprint).ifPresent(name -> byLayout.put(fingerprint, name));
+        }
+        try {
+            return objectMapper.writeValueAsString(byLayout);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("profile banks could not be written", e);
+        }
     }
 
     /** Banks with a rate first, highest rate first; then banks with too few statements to judge. */

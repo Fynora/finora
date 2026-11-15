@@ -1475,6 +1475,37 @@ export interface HeldClaudeFix {
   monthlyCap: number;
 }
 
+/** Reading quality by bank -- mirrors the backend's `ReadingQualityDto`. Bank names and counts
+ *  only: no file name, user id, job id or reference. */
+export interface ReadingQualityWeek {
+  /** A Monday, India time (yyyy-mm-dd). */
+  weekStart: string;
+  statementsRead: number;
+  rowsRead: number;
+  holds: number;
+  fixes: number;
+}
+
+export interface ReadingQualityBankRow {
+  bank: string;
+  statementsRead: number;
+  rowsRead: number;
+  holds: number;
+  /** Holds / statements read; null when fewer than `minStatements` statements were read. */
+  holdRate: number | null;
+  fixes: number;
+  weeks: ReadingQualityWeek[];
+}
+
+export interface ReadingQualityReport {
+  weeks: number;
+  minStatements: number;
+  weekStarts: string[];
+  /** Most in need of work first, as the server sorted them. */
+  banks: ReadingQualityBankRow[];
+  bankNotKnown: { importHolds: number; trustHolds: number; fixes: number };
+}
+
 /** One open hold on the "Needs a decision" page -- mirrors the backend's `DecisionQueueRowDto`. No
  *  statement content, file name or user id. */
 export interface DecisionQueueRow {

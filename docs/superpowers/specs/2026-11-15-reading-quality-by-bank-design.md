@@ -39,8 +39,12 @@ All counts are live queries over existing tables. No migration.
   (`bank().officialName()`), so the two names can differ for the same bank.
 - **Statements read / rows read**: `statement_analysis_sessions` rows with `source = CUSTOMER_IMPORT`,
   `outcome = PARSED`, `bank_name` set; count and `SUM(row_count)`; week from `created_at`.
-- **Holds**: `held_statements` row → `import_jobs` (`import_job_id`) → evidence row with the same
-  `import_session_id` → its `bank_name`. Week from `held_statements.created_at`.
+- **Holds**: `held_statements` row → `import_jobs` (`import_job_id`) → the latest evidence row with
+  the same `import_session_id` that names a bank → its `bank_name`. Week from
+  `held_statements.created_at`. Import holds (`import_jobs.was_held_for_review`) go through the same
+  link, dated by the job's `created_at`: normally they have no evidence row and land in "Bank not
+  known", but one that was later read under a bank counts for that bank (builder's call, so a later
+  fix on it and the hold sit in the same row). A job held both ways is one hold.
 - **Fixes** (Sid's choice), counted once per hold even when both apply, dated by the earlier:
   - Claude fix job reached `FIXED` (`claude_fix_jobs.state`, dated `updated_at`).
   - An engineer recorded a fix reference on a held statement (`held_statements.fix_reference` not

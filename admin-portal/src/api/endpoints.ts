@@ -20,7 +20,7 @@ import type {
   PlatformDiagnosticsDto, PlatformSettingsDto, PlatformStatsDto, ReconciliationStatsDto, RecentImportDto,
   RelationshipDto, RelationshipMergeRequest, RoleDto, RuleDto,
   SearchResultDto, TrustedSenderDto, SubscriptionHealthDto, SubscriptionSummaryDto, SystemHealthDto,
-  BackgroundJobDto, BackgroundJobFailureDto, DecisionQueueRow,
+  BackgroundJobDto, BackgroundJobFailureDto, DecisionQueueRow, ReadingQualityReport,
   TestMerchantTemplateRequest, TestMerchantTemplateResult, TestRuleRequest, TestRuleResult,
   TopCategoryPoint, TopMerchantPoint, TransactionDto, TrendPoint,
   UpdateBankRequest, UpdateFeatureFlagRequest, UpdateMerchantTemplateRequest,
@@ -423,6 +423,12 @@ export const adminReferralsApi = {
 };
 
 // Background jobs page -- every scheduled job's state, and one job's failures in the last 30 days.
+/** Reading quality by bank -- PLATFORM_DIAGNOSTICS_VIEW, bank names and counts only. */
+export const adminReadingQualityApi = {
+  report: (weeks: 4 | 12) =>
+    api.get<ReadingQualityReport>('/admin/imports/reading-quality', { params: { weeks } }).then((r) => r.data),
+};
+
 export const adminDecisionQueueApi = {
   list: () => api.get<DecisionQueueRow[]>('/admin/decision-queue').then((r) => r.data),
 };

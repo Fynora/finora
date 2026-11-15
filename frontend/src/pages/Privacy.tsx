@@ -282,7 +282,10 @@ export default function Privacy() {
           IDs, account and reference numbers and IFSC codes are removed first. Your amount, account details
           and user ID are never sent. The description is free text and may contain personal information if you
           type it; anything in it Fynora does not recognise as a name or an identifier is sent as written, so
-          avoid typing anything sensitive into it. Importing a statement does not do this. The short description returned
+          avoid typing anything sensitive into it. An import never sends anything by itself. If AI features
+          are on and you tap "Sort with AI" after an import, the statement text of each shop payment
+          Fynora could not sort is sent the same way, with the same parts removed. Payments to people are
+          never sent. The short description returned
           by the service is stored against the payee ID so it can be reused for later transactions with the
           same payee.
         </p>
@@ -437,7 +440,7 @@ export default function Privacy() {
           <li><strong className="text-ink">Cloudflare</strong> — frontend/website hosting and edge security.</li>
           <li><strong className="text-ink">Resend</strong> — transactional email delivery (verification, password reset, notifications).</li>
           <li><strong className="text-ink">TwoFactor</strong> — SMS alerts for transactions you add by hand, sent only to a verified phone number. The message carries the amount, whether it was debited or credited, and the description you typed. Sign-in and phone-verification codes are sent by Firebase Authentication, not TwoFactor.</li>
-          <li><strong className="text-ink">Anthropic</strong> — the AI service behind Ask Fyn, AI insights and category suggestions for hand-typed transactions, as described above. Used only if you turn AI features on.</li>
+          <li><strong className="text-ink">Anthropic</strong> — the AI service behind Ask Fyn, AI insights and category suggestions for transactions you add by hand or ask it to sort after an import, as described above. Used only if you turn AI features on.</li>
           <li><strong className="text-ink">Firebase Cloud Messaging</strong> (Google) — delivery of push notifications to the mobile app, using a device token for your phone.</li>
           <li><strong className="text-ink">Sentry</strong> — crash and error reporting for our apps and servers. Reports carry technical details of the error; the web and mobile apps remove form contents, your account identity and the identifying parts of page addresses before a report is sent. Session replay and performance tracing are switched off.</li>
           <li><strong className="text-ink">Razorpay</strong> — payment processing for subscriptions bought on the web. Your card, UPI or bank details are entered into Razorpay's checkout, not into Fynora. Fynora keeps only what Razorpay reports back to show on your Billing page — for a card, its network and last four digits — never the full number.</li>

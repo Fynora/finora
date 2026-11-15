@@ -11,6 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '../../components/Button';
 import { QuickSortCta } from '../../components/QuickSortCta';
 import { ImportMoneyInCard } from '../../components/inflow/ImportMoneyInCard';
+import { AiSortCard } from '../../components/AiSortCard';
 import { InviteFriendCard } from '../../components/InviteFriendCard';
 import { Card, SectionHeading } from '../../components/Card';
 import { StatementHandlingPanel } from '../../components/StatementHandlingPanel';
@@ -1699,6 +1700,14 @@ export function ImportScreen() {
             onSeeAll={(start, end) => {
               trackNavigation('money-review', 'contextual');
               navigation.navigate('More', { screen: 'MoneyReview', params: { start, end } });
+            }}
+          />
+          {/* AI sorting for the shop payments this import left unsorted; the server decides who sees it. */}
+          <AiSortCard
+            statementImportIds={summary.statementImportId ? [summary.statementImportId] : []}
+            onOpenQuickSort={() => {
+              trackNavigation('review-categories', 'contextual');
+              navigation.navigate('More', { screen: 'CategoryReview' });
             }}
           />
           <View testID="import-summary-actions" style={styles.summaryActions}>

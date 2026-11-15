@@ -2148,6 +2148,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ai-sort/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["start"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/users": {
         parameters: {
             query?: never;
@@ -4972,6 +4988,38 @@ export interface paths {
             cookie?: never;
         };
         get: operations["advanced"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai-sort/runs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["run"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai-sort/offer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["offer"];
         put?: never;
         post?: never;
         delete?: never;
@@ -9220,6 +9268,37 @@ export interface components {
             referralCode?: string;
             attribution?: components["schemas"]["SignupAttributionRequest"];
         };
+        StartRequest: {
+            statementImportIds: string[];
+            /** @enum {string} */
+            choice: "SORT" | "TURN_ON_AND_SORT" | "NO_THANKS";
+        };
+        ApiResponseRun: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["Run"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        Run: {
+            /** Format: uuid */
+            id?: string;
+            /** @enum {string} */
+            status?: "RUNNING" | "DONE" | "STOPPED_LIMIT" | "STOPPED_AI_OFF" | "STOPPED";
+            /** Format: int32 */
+            paymentsTotal?: number;
+            /** Format: int32 */
+            paymentsDone?: number;
+            /** Format: int32 */
+            paymentsSorted?: number;
+            /** Format: int32 */
+            paymentsLeft?: number;
+        };
         RuleCreateRequest: {
             field: string;
             operator: string;
@@ -12518,6 +12597,28 @@ export interface components {
             details?: {
                 [key: string]: unknown;
             };
+        };
+        ApiResponseOffer: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["Offer"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        Offer: {
+            show?: boolean;
+            /** @enum {string} */
+            mode?: "SORT" | "ASK";
+            /** Format: int32 */
+            payments?: number;
+            amount?: number;
+            /** Format: int32 */
+            payees?: number;
         };
         ApiResponsePagedResponseUserSummaryDto: {
             success?: boolean;
@@ -19014,6 +19115,30 @@ export interface operations {
             };
         };
     };
+    start: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseRun"];
+                };
+            };
+        };
+    };
     list_6: {
         parameters: {
             query?: {
@@ -23628,6 +23753,50 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseAdvancedReportDto"];
+                };
+            };
+        };
+    };
+    run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseRun"];
+                };
+            };
+        };
+    };
+    offer: {
+        parameters: {
+            query?: {
+                statementImportIds?: string[];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseOffer"];
                 };
             };
         };

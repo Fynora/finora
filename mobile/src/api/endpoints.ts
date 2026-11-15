@@ -2259,6 +2259,41 @@ export interface InvitePromptCheck {
   shownRecently: boolean;
 }
 
+/** AI sorting after an import (spec docs/superpowers/specs/2026-11-14-ai-sort-after-import-design.md).
+ *  Mirrors frontend/src/api/endpoints.ts. */
+export interface AiSortOffer {
+  show: boolean;
+  /** Null when not shown. */
+  mode: NonNullable<GeneratedSchemas['Offer']['mode']> | null;
+  payments: number;
+  /** Rupees, unrounded. */
+  amount: number;
+  payees: number;
+}
+export type AiSortRunStatus = NonNullable<GeneratedSchemas['Run']['status']>;
+export interface AiSortRun {
+  id: string;
+  status: AiSortRunStatus;
+  paymentsTotal: number;
+  paymentsDone: number;
+  paymentsSorted: number;
+  /** What the AI did not sort, once finished; 0 while running. */
+  paymentsLeft: number;
+}
+export type AiSortChoice = NonNullable<GeneratedSchemas['StartRequest']['choice']>;
+
+export const aiSortApi = {
+  /** Whether the Done step shows the card for the statement import(s) a confirm just made. */
+  offer: (statementImportIds: string[]) =>
+    api.get<AiSortOffer>('/ai-sort/offer', {
+      params: { statementImportIds: statementImportIds.join(',') },
+    }).then((r) => r.data),
+  /** A tap. NO_THANKS answers with no run (null). */
+  start: (statementImportIds: string[], choice: AiSortChoice) =>
+    api.post<AiSortRun | null>('/ai-sort/runs', { statementImportIds, choice }).then((r) => r.data),
+  run: (id: string) => api.get<AiSortRun>(`/ai-sort/runs/${id}`).then((r) => r.data),
+};
+
 export const invitePromptApi = {
   /** Whether to show the card for the statement import(s) a confirm just made. */
   check: (statementImportIds: string[]) =>

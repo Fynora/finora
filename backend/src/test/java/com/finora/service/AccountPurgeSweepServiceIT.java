@@ -224,6 +224,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
     @Autowired private com.finora.repository.InsightAcknowledgementRepository insightAcknowledgementRepository;
     @Autowired private com.finora.repository.SignupAttributionRepository signupAttributionRepository;
     @Autowired private com.finora.invite.InvitePromptRepository invitePromptRepository;
+    @Autowired private com.finora.aisort.AiSortRunRepository aiSortRunRepository;
     @Autowired private com.finora.people.PeopleData peopleData;
     @Autowired private com.finora.repository.ShareLinkRepository shareLinkRepository;
     @Autowired private com.finora.repository.SplitRuleRepository splitRuleRepository;
@@ -304,7 +305,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
                 emailChangeSessionRepository, phoneChangeSessionRepository, deviceTokenRepository,
                 notificationPreferenceRepository, reimportConfirmationClaimRepository, userFinancialFocusRepository,
                 userChecklistEventRepository, healthScoreSnapshotRepository, featureViewCountRepository,
-                userActivityDayRepository, importFunnelDayRepository, activationAnswerRepository, insightAcknowledgementRepository, signupAttributionRepository, invitePromptRepository, peopleData, recurringDismissalRepository, accountAggregatorLinkRepository, aiAuditLogRepository, aiInsightTextRepository, aiInsightUsageRepository,
+                userActivityDayRepository, importFunnelDayRepository, activationAnswerRepository, insightAcknowledgementRepository, signupAttributionRepository, invitePromptRepository, aiSortRunRepository, peopleData, recurringDismissalRepository, accountAggregatorLinkRepository, aiAuditLogRepository, aiInsightTextRepository, aiInsightUsageRepository,
                 chatConversationRepository, chatMessageRepository, counterpartyCategoryObservationRepository,
                 inflowKindRepository, senderInflowRuleRepository,
                 auditService,
@@ -418,6 +419,18 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         sweepAndAssertOwnUserPurged();
         entityManager.clear();
         assertThat(invitePromptRepository.findById(userId)).isEmpty();
+    }
+
+    /** AI sorting runs (V323), same anonymize-not-delete trap. */
+    @Test
+    @Transactional
+    void purgeDeletesAiSortRuns() {
+        aiSortRunRepository.saveAndFlush(com.finora.aisort.AiSortRun.start(userId, UUID.randomUUID().toString(), 3));
+        assertThat(aiSortRunRepository.count()).isPositive();
+
+        sweepAndAssertOwnUserPurged();
+        entityManager.clear();
+        assertThat(aiSortRunRepository.findAll()).noneMatch(r -> r.getUserId().equals(userId));
     }
 
     /** Codes to send a statement from a computer (V293), same anonymize-not-delete trap: the

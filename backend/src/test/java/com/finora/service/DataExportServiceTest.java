@@ -1989,6 +1989,7 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
                 Map.entry("insightAcknowledgementRepository.deleteByUserId", "insight_acknowledgements.json"),
                 Map.entry("signupAttributionRepository.deleteByUserId", "signup_source.json"),
                 Map.entry("invitePromptRepository.deleteByUserId", "invite_prompt.json"),
+                Map.entry("aiSortRunRepository.deleteByUserId", "ai_sort_runs"),
                 Map.entry("peopleData.deleteByUserId", "shared_payments.json"),
                 Map.entry("statementAnalysisSessionRepository.anonymizeByUserId", "statement_analysis_sessions"));
 

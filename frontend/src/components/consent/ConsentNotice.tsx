@@ -24,7 +24,8 @@ export function ConsentNotice() {
       <p className="font-medium">Optional: AI features</p>
       <p className="text-muted">
         Ask Fyn, AI insights and AI category suggestions send the question you ask, the account figures
-        needed to answer it, or the description of a transaction you add by hand to Anthropic (Claude).
+        needed to answer it, or the description of a transaction you add by hand or ask it to sort, to
+        Anthropic (Claude).
         Names and account numbers Fynora recognises are hidden first. They stay off unless you tick the box
         below.
       </p>

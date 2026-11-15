@@ -44,10 +44,19 @@ describe('Privacy policy matches what the product does', () => {
     expect(policyText()).toMatch(/add a transaction by hand without choosing a category/i);
   });
 
-  it('says the typed description is free text, and that importing a statement does not do this', () => {
+  // AI sorting after an import (com.finora.aisort): a tap on "Sort with AI" sends an imported
+  // statement's unsorted shop payments' descriptions through the same CategorizationService rule.
+  it('discloses that "Sort with AI" after an import sends that statement\'s shop payments, only on a tap', () => {
+    const t = policyText();
+    expect(t).toMatch(/An import never sends anything by itself/i);
+    expect(t).toMatch(/tap "Sort with AI" after an import, the statement text of each shop payment Fynora could not sort is sent the same way, with the same parts removed/i);
+    expect(t).toMatch(/Payments to people are never sent/i);
+    expect(t).toMatch(/category suggestions for transactions you add by hand or ask it to sort after an import, as described above/i);
+  });
+
+  it('says the typed description is free text', () => {
     const t = policyText();
     expect(t).toMatch(/description is free text and may contain personal information/i);
-    expect(t).toMatch(/Importing a statement does not do this/i);
     expect(t).not.toMatch(/without your amount, account or any other identifying detail/i);
     // The stored value is whatever the service returns; the code does not guarantee it is a merchant description.
     expect(t).toMatch(/short description returned by the service is stored\s+against the payee ID/i);

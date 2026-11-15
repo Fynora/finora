@@ -35,6 +35,11 @@ jest.mock('../../api/endpoints', () => ({
     kinds: jest.fn().mockResolvedValue([]),
     setChoice: jest.fn(), clearChoice: jest.fn(), createKind: jest.fn(),
   },
+  // AiSortCard on the done step: not offered unless a test says so.
+  aiSortApi: {
+    offer: jest.fn().mockResolvedValue({ show: false, mode: null, payments: 0, amount: 0, payees: 0 }),
+    start: jest.fn(), run: jest.fn(),
+  },
   // QuickSortCta on the success screen counts waiting questions; nothing here is waiting.
   transactionsApi: {
     quickSort: jest.fn().mockResolvedValue({ questions: [], waitingTotal: 0, rest: { questions: 0, payments: 0, amount: 0, transactionIds: [] } }),
@@ -487,6 +492,20 @@ describe('ImportScreen — "View in Ledger" (Track C/C6)', () => {
       expect(await screen.findByText("1 payment you received isn't counted as income")).toBeOnTheScreen();
       expect(inflowApi.unresolvedForImport).toHaveBeenCalledWith('stmt-1');
       expect(within(screen.getByTestId('import-summary-actions')).queryByText(/counted as income/)).toBeNull();
+    });
+
+    it('offers AI sorting for the shop payments this import left unsorted, and opens Quick sort after', async () => {
+      const { aiSortApi } = jest.requireMock('../../api/endpoints');
+      aiSortApi.offer.mockResolvedValueOnce({ show: true, mode: 'SORT', payments: 4, amount: 1200, payees: 2 });
+      aiSortApi.start.mockResolvedValueOnce({ id: 'run-1', status: 'DONE', paymentsTotal: 4, paymentsDone: 4,
+        paymentsSorted: 4, paymentsLeft: 0 });
+      await reachSummary({ ...base, statementImportId: 'stmt-1' });
+
+      expect(await screen.findByText('AI can sort 4 shop payments (₹1,200)')).toBeOnTheScreen();
+      expect(aiSortApi.offer).toHaveBeenCalledWith(['stmt-1']);
+      fireEvent.press(screen.getByRole('button', { name: 'Sort with AI' }));
+      fireEvent.press(await screen.findByRole('link', { name: 'Check them in Quick sort' }));
+      expect(mockNavigate).toHaveBeenCalledWith('More', { screen: 'CategoryReview' });
     });
 
     it('makes See Insights the main button when nothing is waiting', async () => {

@@ -67,4 +67,11 @@ public class FynAvailabilityGuard {
         return available() && properties.isCategorizationEnabled() && !costGovernanceService.userDailyCapReached(userId)
                 && aiConsentGiven(userId);
     }
+
+    /** Whether AI categorizing is on at all -- kill switch, key, monthly budget, the feature flag --
+     *  before any one customer's answer or cap. AI sorting after an import (com.finora.aisort) offers
+     *  its card only then; who sees it is decided per customer there. */
+    public boolean categorizationOffered() {
+        return available() && properties.isCategorizationEnabled();
+    }
 }

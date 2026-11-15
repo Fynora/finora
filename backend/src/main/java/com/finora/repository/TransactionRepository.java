@@ -360,6 +360,25 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
     List<Transaction> findByUserIdAndNeedsCategoryReviewTrueAndAccountIdInOrderByTxnDateDesc(
             UUID userId, java.util.Collection<UUID> accountIds);
 
+    /** AI sorting after an import (com.finora.aisort): the payments out from these statement imports
+     *  still waiting for a category, on the user's live accounts. Another user's import ids find
+     *  nothing, since the rows are matched on this user. */
+    @Query("""
+        SELECT t FROM Transaction t
+        WHERE t.userId = :userId
+          AND t.statementImportId IN :statementImportIds
+          AND t.needsCategoryReview = true
+          AND t.txnType = com.finora.entity.Transaction.Type.EXPENSE
+          AND t.accountId IN (SELECT a.id FROM Account a WHERE a.userId = :userId)
+        ORDER BY t.txnDate DESC, t.id
+        """)
+    List<Transaction> findWaitingExpensesInImports(@Param("userId") UUID userId,
+                                                   @Param("statementImportIds") java.util.Collection<UUID> statementImportIds);
+
+    /** Every row of one payee in one direction on these accounts (AI sorting files them with one answer). */
+    List<Transaction> findByUserIdAndCounterpartyKeyAndTxnTypeAndAccountIdIn(
+            UUID userId, String counterpartyKey, Transaction.Type txnType, java.util.Collection<UUID> accountIds);
+
     /**
      * SEC-06 (docs/quality/bug-reports/2026-08-19-security-review-findings.md) -- the idempotency
      * check TransactionService.create() runs before inserting a new row. See V97's migration

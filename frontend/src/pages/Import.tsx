@@ -58,6 +58,7 @@ import { isHeld } from '../lib/importJob';
 import { Button, ConfirmDialog, IconButton, FinoraCard, useDialogA11y } from '../design-system';
 import { QuickSortCta } from '../components/QuickSortCta';
 import { ImportMoneyInCard } from '../components/inflow/ImportMoneyInCard';
+import { AiSortCard } from '../components/AiSortCard';
 import { InviteFriendCard } from '../components/InviteFriendCard';
 import type { ImportNavState } from '../lib/importNavState';
 import { useAuth } from '../context/AuthContext';
@@ -3012,6 +3013,9 @@ function ImportSummaryScreen({
       {/* Above Quick sort: these answers change the headline Income figure. */}
       <ImportMoneyInCard statementImportIds={summary.statementImportId ? [summary.statementImportId] : []} />
 
+      {/* AI sorting for the shop payments this import left unsorted; the server decides who sees it. */}
+      <AiSortCard statementImportIds={summary.statementImportId ? [summary.statementImportId] : []} />
+
       {/* Shown once per person, on an import that saved rows; the server decides (InvitePromptService).
           Not under warnings (rows left out, a missing period): "Fynora sorted your statement" would
           clash with them, and the one showing waits for a clean import instead (Sid, 2026-11-13). */}
@@ -3104,6 +3108,7 @@ function MultiImportSummaryScreen({
       )}
 
       <ImportMoneyInCard statementImportIds={summaries.map((s) => s.statementImportId).filter(Boolean)} />
+      <AiSortCard statementImportIds={summaries.map((s) => s.statementImportId).filter(Boolean)} />
 
       {/* Not when any account's summary has warnings -- see ImportSummaryScreen. */}
       {summaries.every((s) => s.warnings.length === 0) && (

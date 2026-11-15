@@ -216,6 +216,36 @@ class QuickSortIT extends AbstractIntegrationTest {
         throw new AssertionError("no question " + id + " in " + batch);
     }
 
+    // AI sorting after an import files rows as the AI's guess; whether customers keep those guesses is
+    // what judges it (spec 2026-11-14-ai-sort-after-import, "Measuring").
+    @Test
+    void quickSortCountsAnAiGuessKeptOrChanged() throws Exception {
+        UUID personalTransfer = categoryRepository.findByUserIdAndName(user.getId(), "Personal Transfer").orElseThrow().getId();
+        UUID kept = seed(user.getId(), accountId, "vpa:samplea", 100);
+        UUID changed = seed(user.getId(), accountId, "vpa:sampleb", 100);
+        for (UUID id : List.of(kept, changed)) {
+            Transaction t = reload(id);
+            t.setCategoryId(personalTransfer);
+            t.setDecisionSource(Transaction.DecisionSource.AI_FALLBACK);
+            transactionRepository.save(t);
+        }
+        double keptBefore = aiGuess("kept");
+        double changedBefore = aiGuess("changed");
+
+        data(post("/api/v1/transactions/quick-sort/answer",
+                "{\"anchorTransactionId\":\"" + kept + "\",\"category\":\"Personal Transfer\",\"kind\":\"GUESS\"}", user));
+        data(post("/api/v1/transactions/quick-sort/answer",
+                "{\"anchorTransactionId\":\"" + changed + "\",\"category\":\"Groceries\",\"kind\":\"GUESS\"}", user));
+
+        assertThat(aiGuess("kept") - keptBefore).isEqualTo(1);
+        assertThat(aiGuess("changed") - changedBefore).isEqualTo(1);
+    }
+
+    private double aiGuess(String outcome) {
+        Counter c = meterRegistry.find("finora.quick_sort.ai_guess_answered").tag("outcome", outcome).counter();
+        return c == null ? 0 : c.count();
+    }
+
     @Test
     void answerWithoutSourceStillFilesThePayee() throws Exception {
         // An app build older than the Dashboard questions sends no source.

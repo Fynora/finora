@@ -1,6 +1,6 @@
 # Card bills named "<issuer> Bank Credit…": file them as Transfer
 
-Status: draft for Sid's approval, 2026-11-15. Idea 4 of the categorization roadmap, redirected
+Status: approved by Sid 2026-11-15 (option A for card bills, "Build both fixes", option B for linked transfers). Idea 4 of the categorization roadmap, redirected
 with Sid's agreement.
 
 ## Why
@@ -56,6 +56,38 @@ them.
   chosen by the customer and still "Other" or the person guess, exactly as a fresh import would,
   and reconciles each changed customer afterwards. It never calls the AI.
 
+## Fix 2: a payment linked as an own-account transfer stops needing review
+
+Found while checking whether these card bills could be linked to card statements: a payment
+that reconciliation, a user's rule or the user had linked as a transfer between the customer's
+own accounts still kept `needs_category_review`. It already counted as a transfer in totals
+(`FlowClassifier` reads `isTransfer`), but it was still treated as waiting:
+
+- Quick sort (full and Dashboard) kept asking about it.
+- The Needs review list and its group view listed it.
+- "Sort with AI" after an import would send it to the AI.
+- The Ledger badged it "Needs review".
+
+Production had a few dozen such payments across a couple of customers.
+
+Sid chose (2026-11-15) to clear the flag when the link is made, rather than skipping such
+payments in each reader. Every reader then agrees, including the Ledger badge.
+
+- `Transaction.setTransfer(true)`, on a payment not yet a transfer that is waiting, clears
+  `needs_category_review` and records that the link cleared it, in a new column
+  `review_cleared_by_transfer`. Every link path calls this setter (reconciliation's pair and
+  one-sided passes, a `MARK_TRANSFER` rule, the user marking a pair), and nothing updates the
+  transfer flag in bulk. So one place covers them all.
+- `setTransfer(false)` (the user's "not a transfer", a statement removed or re-imported, a link
+  released) puts the flag back only when the link had cleared it, and only if the user hasn't
+  since chosen a category by hand. A payment that wasn't waiting before the link is left as it was.
+- Migration `V324`:
+  - adds the column (not null, default false);
+  - clears the flag on payments already linked and still waiting, marking them as cleared by the
+    link, so undoing those links works the same way;
+  - bumps `updated_at`, as V319/V320 did, so client caches see the change.
+  - It can safely run again: a cleared row no longer matches.
+
 ## Verification (required by the repo rules for categorization changes)
 
 - Unit tests for each shape, each issuer form, the cut-off lengths, and the not-caught cases.
@@ -64,6 +96,11 @@ them.
 - Value-level measurement over the real statement corpus before and after, listing every row
   whose category changes. Any change outside these card-bill shapes must be read and explained
   before merge.
+- Fix 2:
+  - Tests that each link path clears the flag and each unlink path restores it.
+  - A payment that wasn't waiting stays untouched on unlink.
+  - A category the user chose while the payment was linked survives the unlink.
+  - The migration is checked on a local database copy with linked and unlinked rows.
 
 ## Non-goals
 

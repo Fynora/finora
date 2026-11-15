@@ -68,7 +68,7 @@ class AdminReadingQualityControllerIT extends AbstractIntegrationTest {
     @BeforeEach
     void setUp() {
         admin = userWithOnly("PLATFORM_DIAGNOSTICS_VIEW");
-        owner = createUser("USER");
+        owner = customer(false);
     }
 
     // ---- fixtures ------------------------------------------------------------------------------
@@ -81,6 +81,19 @@ class AdminReadingQualityControllerIT extends AbstractIntegrationTest {
         user.setRole(role);
         user.setAccountScope(User.SCOPE_ADMIN);
         user.setPhoneVerified(true);
+        return userRepository.save(user);
+    }
+
+    /** A customer account, internal (the founder's, a tester's) or not. */
+    private User customer(boolean internal) {
+        User user = new User();
+        user.setEmail("reading-quality-customer-" + UUID.randomUUID() + "@example.com");
+        user.setPasswordHash("irrelevant-for-this-test");
+        user.setFullName("Reading Quality Customer");
+        user.setRole("USER");
+        user.setAccountScope(User.SCOPE_USER);
+        user.setPhoneVerified(true);
+        user.setInternalAccount(internal);
         return userRepository.save(user);
     }
 
@@ -107,13 +120,24 @@ class AdminReadingQualityControllerIT extends AbstractIntegrationTest {
     }
 
     private void evidence(UUID session, String bank, Integer rows, String source, String outcome, Instant at) {
+        evidence(owner, session, bank, rows, source, outcome, null, null, at);
+    }
+
+    private void evidence(User uploader, UUID session, String bank, Integer rows, String source, String outcome,
+                          String failureCode, String contentHash, Instant at) {
         jdbc.update("""
                 INSERT INTO statement_analysis_sessions
                     (id, reference, user_id, source, file_name, outcome, row_count, import_session_id,
-                     identity_checked, bank_name, created_at)
-                VALUES (?, ?, ?, ?, 'sample-statement.pdf', ?, ?, ?, TRUE, ?, ?)
+                     identity_checked, bank_name, failure_code, content_hash, created_at)
+                VALUES (?, ?, ?, ?, 'sample-statement.pdf', ?, ?, ?, TRUE, ?, ?, ?, ?)
                 """, UUID.randomUUID(), "SA-IT-" + UUID.randomUUID().toString().substring(0, 12),
-                owner.getId(), source, outcome, rows, session, bank, Timestamp.from(at));
+                uploader.getId(), source, outcome, rows, session, bank, failureCode, contentHash,
+                Timestamp.from(at));
+    }
+
+    /** A customer upload of the file {@code contentHash} that the reader failed on with {@code code}. */
+    private void failed(String bank, String code, String contentHash) {
+        evidence(owner, null, bank, null, "CUSTOMER_IMPORT", "FAILED", code, contentHash, Instant.now());
     }
 
     /** A statement held for trust review, staged under {@code session}. */
@@ -133,7 +157,11 @@ class AdminReadingQualityControllerIT extends AbstractIntegrationTest {
 
     /** An import held because the reader failed, never naming the bank. */
     private ImportJob importHold() {
-        ImportJob job = new ImportJob(owner.getId(), "sample-june.pdf",
+        return importHold(owner);
+    }
+
+    private ImportJob importHold(User uploader) {
+        ImportJob job = new ImportJob(uploader.getId(), "sample-june.pdf",
                 "hash-" + UUID.randomUUID(), "objects/key-" + UUID.randomUUID(), "PDF");
         job.markClaimed("worker", Instant.now());
         job.recordFailure("IllegalStateException: no header row found",
@@ -217,7 +245,7 @@ class AdminReadingQualityControllerIT extends AbstractIntegrationTest {
         assertThat(row.path("statementsRead").asLong()).isEqualTo(10);
         assertThat(row.path("rowsRead").asLong()).isEqualTo(50);
         assertThat(row.path("holds").asLong()).isEqualTo(2);
-        assertThat(row.path("holdRate").asDouble()).isEqualTo(0.2);
+        assertThat(row.path("problemRate").asDouble()).isEqualTo(0.2);
         assertThat(row.path("weeks")).hasSize(12);
         JsonNode thisWeek = weekRow(row, weekOf(Instant.now()));
         assertThat(thisWeek.path("statementsRead").asLong()).isEqualTo(10);
@@ -257,9 +285,9 @@ class AdminReadingQualityControllerIT extends AbstractIntegrationTest {
         JsonNode report = report();
 
         assertThat(report.path("minStatements").asInt()).isEqualTo(10);
-        assertThat(bankRow(report, nine).path("holdRate").isNull()).isTrue();
-        assertThat(bankRow(report, ten).path("holdRate").asDouble()).isEqualTo(0.1);
-        assertThat(bankRow(report, worse).path("holdRate").asDouble()).isEqualTo(0.9);
+        assertThat(bankRow(report, nine).path("problemRate").isNull()).isTrue();
+        assertThat(bankRow(report, ten).path("problemRate").asDouble()).isEqualTo(0.1);
+        assertThat(bankRow(report, worse).path("problemRate").asDouble()).isEqualTo(0.9);
         assertThat(indexOf(report, worse)).isLessThan(indexOf(report, ten));
         assertThat(indexOf(report, ten)).isLessThan(indexOf(report, nine));
     }
@@ -419,6 +447,114 @@ class AdminReadingQualityControllerIT extends AbstractIntegrationTest {
         assertThat(bankRow(four, bank).path("fixes").asLong()).isZero();
         assertThat(bankRow(twelve, bank).path("statementsRead").asLong()).isEqualTo(3);
         assertThat(bankRow(twelve, bank).path("fixes").asLong()).isEqualTo(1);
+    }
+
+    @Test
+    void readerFailures_countOncePerFileAndJoinTheRate() throws Exception {
+        String bank = bankName();
+        for (int i = 0; i < 8; i++) read(bank, 1, Instant.now());
+        String retried = "hash-" + UUID.randomUUID();
+        failed(bank, "IMPORT_NO_HEADER_DETECTED", retried);
+        failed(bank, "IMPORT_NO_HEADER_DETECTED", retried);           // automatic retry: same file
+        failed(bank, "IllegalStateException", "hash-" + UUID.randomUUID()); // unexpected exception
+        failed(bank, "IMPORT_SCANNED_OCR_REQUIRED", null);            // no hash: counts alone
+        failed(bank, "IMPORT_PDF_PASSWORD_INVALID", "hash-" + UUID.randomUUID());   // the customer's
+        failed(bank, "IMPORT_CORRUPT_PDF", "hash-" + UUID.randomUUID());            // the file's
+        failed(bank, "IMPORT_NO_ACTIVITY_IN_PERIOD", "hash-" + UUID.randomUUID());  // nothing to read
+        failed(bank, "IMPORT_SYSTEM_BUSY", "hash-" + UUID.randomUUID());            // the server's
+
+        JsonNode row = bankRow(report(), bank);
+
+        assertThat(row.path("statementsRead").asLong()).isEqualTo(8);
+        assertThat(row.path("failedReads").asLong()).isEqualTo(3);
+        assertThat(row.path("holds").asLong()).isZero();
+        assertThat(row.path("problemRate").asDouble()).isEqualTo(3.0 / 11);
+        assertThat(weekRow(row, weekOf(Instant.now())).path("failedReads").asLong()).isEqualTo(3);
+    }
+
+    @Test
+    void tenTried_countsFailuresTowardTheMinimum() throws Exception {
+        String bank = bankName();
+        for (int i = 0; i < 9; i++) read(bank, 1, Instant.now());
+        failed(bank, "IMPORT_NO_TRANSACTIONS_FOUND", "hash-" + UUID.randomUUID());
+
+        assertThat(bankRow(report(), bank).path("problemRate").asDouble()).isEqualTo(0.1);
+    }
+
+    @Test
+    void anImportHoldWhoseFailureNamesABank_isThatBanksFailedReadOnce_andTakesItsFix() throws Exception {
+        String bank = bankName();
+        JsonNode before = report().path("bankNotKnown");
+        ImportJob job = importHold();
+        failed(bank, "IllegalStateException", job.getContentHash());
+        failed(bank, "IllegalStateException", job.getContentHash()); // the retry before it dead-lettered
+        claudeFix(job.getId(), "FIXED", Instant.now());
+
+        JsonNode report = report();
+        JsonNode row = bankRow(report, bank);
+
+        assertThat(row.path("failedReads").asLong()).isEqualTo(1);
+        assertThat(row.path("holds").asLong()).isZero();
+        assertThat(row.path("fixes").asLong()).isEqualTo(1);
+        assertThat(report.path("bankNotKnown").path("importHolds").asLong())
+                .isEqualTo(before.path("importHolds").asLong());
+    }
+
+    @Test
+    void anotherCustomersFailureOfTheSameFile_doesNotNameAnImportHoldsBank() throws Exception {
+        String bank = bankName();
+        JsonNode before = report().path("bankNotKnown");
+        ImportJob job = importHold();
+        evidence(customer(false), null, bank, null, "CUSTOMER_IMPORT", "FAILED", "IllegalStateException",
+                job.getContentHash(), Instant.now());
+
+        JsonNode report = report();
+
+        assertThat(bankRow(report, bank).path("holds").asLong()).isZero();
+        assertThat(report.path("bankNotKnown").path("importHolds").asLong()
+                - before.path("importHolds").asLong()).isEqualTo(1);
+    }
+
+    @Test
+    void internalAndAdminAccounts_areLeftOut() throws Exception {
+        String bank = bankName();
+        read(bank, 4, Instant.now());
+        for (User other : List.of(customer(true), createUser("USER"))) {
+            UUID session = UUID.randomUUID();
+            evidence(other, session, bank, 50, "CUSTOMER_IMPORT", "PARSED", null, null, Instant.now());
+            evidence(other, null, bank, null, "CUSTOMER_IMPORT", "FAILED", "IMPORT_NO_HEADER_DETECTED",
+                    "hash-" + UUID.randomUUID(), Instant.now());
+            ImportJob job = new ImportJob(other.getId(), "sample-july.pdf",
+                    "hash-" + UUID.randomUUID(), "objects/key-" + UUID.randomUUID(), "PDF");
+            job.markClaimed("worker", Instant.now());
+            job.holdForTrustReview(session, null, Instant.now());
+            importJobRepository.save(job);
+            heldStatementRepository.save(new HeldStatement(
+                    "HLD-IT-" + UUID.randomUUID().toString().substring(0, 8), job.getId(), other.getId(),
+                    job.getObjectKey(), "Printed and parsed transaction count disagree (ROW_GROUPING)"));
+            claudeFix(job.getId(), "FIXED", Instant.now());
+        }
+
+        JsonNode row = bankRow(report(), bank);
+
+        assertThat(row.path("statementsRead").asLong()).isEqualTo(1);
+        assertThat(row.path("rowsRead").asLong()).isEqualTo(4);
+        assertThat(row.path("failedReads").asLong()).isZero();
+        assertThat(row.path("holds").asLong()).isZero();
+        assertThat(row.path("fixes").asLong()).isZero();
+    }
+
+    @Test
+    void aDeletedCustomersUploadRecord_stillCounts() throws Exception {
+        String bank = bankName();
+        UUID gone = UUID.randomUUID(); // no users row: the account was deleted, the record stays
+        jdbc.update("""
+                INSERT INTO statement_analysis_sessions
+                    (id, reference, user_id, source, outcome, row_count, identity_checked, bank_name)
+                VALUES (?, ?, ?, 'CUSTOMER_IMPORT', 'PARSED', 6, TRUE, ?)
+                """, UUID.randomUUID(), "SA-IT-" + UUID.randomUUID().toString().substring(0, 12), gone, bank);
+
+        assertThat(bankRow(report(), bank).path("statementsRead").asLong()).isEqualTo(1);
     }
 
     @Test

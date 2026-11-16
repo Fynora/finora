@@ -16,6 +16,16 @@ import java.util.UUID;
 
 public interface UserRepository extends JpaRepository<User, UUID> {
 
+    /**
+     * AI sorting after an import (com.finora.aisort): records that the one-more AI question was
+     * answered, only if it was not already -- 1 for the first answer, 0 for any other. One statement,
+     * so two answers sent at once ("No thanks" and "Turn on AI and sort") cannot both count: the
+     * second waits on the first's row lock, then finds the column set.
+     */
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("UPDATE User u SET u.aiImportQuestionAt = :at WHERE u.id = :id AND u.aiImportQuestionAt IS NULL")
+    int stampAiImportQuestion(@Param("id") UUID id, @Param("at") Instant at);
+
     /** Claims the account for one purge (V316): 1 when this caller may purge it, 0 when it is
      *  deleted, gone, or claimed by another purge since {@code staleBefore}. One statement, so two
      *  callers can never both get 1. */

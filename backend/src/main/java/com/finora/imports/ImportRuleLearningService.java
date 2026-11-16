@@ -1,16 +1,16 @@
 package com.finora.imports;
 
 import com.finora.dto.ImportDto.ConfirmedRow;
-import com.finora.entity.SharedMerchantCategoryAiSuggestion;
 import com.finora.entity.Transaction;
-import com.finora.repository.SharedMerchantCategoryAiSuggestionRepository;
 import com.finora.service.CategorizationService;
 import com.finora.service.SharedCorpusService;
+import com.finora.service.UserMerchantCategoryResolutionService;
 import com.finora.util.CounterpartyTyping;
 import com.finora.util.EnumParsing;
 import org.springframework.stereotype.Component;
 
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Decides, for each confirmed row, whether the category assignment was a real decision worth
@@ -29,12 +29,12 @@ import java.util.Optional;
 public class ImportRuleLearningService {
 
     private final SharedCorpusService sharedCorpusService;
-    private final SharedMerchantCategoryAiSuggestionRepository aiSuggestionRepository;
+    private final UserMerchantCategoryResolutionService resolutionService;
 
     public ImportRuleLearningService(SharedCorpusService sharedCorpusService,
-                                      SharedMerchantCategoryAiSuggestionRepository aiSuggestionRepository) {
+                                      UserMerchantCategoryResolutionService resolutionService) {
         this.sharedCorpusService = sharedCorpusService;
-        this.aiSuggestionRepository = aiSuggestionRepository;
+        this.resolutionService = resolutionService;
     }
 
     /**
@@ -93,8 +93,8 @@ public class ImportRuleLearningService {
      * value -- acceptable given the staging-to-confirm window for one import is normally seconds to
      * minutes, not the alternative of never learning from these two sources at all.
      */
-    public Decision recordDecision(ConfirmedRow row) {
-        boolean isUnresolvedGuess = isUnconfirmedGuess(row);
+    public Decision recordDecision(UUID userId, ConfirmedRow row) {
+        boolean isUnresolvedGuess = isUnconfirmedGuess(userId, row);
 
         // The staged rule's match (row.ruleId()) is no longer recorded here: ImportService counts
         // it after side-effect rules have run, and only if that rule is still the decision -- a
@@ -124,29 +124,40 @@ public class ImportRuleLearningService {
                 row.description(), direction);
     }
 
-    private boolean isUnconfirmedGuess(ConfirmedRow row) {
+    private boolean isUnconfirmedGuess(UUID userId, ConfirmedRow row) {
         String source = row.categorySource();
         boolean isCorpusOrAiSourced = CategorizationService.SHARED_CORPUS_SOURCE.equals(source)
                 || CategorizationService.AI_FALLBACK_SOURCE.equals(source);
         if (isCorpusOrAiSourced) {
-            return matchesLiveSuggestion(row);
+            return matchesLiveSuggestion(userId, row);
         }
         return CategorizationService.isUnconfirmedGuess(source, row.category());
     }
 
-    /** @return true if the row's final category still equals the corpus/AI cache's current
-     *  answer for its counterparty+direction (ambiguous -- could just be the untouched
-     *  suggestion), or if there is no live answer to compare against at all (nothing to prove a
-     *  correction happened, so this is NOT treated as unconfirmed -- the same "no signal either
-     *  way, don't withhold learning" default {@code CategorizationService.isUnconfirmedGuess}
-     *  applies to any other unrecognized source). */
-    private boolean matchesLiveSuggestion(ConfirmedRow row) {
+    /**
+     * @return true if the row's final category still equals the corpus's or the model's current
+     *  answer for its counterparty and direction (the suggestion left as it was: still a guess);
+     *  false if it differs (the user corrected it) or if there is no live answer to compare against
+     *  (nothing proves the row was left alone -- the same "no signal either way, don't withhold
+     *  learning" default {@code CategorizationService.isUnconfirmedGuess} applies to any other
+     *  unrecognized source).
+     *
+     *  <p>The model's answer is the one staging read: this user's saved answer for the payee
+     *  ({@code user_merchant_category_resolution}, written by {@code UserMerchantCategoryResolutionService.resolve}),
+     *  while it is still the model's and not the user's own. This used to read
+     *  {@code shared_merchant_category_ai_suggestion}, which nothing writes: no answer was ever found,
+     *  so every AI guess confirmed on an import was filed with no review flag and learned at full
+     *  confidence as if the user had chosen it, and outvoted their later correction (AI sort
+     *  break-test, 2026-11-16).
+     */
+    private boolean matchesLiveSuggestion(UUID userId, ConfirmedRow row) {
         CounterpartyTyping typing = CounterpartyTyping.of(row.description());
         Transaction.Type direction = EnumParsing.parse(Transaction.Type.class, row.type(), "type");
         Optional<String> liveAnswer = CategorizationService.SHARED_CORPUS_SOURCE.equals(row.categorySource())
                 ? sharedCorpusService.findTrustedSuggestion(typing.key(), typing.type(), direction)
-                : aiSuggestionRepository.findByCounterpartyKeyAndDirection(typing.key(), direction)
-                        .map(SharedMerchantCategoryAiSuggestion::getCategory);
-        return liveAnswer.isPresent() && liveAnswer.get().equals(row.category());
+                : resolutionService.resolveReadOnly(userId, typing.key(), direction)
+                        .filter(saved -> !saved.chosenByUser())
+                        .map(UserMerchantCategoryResolutionService.SavedCategory::categoryName);
+        return liveAnswer.isPresent() && liveAnswer.get().equalsIgnoreCase(row.category());
     }
 }

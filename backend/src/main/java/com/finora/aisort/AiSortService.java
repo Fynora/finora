@@ -82,33 +82,59 @@ public class AiSortService {
     /**
      * A tap on the card. SORT is valid only while the card offers SORT; TURN_ON_AND_SORT and NO_THANKS
      * only while it asks (a customer who said no, not asked again yet) -- so the one-more question is
-     * answered at most once, whatever an app sends. Either answer stamps the question; "Turn on AI and
-     * sort" then records yes exactly as the Settings switch does. A second tap for the same imports
-     * returns the run already started.
+     * answered at most once, whatever an app sends, and two answers sent at once count once (the stamp
+     * is a conditional update). Either answer stamps the question; "Turn on AI and sort" then records
+     * yes exactly as the Settings switch does. A second tap for the same imports returns the run
+     * already started or finished; a tap after a run stopped (the AI could not be reached, a restart,
+     * the daily cap, AI turned off) tries it again, over what is still to sort.
      */
     @Transactional
     public Started start(UUID userId, AiSortDto.StartRequest request) {
         List<UUID> ids = request.statementImportIds().stream().distinct().sorted().toList();
         String key = importsKey(ids);
+        Optional<AiSortRun> stopped = Optional.empty();
         if (request.choice() != AiSortDto.Choice.NO_THANKS) {
             Optional<AiSortRun> existing = runs.findByUserIdAndImportsKey(userId, key);
-            if (existing.isPresent()) return new Started(existing, false);
+            if (existing.isPresent()) {
+                AiSortRun run = existing.get();
+                if (run.getStatus() == AiSortRun.RunStatus.RUNNING) {
+                    run = readThroughCutOff(run);
+                }
+                if (!run.canTryAgain()) return new Started(Optional.of(run), false);
+                stopped = Optional.of(run);
+            }
         }
         AiSortDto.Offer offer = offer(userId, ids);
         AiSortDto.Mode needed = request.choice() == AiSortDto.Choice.SORT ? AiSortDto.Mode.SORT : AiSortDto.Mode.ASK;
         if (!offer.show() || offer.mode() != needed) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "That choice is not offered for these statements.");
         }
+        if (request.choice() != AiSortDto.Choice.SORT
+                && users.stampAiImportQuestion(userId, Instant.now()) == 0) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "That choice is not offered for these statements.");
+        }
         metrics.choice(request.choice());
-        if (request.choice() != AiSortDto.Choice.SORT) {
-            User user = users.findById(userId).orElseThrow();
-            user.recordAiImportQuestion(Instant.now());
-            users.save(user);
-            if (request.choice() == AiSortDto.Choice.NO_THANKS) return new Started(Optional.empty(), false);
-            termsConsent.submit(userId, null, true);
+        if (request.choice() == AiSortDto.Choice.NO_THANKS) return new Started(Optional.empty(), false);
+        if (request.choice() == AiSortDto.Choice.TURN_ON_AND_SORT) termsConsent.submit(userId, null, true);
+        if (stopped.isPresent()) {
+            if (runs.tryAgain(stopped.get().getId(), offer.payments(), Instant.now()) == 0) {
+                // Another tap tried it again first: its run is the answer.
+                return new Started(runs.findById(stopped.get().getId()), false);
+            }
+            return new Started(runs.findById(stopped.get().getId()), true);
         }
         AiSortRun run = runs.saveAndFlush(AiSortRun.start(userId, key, offer.payments()));
         return new Started(Optional.of(run), true);
+    }
+
+    /** A RUNNING run not updated for {@link #STALE_AFTER} was cut off (a restart): it is saved, and read, as STOPPED. */
+    private AiSortRun readThroughCutOff(AiSortRun run) {
+        Instant now = Instant.now();
+        if (runs.stopIfQuietSince(run.getId(), now.minus(STALE_AFTER), now) == 1) {
+            metrics.runFinished(AiSortRun.RunStatus.STOPPED);
+            return runs.findById(run.getId()).orElseThrow();
+        }
+        return run;
     }
 
     /** The run started for these imports, if any -- the answer to a second tap that lost a race. */
@@ -117,17 +143,15 @@ public class AiSortService {
         return runs.findByUserIdAndImportsKey(userId, importsKey(statementImportIds));
     }
 
-    /** A run's progress, for its owner only. A run cut off by a restart reads as STOPPED. */
+    /**
+     * A run's progress, for its owner only. A run cut off by a restart reads as STOPPED; its worker, if
+     * it is in fact still going (queued behind other runs), stops before its next payee.
+     */
     @Transactional
     public AiSortDto.Run run(UUID userId, UUID runId) {
         AiSortRun run = runs.findByIdAndUserId(runId, userId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "No such run."));
-        Instant now = Instant.now();
-        if (run.getStatus() == AiSortRun.RunStatus.RUNNING && run.getUpdatedAt().isBefore(now.minus(STALE_AFTER))) {
-            run.finish(AiSortRun.RunStatus.STOPPED, now);
-            runs.save(run);
-            metrics.runFinished(AiSortRun.RunStatus.STOPPED);
-        }
+        if (run.getStatus() == AiSortRun.RunStatus.RUNNING) run = readThroughCutOff(run);
         return AiSortDto.Run.of(run);
     }
 

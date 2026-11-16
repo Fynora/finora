@@ -25,7 +25,7 @@ public class AiSortRun {
         STOPPED_LIMIT,
         /** AI was turned off (Settings, or globally) while the run was going. */
         STOPPED_AI_OFF,
-        /** Anything else: a restart, a full queue. */
+        /** Anything else: the AI could not be reached, a restart, a full queue. It can be tried again. */
         STOPPED
     }
 
@@ -42,7 +42,7 @@ public class AiSortRun {
     @Column(name = "status", nullable = false, length = 16)
     private RunStatus status;
 
-    @Column(name = "payments_total", nullable = false, updatable = false)
+    @Column(name = "payments_total", nullable = false)
     private int paymentsTotal;
 
     @Column(name = "payments_done", nullable = false)
@@ -60,6 +60,14 @@ public class AiSortRun {
     @Column(name = "finished_at")
     private Instant finishedAt;
 
+    /** V325: which try this is; a stopped run is tried again on the same row. */
+    @Column(name = "attempt", nullable = false)
+    private int attempt = 1;
+
+    /** V325: this import's payments still waiting for the customer when the run finished. */
+    @Column(name = "payments_left")
+    private Integer paymentsLeft;
+
     protected AiSortRun() {}
 
     public static AiSortRun start(UUID userId, String importsKey, int paymentsTotal) {
@@ -75,17 +83,9 @@ public class AiSortRun {
         return run;
     }
 
-    /** One payee worked: {@code done} of this run's payments looked at, {@code sorted} of them filed. */
-    public void progress(int done, int sorted, Instant at) {
-        paymentsDone += done;
-        paymentsSorted += sorted;
-        updatedAt = at;
-    }
-
-    public void finish(RunStatus status, Instant at) {
-        this.status = status;
-        this.updatedAt = at;
-        this.finishedAt = at;
+    /** Whether a tap may try this run again: it stopped, rather than finishing or still going. */
+    public boolean canTryAgain() {
+        return status == RunStatus.STOPPED || status == RunStatus.STOPPED_LIMIT || status == RunStatus.STOPPED_AI_OFF;
     }
 
     public UUID getId() { return id; }
@@ -98,4 +98,6 @@ public class AiSortRun {
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
     public Instant getFinishedAt() { return finishedAt; }
+    public int getAttempt() { return attempt; }
+    public Integer getPaymentsLeft() { return paymentsLeft; }
 }

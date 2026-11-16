@@ -29,20 +29,23 @@ public final class AiSortDto {
     /** SORT: a yes customer's tap. TURN_ON_AND_SORT / NO_THANKS: the one-more question's two answers. */
     public enum Choice { SORT, TURN_ON_AND_SORT, NO_THANKS }
 
-    public record StartRequest(@NotEmpty @Size(max = AiSortService.MAX_IDS) List<UUID> statementImportIds,
+    public record StartRequest(@NotEmpty @Size(max = AiSortService.MAX_IDS) List<@NotNull UUID> statementImportIds,
                                @NotNull Choice choice) {}
 
     /**
      * A run's progress, in this import's payments: {@code paymentsDone} looked at, {@code paymentsSorted}
-     * filed with the AI's category. {@code paymentsLeft} is what the AI did not sort, once finished (0
-     * while running).
+     * filed with the AI's category. {@code paymentsLeft} is what is still waiting for the customer once
+     * finished -- the payments the AI could not place, not the ones the customer answered themselves
+     * meanwhile (0 while running; for a run finished before V325, total less sorted).
      */
     public record Run(UUID id, AiSortRun.RunStatus status, int paymentsTotal, int paymentsDone, int paymentsSorted,
                       int paymentsLeft) {
         static Run of(AiSortRun r) {
             boolean finished = r.getStatus() != AiSortRun.RunStatus.RUNNING;
-            return new Run(r.getId(), r.getStatus(), r.getPaymentsTotal(), r.getPaymentsDone(), r.getPaymentsSorted(),
-                    finished ? Math.max(0, r.getPaymentsTotal() - r.getPaymentsSorted()) : 0);
+            int left = !finished ? 0
+                    : r.getPaymentsLeft() != null ? r.getPaymentsLeft()
+                    : Math.max(0, r.getPaymentsTotal() - r.getPaymentsSorted());
+            return new Run(r.getId(), r.getStatus(), r.getPaymentsTotal(), r.getPaymentsDone(), r.getPaymentsSorted(), left);
         }
     }
 }

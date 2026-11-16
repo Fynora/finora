@@ -2923,6 +2923,8 @@ function ImportSummaryScreen({
   onImportAnother: () => void;
 }) {
   const categoryEntries = Object.entries(summary.categoriesAssigned).sort((a, b) => b[1] - a[1]);
+  // The categories below are as the import filed them; AI sorting on this screen files some after.
+  const [aiSorted, setAiSorted] = useState(0);
   const account = summary.account;
   const periodStart = summary.statementPeriodStart ? formatDate(summary.statementPeriodStart) : null;
   const periodEnd = summary.statementPeriodEnd ? formatDate(summary.statementPeriodEnd) : null;
@@ -3005,6 +3007,11 @@ function ImportSummaryScreen({
               </div>
             ))}
           </div>
+          {aiSorted > 0 && (
+            <p className="text-xs text-muted mt-2" data-testid="ai-sorted-since">
+              AI has since sorted {aiSorted} of these. Check them in Quick sort.
+            </p>
+          )}
         </div>
       )}
 
@@ -3014,7 +3021,8 @@ function ImportSummaryScreen({
       <ImportMoneyInCard statementImportIds={summary.statementImportId ? [summary.statementImportId] : []} />
 
       {/* AI sorting for the shop payments this import left unsorted; the server decides who sees it. */}
-      <AiSortCard statementImportIds={summary.statementImportId ? [summary.statementImportId] : []} />
+      <AiSortCard statementImportIds={summary.statementImportId ? [summary.statementImportId] : []}
+        onSorted={setAiSorted} />
 
       {/* Shown once per person, on an import that saved rows; the server decides (InvitePromptService).
           Not under warnings (rows left out, a missing period): "Fynora sorted your statement" would

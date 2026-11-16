@@ -124,7 +124,7 @@ class ImportServiceShadowEvidenceIsolationTest {
                 transactionRepository, merchantRepository, statementImportRepository, categorizationService,
                 mock(ReconciliationService.class), mock(RecurringService.class), previewGenerator,
                 duplicateDetector, new ImportRuleLearningService(mock(com.finora.service.SharedCorpusService.class),
-                        mock(com.finora.repository.SharedMerchantCategoryAiSuggestionRepository.class)), importSessionService,
+                        mock(com.finora.service.UserMerchantCategoryResolutionService.class)), importSessionService,
                 mock(com.finora.imports.pdf.PdfPreviewGenerator.class),
                 new com.finora.imports.product.ProductIdentityResolver(accountRepository, mock(com.finora.service.AuditService.class)),
                 mock(com.finora.imports.ownership.OwnershipMatchService.class),

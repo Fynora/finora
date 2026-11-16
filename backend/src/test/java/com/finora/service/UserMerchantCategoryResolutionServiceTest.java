@@ -49,6 +49,50 @@ class UserMerchantCategoryResolutionServiceTest {
                 llmClient, aiAuditLogRepository, resolutionRepository, categoryRepository, categorizationService,
                 new FynNameShields(userRepository, accountRepository, transactionRepository));
         when(availabilityGuard.categorizationAvailableFor(userId)).thenReturn(true);
+        // resolve() asks for the understanding with its call status; the tests below stub the plain
+        // answer, so the status call hands back that answer as a call that did not fail.
+        when(understandingService.understandWithStatus(any(), any(), any(), any())).thenAnswer(inv ->
+                new MerchantUnderstandingService.Understanding(understandingService.understand(inv.getArgument(0),
+                        inv.getArgument(1), inv.getArgument(2), inv.getArgument(3)), false));
+    }
+
+    @Test
+    void attempt_saysTheCallFailed_whenTheCategoryCallThrows() {
+        when(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(any(), any(), any())).thenReturn(Optional.empty());
+        when(understandingService.understand(any(), any(), any(), any())).thenReturn(Optional.of("A pet supplies retailer"));
+        when(categoryRepository.findByUserId(userId)).thenReturn(List.of());
+        when(llmClient.complete(any())).thenThrow(new RuntimeException("Could not reach Anthropic."));
+
+        var attempt = service.attempt(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT PET SUPPLIES PVT LTD/...");
+
+        assertThat(attempt.answer()).isEmpty();
+        assertThat(attempt.callFailed()).isTrue();
+    }
+
+    @Test
+    void attempt_saysTheCallFailed_whenTheUnderstandingCallFailed() {
+        when(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(any(), any(), any())).thenReturn(Optional.empty());
+        org.mockito.Mockito.doReturn(new MerchantUnderstandingService.Understanding(Optional.empty(), true))
+                .when(understandingService).understandWithStatus(any(), any(), any(), any());
+
+        var attempt = service.attempt(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT PET SUPPLIES PVT LTD/...");
+
+        assertThat(attempt.callFailed()).isTrue();
+        verifyNoInteractions(llmClient);
+    }
+
+    @Test
+    void attempt_noAnswerFromTheModel_isNotAFailure() {
+        when(resolutionRepository.findByUserIdAndCounterpartyKeyAndDirection(any(), any(), any())).thenReturn(Optional.empty());
+        when(understandingService.understand(any(), any(), any(), any())).thenReturn(Optional.of("A pet supplies retailer"));
+        when(categoryRepository.findByUserId(userId)).thenReturn(List.of());
+        when(llmClient.complete(any())).thenReturn(new LlmCompletion(null, List.of(),
+                "claude-haiku-4-5-20251001", 60, 8, "end_turn"));
+
+        var attempt = service.attempt(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT PET SUPPLIES PVT LTD/...");
+
+        assertThat(attempt.answer()).isEmpty();
+        assertThat(attempt.callFailed()).isFalse();
     }
 
     @Test

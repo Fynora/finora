@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { aiSortApi, type AiSortChoice, type AiSortOffer, type AiSortRun } from '../api/endpoints';
 import { Button } from '../design-system';
 import { useInvalidateMoneyFigures } from '../lib/invalidateMoneyFigures';
@@ -22,13 +23,18 @@ function rupees(n: number) {
  * decides whether to show it at all (AiSortService); this renders nothing when not offered or when the
  * offer cannot be read -- the import itself succeeded either way.
  */
-export function AiSortCard({ statementImportIds }: { statementImportIds: string[] }) {
+export function AiSortCard({ statementImportIds, onSorted }: {
+  statementImportIds: string[];
+  /** Told how many of the import's payments the AI filed, once a run that filed some finishes. */
+  onSorted?: (sorted: number) => void;
+}) {
   const [offer, setOffer] = useState<AiSortOffer | null>(null);
   const [run, setRun] = useState<AiSortRun | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [gone, setGone] = useState(false);
   const invalidateMoneyFigures = useInvalidateMoneyFigures();
+  const queryClient = useQueryClient();
   const idsKey = statementImportIds.join(',');
 
   useEffect(() => {
@@ -52,15 +58,21 @@ export function AiSortCard({ statementImportIds }: { statementImportIds: string[
 
   // The rows it filed move the Ledger, the dashboard and Quick sort's questions.
   const finished = !!run && !running;
+  const sortedCount = run?.paymentsSorted ?? 0;
   useEffect(() => {
-    if (finished) invalidateMoneyFigures();
-  }, [finished, invalidateMoneyFigures]);
+    if (!finished) return;
+    invalidateMoneyFigures();
+    if (sortedCount > 0) onSorted?.(sortedCount);
+  }, [finished, sortedCount, invalidateMoneyFigures, onSorted]);
 
   async function choose(choice: AiSortChoice) {
     setBusy(true);
     setError(null);
     try {
       const started = await aiSortApi.start(idsKey.split(','), choice);
+      // AI is on now: the Settings switch and the consent gate read it from this cache
+      // (consentQueryKey, ['consent', email]); left alone, Settings showed AI off until a reload.
+      if (choice === 'TURN_ON_AND_SORT') void queryClient.invalidateQueries({ queryKey: ['consent'] });
       if (choice === 'NO_THANKS' || !started) setGone(true);
       else setRun(started);
     } catch {
@@ -82,6 +94,12 @@ export function AiSortCard({ statementImportIds }: { statementImportIds: string[
       {run ? (
         <div role="status" aria-live="polite" className="text-sm text-ink space-y-1">
           {running ? <p>Sorting… {run.paymentsDone} of {run.paymentsTotal}</p> : <RunResult run={run} />}
+          {run.status === 'STOPPED' && (
+            <>
+              {error && <p className="text-danger text-sm">{error}</p>}
+              <Button variant="secondary" onClick={() => void choose('SORT')} disabled={busy}>Try again</Button>
+            </>
+          )}
         </div>
       ) : (
         <>
@@ -121,7 +139,10 @@ function RunResult({ run }: { run: AiSortRun }) {
   } else if (run.status === 'STOPPED_AI_OFF') {
     result = <>AI was turned off — the rest stay in Quick sort</>;
   } else if (run.status === 'STOPPED') {
-    result = <>Sorted {sorted} — the rest stay in Quick sort</>;
+    // The AI could not be reached, or the run was cut off: it can be tried again.
+    result = sorted > 0
+      ? <>Sorted {sorted}, then sorting stopped — the rest stay in Quick sort</>
+      : <>Sorting stopped before AI could sort these — they stay in Quick sort</>;
   } else if (sorted === 0) {
     result = <>AI couldn&apos;t sort these — they stay in Quick sort</>;
   } else {

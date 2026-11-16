@@ -70,6 +70,8 @@ class AiSortRunIT extends AbstractIntegrationTest {
     @Autowired private AiSortRunRepository runs;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private ObjectMapper mapper;
+    @Autowired private com.finora.imports.ImportRuleLearningService importLearning;
+    @Autowired private AiSortService aiSortService;
 
     @MockitoBean private LlmClient llm;
     @MockitoBean private FynAvailabilityGuard guard;
@@ -85,6 +87,11 @@ class AiSortRunIT extends AbstractIntegrationTest {
     private final AtomicBoolean capReached = new AtomicBoolean();
     private volatile IntConsumer beforeResolve = i -> { };
     private final Set<Integer> silentCalls = new HashSet<>();
+    /** RESOLVE_CATEGORY calls (0-based) that fail as an unreachable model would. */
+    private final Set<Integer> failingCalls = new HashSet<>();
+    /** Every model call fails: the AI cannot be reached. */
+    private final AtomicBoolean unreachable = new AtomicBoolean();
+    private final AtomicInteger modelCalls = new AtomicInteger();
 
     @BeforeEach
     void setUp() {
@@ -101,6 +108,8 @@ class AiSortRunIT extends AbstractIntegrationTest {
     }
 
     private LlmCompletion answer(LlmRequest request) {
+        modelCalls.incrementAndGet();
+        if (unreachable.get()) throw new RuntimeException("Could not reach Anthropic.");
         String tool = request.tools().get(0).name();
         if ("UNDERSTAND_MERCHANT".equals(tool)) {
             return new LlmCompletion(null, List.of(new ToolUse("u", tool, Map.of("understanding", "A shop"))),
@@ -108,6 +117,7 @@ class AiSortRunIT extends AbstractIntegrationTest {
         }
         int call = resolveCalls.getAndIncrement();
         beforeResolve.accept(call);
+        if (failingCalls.contains(call)) throw new RuntimeException("Could not reach Anthropic.");
         if (silentCalls.contains(call)) {
             return new LlmCompletion("no idea", List.of(), "claude-haiku-4-5-20251001", 40, 10, "end_turn");
         }
@@ -198,6 +208,179 @@ class AiSortRunIT extends AbstractIntegrationTest {
         Transaction t = transactions.findById(answered).orElseThrow();
         assertThat(t.getCategoryId()).isEqualTo(groceries);
         assertThat(t.getDecisionSource()).isNotEqualTo(Transaction.DecisionSource.AI_FALLBACK);
+    }
+
+    @Test
+    void aPayeeTheCustomerAnsweredMidRunIsNotLeftForThem() throws Exception {
+        row(importId, shop(), 500);
+        UUID answered = row(importId, shop(), 100);
+        UUID groceries = category(user.getId(), "Groceries");
+        beforeResolve = i -> {
+            if (i == 0) {
+                jdbc.update("UPDATE transactions SET category_id = ?, category_manually_set = true, "
+                        + "needs_category_review = false WHERE id = ?", groceries, answered);
+            }
+        };
+
+        JsonNode run = finished(start("SORT"));
+
+        assertThat(run.get("status").asText()).isEqualTo("DONE");
+        assertThat(run.get("paymentsSorted").asInt()).isEqualTo(1);
+        // Was 1 ("1 left for you") although the customer had answered it themselves.
+        assertThat(run.get("paymentsLeft").asInt()).isZero();
+    }
+
+    @Test
+    void anUnreachableAiStopsTheRun_andATapTriesItAgain() throws Exception {
+        List<UUID> rows = new java.util.ArrayList<>();
+        for (int i = 0; i < 5; i++) rows.add(row(importId, shop(), 500 - i));
+        unreachable.set(true);
+
+        JsonNode stopped = finished(start("SORT"));
+
+        // Not "DONE / AI couldn't sort these": the AI never judged them.
+        assertThat(stopped.get("status").asText()).isEqualTo("STOPPED");
+        assertThat(stopped.get("paymentsSorted").asInt()).isZero();
+        assertThat(stopped.get("paymentsLeft").asInt()).isEqualTo(5);
+        // It gave up after three payees in a row failed, rather than waiting out every payee.
+        assertThat(modelCalls.get()).isEqualTo(AiSortRunner.MAX_FAILURES_IN_A_ROW);
+        assertThat(offer().get("show").asBoolean()).isTrue();
+
+        unreachable.set(false);
+        JsonNode retried = finished(start("SORT"));
+
+        assertThat(retried.get("id").asText()).isEqualTo(stopped.get("id").asText());
+        assertThat(retried.get("status").asText()).isEqualTo("DONE");
+        assertThat(retried.get("paymentsTotal").asInt()).isEqualTo(5);
+        assertThat(retried.get("paymentsSorted").asInt()).isEqualTo(5);
+        assertThat(retried.get("paymentsLeft").asInt()).isZero();
+        assertThat(runs.findById(UUID.fromString(retried.get("id").asText())).orElseThrow().getAttempt()).isEqualTo(2);
+        for (UUID id : rows) {
+            assertThat(transactions.findById(id).orElseThrow().getDecisionSource())
+                    .isEqualTo(Transaction.DecisionSource.AI_FALLBACK);
+        }
+    }
+
+    @Test
+    void onePayeesFailedCallLeavesTheRunStopped_withThatPayeeLeft() throws Exception {
+        row(importId, shop(), 500);
+        UUID failed = row(importId, shop(), 300);
+        row(importId, shop(), 100);
+        failingCalls.add(1);
+
+        JsonNode run = finished(start("SORT"));
+
+        assertThat(run.get("status").asText()).isEqualTo("STOPPED");
+        assertThat(run.get("paymentsSorted").asInt()).isEqualTo(2);
+        assertThat(run.get("paymentsLeft").asInt()).isEqualTo(1);
+        assertThat(transactions.findById(failed).orElseThrow().getCategoryId()).isEqualTo(otherId);
+
+        // Tried again: the counts stay the import's -- the AI has now sorted all 3, not "1".
+        failingCalls.clear();
+        JsonNode retried = finished(start("SORT"));
+
+        assertThat(retried.get("status").asText()).isEqualTo("DONE");
+        assertThat(retried.get("paymentsTotal").asInt()).isEqualTo(3);
+        assertThat(retried.get("paymentsDone").asInt()).isEqualTo(3);
+        assertThat(retried.get("paymentsSorted").asInt()).isEqualTo(3);
+        assertThat(retried.get("paymentsLeft").asInt()).isZero();
+        assertThat(transactions.findById(failed).orElseThrow().getDecisionSource())
+                .isEqualTo(Transaction.DecisionSource.AI_FALLBACK);
+    }
+
+    @Test
+    void aRunCutOffMidwayStopsItsWorker_andATapTriesItAgain() throws Exception {
+        row(importId, shop(), 500);
+        UUID second = row(importId, shop(), 300);
+        UUID third = row(importId, shop(), 100);
+        // While the first payee is with the model, the run is read as cut off (quiet for 10 minutes).
+        beforeResolve = i -> {
+            if (i == 0) {
+                jdbc.update("UPDATE ai_sort_runs SET updated_at = now() - interval '11 minutes' WHERE user_id = ?",
+                        user.getId());
+                // What GET /ai-sort/runs/{id} does (the card's poll), on this thread.
+                aiSortService.run(user.getId(), runs.findAll().stream().filter(r -> r.getUserId().equals(user.getId()))
+                        .findFirst().orElseThrow().getId());
+            }
+        };
+
+        JsonNode cut = finished(start("SORT"));
+        Thread.sleep(1_000);
+
+        assertThat(cut.get("status").asText()).isEqualTo("STOPPED");
+        // The worker stopped before its next payee: no further model call, nothing more filed.
+        assertThat(resolveCalls.get()).isEqualTo(1);
+        assertThat(transactions.findById(second).orElseThrow().getCategoryId()).isEqualTo(otherId);
+        assertThat(transactions.findById(third).orElseThrow().getCategoryId()).isEqualTo(otherId);
+        assertThat(json(cut.get("id").asText()).get("status").asText()).isEqualTo("STOPPED");
+
+        beforeResolve = i -> { };
+        JsonNode retried = finished(start("SORT"));
+
+        assertThat(retried.get("status").asText()).isEqualTo("DONE");
+        assertThat(transactions.findById(second).orElseThrow().getDecisionSource())
+                .isEqualTo(Transaction.DecisionSource.AI_FALLBACK);
+        assertThat(transactions.findById(third).orElseThrow().getDecisionSource())
+                .isEqualTo(Transaction.DecisionSource.AI_FALLBACK);
+    }
+
+    @Test
+    void theOneMoreQuestionIsAnsweredOnce_whenBothAnswersArriveTogether() throws Exception {
+        switchTo(Boolean.FALSE);
+        row(importId, shop(), 500);
+        java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            var noThanks = pool.submit(() -> { go.await(); return post("NO_THANKS").getStatusCode(); });
+            var turnOn = pool.submit(() -> { go.await(); return post("TURN_ON_AND_SORT").getStatusCode(); });
+            go.countDown();
+            HttpStatus no = HttpStatus.valueOf(noThanks.get().value());
+            HttpStatus on = HttpStatus.valueOf(turnOn.get().value());
+
+            assertThat(List.of(no, on)).containsExactlyInAnyOrder(HttpStatus.OK, HttpStatus.BAD_REQUEST);
+            User after = users.findById(user.getId()).orElseThrow();
+            assertThat(after.getAiImportQuestionAt()).isNotNull();
+            assertThat(after.getAiProcessingConsent()).isEqualTo(on == HttpStatus.OK);
+        } finally {
+            pool.shutdownNow();
+        }
+        Thread.sleep(500);
+    }
+
+    @Test
+    void aMissingImportIdIsRefused_notAServerError() {
+        String body = "{\"statementImportIds\":[null],\"choice\":\"SORT\"}";
+        ResponseEntity<String> start = rest.exchange("/api/v1/ai-sort/runs", HttpMethod.POST,
+                new HttpEntity<>(body, headers()), String.class);
+        ResponseEntity<String> offer = rest.exchange("/api/v1/ai-sort/offer?statementImportIds=" + importId
+                + "&statementImportIds=", HttpMethod.GET, new HttpEntity<>(headers()), String.class);
+
+        assertThat(start.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(offer.getStatusCode().is5xxServerError()).as(offer.getBody()).isFalse();
+    }
+
+    @Test
+    void theNextImportAsksAboutTheAisAnswer_andLearnsOnlyAChange() throws Exception {
+        // AI sort break-test, 2026-11-16: confirming a later import read the model's answer from a
+        // table nothing writes, so the answer was filed without a question and learned as the
+        // customer's own. The decision now reads the customer's saved AI answer.
+        String narration = shop();
+        row(importId, narration, 500);
+        finished(start("SORT"));
+
+        var leftAlone = importLearning.recordDecision(user.getId(), confirmedRow(narration, AI_CATEGORY));
+        var changed = importLearning.recordDecision(user.getId(), confirmedRow(narration, "Groceries"));
+
+        assertThat(leftAlone.unresolvedGuess()).isTrue();
+        assertThat(leftAlone.worthLearning()).isFalse();
+        assertThat(changed.unresolvedGuess()).isFalse();
+        assertThat(changed.worthLearning()).isTrue();
+    }
+
+    private static com.finora.dto.ImportDto.ConfirmedRow confirmedRow(String narration, String category) {
+        return new com.finora.dto.ImportDto.ConfirmedRow(LocalDate.of(2026, 12, 1), narration, BigDecimal.valueOf(500),
+                "EXPENSE", category, true, com.finora.service.CategorizationService.AI_FALLBACK_SOURCE, null, false,
+                null, null);
     }
 
     @Test

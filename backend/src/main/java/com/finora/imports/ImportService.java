@@ -1468,7 +1468,7 @@ public class ImportService {
             String categoryToCreate = rowCategory;
             Category category = existingCategory
                     .orElseGet(() -> categorizationService.resolveOrCreateCategory(userId, categoryToCreate));
-            var decision = ruleLearningService.recordDecision(row);
+            var decision = ruleLearningService.recordDecision(userId, row);
             boolean isUnresolvedGuess = decision.unresolvedGuess();
 
             Transaction t = new Transaction();

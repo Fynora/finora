@@ -137,13 +137,93 @@ describe('AiSortCard', () => {
     expect(await screen.findByTestId('ai-sort-result')).toHaveTextContent('AI was turned off — the rest stay in Quick sort');
   });
 
-  it('says when a run was cut off', async () => {
-    start.mockResolvedValue(aRun({ status: 'STOPPED', paymentsSorted: 5 }));
+  it('says when a run stopped, and offers to try again', async () => {
+    start.mockResolvedValueOnce(aRun({ status: 'STOPPED', paymentsSorted: 5 }))
+      .mockResolvedValueOnce(aRun({ status: 'DONE', paymentsDone: 12, paymentsSorted: 12 }));
     renderCard();
 
     await userEvent.click(await screen.findByRole('button', { name: 'Sort with AI' }));
 
-    expect(await screen.findByTestId('ai-sort-result')).toHaveTextContent('Sorted 5 — the rest stay in Quick sort');
+    expect(await screen.findByTestId('ai-sort-result'))
+      .toHaveTextContent('Sorted 5, then sorting stopped — the rest stay in Quick sort');
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(start).toHaveBeenLastCalledWith(['imp-1', 'imp-2'], 'SORT');
+    expect(await screen.findByTestId('ai-sort-result')).toHaveTextContent('Sorted 12 — check them in Quick sort');
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+  });
+
+  it('says when a run stopped before the AI sorted any (it could not be reached)', async () => {
+    start.mockResolvedValue(aRun({ status: 'STOPPED', paymentsSorted: 0, paymentsLeft: 12 }));
+    renderCard();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Sort with AI' }));
+
+    expect(await screen.findByTestId('ai-sort-result'))
+      .toHaveTextContent('Sorting stopped before AI could sort these — they stay in Quick sort');
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+  });
+
+  it('offers no retry when the daily limit stopped it', async () => {
+    start.mockResolvedValue(aRun({ status: 'STOPPED_LIMIT', paymentsSorted: 9 }));
+    renderCard();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Sort with AI' }));
+
+    await screen.findByTestId('ai-sort-result');
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+  });
+
+  it('turning AI on refreshes the AI switch everywhere it is read', async () => {
+    offer.mockResolvedValue(sortOffer({ mode: 'ASK' }));
+    start.mockResolvedValue(aRun({ status: 'DONE', paymentsDone: 12, paymentsSorted: 12 }));
+    const client = new QueryClient();
+    client.setQueryData(['consent', 'a@example.com'], { aiProcessingConsent: false });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <AiSortCard statementImportIds={['imp-1']} />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Turn on AI and sort' }));
+
+    await waitFor(() => expect(client.getQueryState(['consent', 'a@example.com'])?.isInvalidated).toBe(true));
+  });
+
+  it('No thanks leaves the AI switch as it was', async () => {
+    offer.mockResolvedValue(sortOffer({ mode: 'ASK' }));
+    start.mockResolvedValue(null);
+    const client = new QueryClient();
+    client.setQueryData(['consent', 'a@example.com'], { aiProcessingConsent: false });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <AiSortCard statementImportIds={['imp-1']} />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    await userEvent.click(await screen.findByRole('button', { name: 'No thanks' }));
+
+    await waitFor(() => expect(screen.queryByTestId('ai-sort-card')).not.toBeInTheDocument());
+    expect(client.getQueryState(['consent', 'a@example.com'])?.isInvalidated).toBe(false);
+  });
+
+  it('tells the page how many it sorted, once finished', async () => {
+    start.mockResolvedValue(aRun({ status: 'DONE', paymentsDone: 12, paymentsSorted: 7, paymentsLeft: 5 }));
+    const onSorted = vi.fn();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter>
+          <AiSortCard statementImportIds={['imp-1']} onSorted={onSorted} />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Sort with AI' }));
+
+    await waitFor(() => expect(onSorted).toHaveBeenCalledWith(7));
   });
 
   it('says so when the AI could place none', async () => {

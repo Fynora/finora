@@ -45,6 +45,9 @@ public class AiSortController {
         if (statementImportIds != null && statementImportIds.size() > AiSortService.MAX_IDS) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Too many statement imports.");
         }
+        if (statementImportIds != null && statementImportIds.contains(null)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "A statement import id is missing.");
+        }
         AiSortDto.Offer offer = service.offer(currentUser.id(), statementImportIds == null ? List.of() : statementImportIds);
         if (offer.show()) metrics.offerShown(offer.mode());
         return ApiResponse.ok(offer);
@@ -64,7 +67,8 @@ public class AiSortController {
         }
         if (started.isNew()) {
             AiSortRun run = started.run().orElseThrow();
-            runner.launch(run.getId(), userId, request.statementImportIds().stream().distinct().sorted().toList());
+            runner.launch(run.getId(), run.getAttempt(), userId,
+                    request.statementImportIds().stream().distinct().sorted().toList());
         }
         return ApiResponse.ok(started.run().map(AiSortDto.Run::of).orElse(null));
     }

@@ -11,6 +11,7 @@ import com.finora.service.CategorizationService;
 import com.finora.service.ConfidenceEngine;
 import com.finora.service.FynAvailabilityGuard;
 import com.finora.service.FynCategorizationFallbackService;
+import com.finora.service.UserMerchantCategoryResolutionService;
 import com.finora.service.UserMerchantCategoryResolutionService.SavedCategory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -76,29 +77,62 @@ public class AiSortRunner {
         this.metrics = metrics;
     }
 
-    /** Hands the run to its thread. A full queue stops the run rather than running it on the caller's. */
-    public void launch(UUID runId, UUID userId, List<UUID> statementImportIds) {
+    /**
+     * Payees in a row whose model call failed before the run stops: the AI is most likely
+     * unreachable, and every further payee would wait out the same failure. The run stops as STOPPED,
+     * which the customer can try again.
+     */
+    static final int MAX_FAILURES_IN_A_ROW = 3;
+
+    /** One payee's outcome: this import's payments filed, and whether the model call failed. */
+    record PayeeOutcome(int sorted, boolean callFailed) {}
+
+    /** Hands attempt {@code attempt} of the run to its thread. A full queue stops the run rather than running it on the caller's. */
+    public void launch(UUID runId, int attempt, UUID userId, List<UUID> statementImportIds) {
         try {
-            executor.execute(() -> work(runId, userId, statementImportIds));
+            executor.execute(() -> work(runId, attempt, userId, statementImportIds));
         } catch (RejectedExecutionException e) {
             log.warn("AI sorting run {} not started: the queue is full", runId);
-            finish(runId, AiSortRun.RunStatus.STOPPED);
+            finish(runId, attempt, AiSortRun.RunStatus.STOPPED, userId, statementImportIds);
         }
     }
 
-    void work(UUID runId, UUID userId, List<UUID> statementImportIds) {
+    /**
+     * Before each payee the run must still be this attempt's and RUNNING: a run read as cut off
+     * (AiSortService.run), or tried again, stops this worker before any further model call.
+     */
+    void work(UUID runId, int attempt, UUID userId, List<UUID> statementImportIds) {
         try {
+            boolean anyFailed = false;
+            int failuresInARow = 0;
             for (AiSortService.SortablePayee payee : service.sortablePayees(userId, statementImportIds)) {
+                if (!runs.stillRunning(runId, attempt)) return;
                 if (!guard.categorizationAvailableFor(userId)) {
-                    finish(runId, stopReason(userId));
+                    finish(runId, attempt, stopReason(userId), userId, statementImportIds);
                     return;
                 }
-                sortOne(runId, userId, payee);
+                PayeeOutcome outcome = sortOne(runId, userId, payee);
+                metrics.payee(outcome.sorted() > 0);
+                Integer saved = tx.execute(s -> runs.progress(runId, attempt, payee.importRows().size(),
+                        outcome.sorted(), Instant.now()));
+                if (saved == null || saved == 0) return;
+                if (outcome.callFailed()) {
+                    anyFailed = true;
+                    if (++failuresInARow >= MAX_FAILURES_IN_A_ROW) {
+                        finish(runId, attempt, AiSortRun.RunStatus.STOPPED, userId, statementImportIds);
+                        return;
+                    }
+                } else {
+                    failuresInARow = 0;
+                }
             }
-            finish(runId, AiSortRun.RunStatus.DONE);
+            // A payee whose call failed was not judged by the AI: the run did not finish its work, so
+            // it reads as stopped and can be tried again, rather than "AI couldn't sort these".
+            finish(runId, attempt, anyFailed ? AiSortRun.RunStatus.STOPPED : AiSortRun.RunStatus.DONE,
+                    userId, statementImportIds);
         } catch (RuntimeException e) {
             log.error("AI sorting run {} failed", runId, e);
-            finish(runId, AiSortRun.RunStatus.STOPPED);
+            finish(runId, attempt, AiSortRun.RunStatus.STOPPED, userId, statementImportIds);
         }
     }
 
@@ -108,36 +142,32 @@ public class AiSortRunner {
         return consent && guard.categorizationOffered() ? AiSortRun.RunStatus.STOPPED_LIMIT : AiSortRun.RunStatus.STOPPED_AI_OFF;
     }
 
-    private void sortOne(UUID runId, UUID userId, AiSortService.SortablePayee payee) {
-        int sorted;
+    private PayeeOutcome sortOne(UUID runId, UUID userId, AiSortService.SortablePayee payee) {
         try {
-            sorted = tx.execute(s -> fileWithAiAnswer(userId, payee));
+            PayeeOutcome outcome = tx.execute(s -> fileWithAiAnswer(userId, payee));
+            return outcome == null ? new PayeeOutcome(0, true) : outcome;
         } catch (RuntimeException e) {
             log.warn("AI sorting run {}: payee not sorted", runId, e);
-            sorted = 0;
+            return new PayeeOutcome(0, true);
         }
-        int filed = sorted;
-        metrics.payee(filed > 0);
-        tx.executeWithoutResult(s -> runs.findById(runId).ifPresent(r -> {
-            r.progress(payee.importRows().size(), filed, Instant.now());
-            runs.save(r);
-        }));
     }
 
     /**
      * Asks the model about one payee and files that payee's waiting payments out with its answer, as an
-     * AI guess that stays flagged for review. Returns how many of this import's rows were filed. A saved
-     * answer that is the customer's own (they answered meanwhile) files nothing here: their answer
-     * already did.
+     * AI guess that stays flagged for review. Says how many of this import's rows were filed, and
+     * whether the model call failed. A saved answer that is the customer's own (they answered
+     * meanwhile) files nothing here: their answer already did.
      */
-    private int fileWithAiAnswer(UUID userId, AiSortService.SortablePayee payee) {
+    private PayeeOutcome fileWithAiAnswer(UUID userId, AiSortService.SortablePayee payee) {
         Transaction first = payee.importRows().get(0);
-        Optional<SavedCategory> answer = fallback.suggest(userId, payee.counterpartyKey(), Transaction.Type.EXPENSE,
-                first.getDescription());
-        if (answer.isEmpty() || answer.get().chosenByUser()) return 0;
+        UserMerchantCategoryResolutionService.Attempt attempt = fallback.suggestForSort(userId,
+                payee.counterpartyKey(), Transaction.Type.EXPENSE, first.getDescription());
+        if (attempt.callFailed()) return new PayeeOutcome(0, true);
+        Optional<SavedCategory> answer = attempt.answer();
+        if (answer.isEmpty() || answer.get().chosenByUser()) return new PayeeOutcome(0, false);
         Category category = categorization.resolveOrCreateCategory(userId, answer.get().categoryName());
         Collection<UUID> live = accounts.findByUserId(userId).stream().map(Account::getId).toList();
-        if (live.isEmpty()) return 0;
+        if (live.isEmpty()) return new PayeeOutcome(0, false);
         Set<UUID> importRowIds = new HashSet<>();
         payee.importRows().forEach(t -> importRowIds.add(t.getId()));
         int sorted = 0;
@@ -153,15 +183,23 @@ public class AiSortRunner {
             transactions.save(t);
             if (importRowIds.contains(t.getId())) sorted++;
         }
-        return sorted;
+        return new PayeeOutcome(sorted, false);
     }
 
-    private void finish(UUID runId, AiSortRun.RunStatus status) {
-        tx.executeWithoutResult(s -> runs.findById(runId).ifPresent(r -> {
-            if (r.getStatus() != AiSortRun.RunStatus.RUNNING) return;
-            r.finish(status, Instant.now());
-            runs.save(r);
-            metrics.runFinished(status);
-        }));
+    /**
+     * Finishes attempt {@code attempt}, with what is left: this import's payments still waiting for the
+     * customer that the AI could be asked about -- not the ones the AI filed, nor the ones the customer
+     * answered themselves meanwhile (both now have a saved answer).
+     */
+    private void finish(UUID runId, int attempt, AiSortRun.RunStatus status, UUID userId, List<UUID> statementImportIds) {
+        try {
+            tx.executeWithoutResult(s -> {
+                int left = service.sortablePayees(userId, statementImportIds).stream()
+                        .mapToInt(p -> p.importRows().size()).sum();
+                if (runs.finish(runId, attempt, status, left, Instant.now()) == 1) metrics.runFinished(status);
+            });
+        } catch (RuntimeException e) {
+            log.error("AI sorting run {}: could not record its finish", runId, e);
+        }
     }
 }

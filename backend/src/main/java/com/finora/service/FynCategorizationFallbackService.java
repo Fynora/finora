@@ -32,6 +32,12 @@ public class FynCategorizationFallbackService {
         return resolutionService.resolve(userId, counterpartyKey, direction, description);
     }
 
+    /** As {@link #suggest}, saying whether a model call failed (AI sorting after an import stops on one). */
+    public UserMerchantCategoryResolutionService.Attempt suggestForSort(UUID userId, String counterpartyKey,
+                                                                      Transaction.Type direction, String description) {
+        return resolutionService.attempt(userId, counterpartyKey, direction, description);
+    }
+
     /** Staging/preview's own path -- see {@link UserMerchantCategoryResolutionService#resolveReadOnly}
      *  for why this must never call the LLM or write anything (Bug 36's own precedent). */
     public Optional<SavedCategory> suggestReadOnly(UUID userId, String counterpartyKey, Transaction.Type direction) {

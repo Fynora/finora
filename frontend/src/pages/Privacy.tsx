@@ -388,7 +388,7 @@ export default function Privacy() {
         <p>
           To send them, Fynora uses your account, your choice, and the device token of each phone you use the
           Fynora app on — the same token used for your other notifications — and delivers them through Firebase
-          Cloud Messaging (see Infrastructure & Service Providers below). Your phone's own notification
+          Cloud Messaging (see Infrastructure &amp; Service Providers below). Your phone's own notification
           permission still applies.
         </p>
         <p>

@@ -413,6 +413,8 @@ class ImportServiceAskOnceTest {
 
         assertThat(savedRow().isNeedsCategoryReview()).isTrue();
         verify(learningEventPublisher, never()).enqueue(any(), any(), any(), any(), any());
+        // Nor is the model's answer saved over as the customer's own (pin = chosen_by_user).
+        verify(resolutionService, never()).pin(any(), any(), any(), any());
     }
 
     @Test

@@ -844,8 +844,19 @@ public class ImportSessionService {
         return sessionId != null && importSessionRepository.existsById(sessionId);
     }
 
+    /** {@link #deleteSession(UUID, UUID, com.finora.entity.ClientPlatform)} for a caller with no
+     *  client to name -- the Gmail review's reject, whose sessions are never stamped anyway. */
     @Transactional
     public void deleteSession(UUID userId, UUID sessionId) {
+        deleteSession(userId, sessionId, com.finora.entity.ClientPlatform.WEB);
+    }
+
+    /**
+     * @param platform the app that asked ({@code X-Client-Platform}, advisory). Read only to say who
+     *        discarded the statement on its evidence row; it decides nothing about the delete.
+     */
+    @Transactional
+    public void deleteSession(UUID userId, UUID sessionId, com.finora.entity.ClientPlatform platform) {
         ImportSession session = getOwnedSession(userId, sessionId);
         // Not while a trust review is open on it -- the third place that rule lives, beside
         // sweepExpiredSessions and findLiveSessionByContentHash. The session is the reviewer's
@@ -864,7 +875,42 @@ public class ImportSessionService {
         // A password the user let Fynora keep for this upload (statement refresh, step 4) goes with
         // it now, rather than waiting for the hourly sweep: nothing is left for it to open.
         statementPasswordRepository.deleteHeldByJobsOfSession(sessionId);
+        // V326: a statement the customer read and then threw away, recorded on its evidence row
+        // the way the expiry sweep records one left to lapse -- the session row is about to go,
+        // and with it everything else that said this upload was ever staged. getOwnedSession has
+        // already refused a confirmed or expired session, so this one was waiting to be confirmed.
+        // Only one the customer uploaded (source null), for the reason stampAbandoned gives, and in
+        // its own transaction so a failed stamp can never stop the discard.
+        if (session.getSource() == null) {
+            stampDiscarded(sessionId, discardedBy(session, platform));
+        }
         importSessionRepository.delete(session);
+    }
+
+    /**
+     * The phone app cannot import a statement covering more than one account, and deletes one itself
+     * as soon as it is staged (ImportScreen, both the direct and the queued path). Recorded as the
+     * customer's choice, that would read as a customer abandoning a statement they could have
+     * imported. Every phone build since 2026-09-04 sends {@code X-Client-Platform}. A phone user who
+     * discards one from "Continue a previous import" is counted the same way: on the phone it could
+     * never have been imported either.
+     */
+    private static String discardedBy(ImportSession session, com.finora.entity.ClientPlatform platform) {
+        boolean phone = platform != null && platform != com.finora.entity.ClientPlatform.WEB;
+        return phone && ImportSession.KIND_MULTI_ACCOUNT.equals(session.getSessionKind())
+                ? com.finora.imports.analysis.StatementAnalysisSession.DISCARDED_BY_PHONE_MULTI_ACCOUNT
+                : com.finora.imports.analysis.StatementAnalysisSession.DISCARDED_BY_CUSTOMER;
+    }
+
+    private void stampDiscarded(UUID sessionId, String by) {
+        try {
+            Instant now = Instant.now();
+            separateTransaction.executeWithoutResult(status ->
+                    analysisSessionRepository.stampDiscardedUnconfirmed(sessionId, now, by));
+        } catch (RuntimeException e) {
+            log.warn("Could not record that import session {} was discarded unconfirmed; discarding it anyway",
+                    sessionId, e);
+        }
     }
 
     public List<StagedRow> readStagedRows(ImportSession session) {

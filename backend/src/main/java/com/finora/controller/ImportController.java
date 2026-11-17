@@ -37,12 +37,15 @@ public class ImportController {
     private final UploadScanGate uploadScanGate;
     private final StagingTrustGate stagingTrustGate;
     private final com.finora.imports.analysis.UploadRefusalLog uploadRefusalLog;
+    private final com.finora.support.ClientIdentity clientIdentity;
 
     public ImportController(ImportService importService, ImportSessionService importSessionService,
                              ImportConcurrencyLimiter concurrencyLimiter, CurrentUser currentUser,
                              StatementAnalysisRecorder analysisRecorder, UploadScanGate uploadScanGate,
                              StagingTrustGate stagingTrustGate,
-                             com.finora.imports.analysis.UploadRefusalLog uploadRefusalLog) {
+                             com.finora.imports.analysis.UploadRefusalLog uploadRefusalLog,
+                             com.finora.support.ClientIdentity clientIdentity) {
+        this.clientIdentity = clientIdentity;
         this.uploadRefusalLog = uploadRefusalLog;
         this.uploadScanGate = uploadScanGate;
         this.stagingTrustGate = stagingTrustGate;
@@ -84,7 +87,8 @@ public class ImportController {
                 importService.parseAndStageWithSession(userId, file)));
         // Outside the permit: a plan lookup, not parsing work. See FreePlanLimitNotice.
         return ResponseEntity.ok(ApiResponse.ok(
-                staged.withFreePlanLimit(importService.freePlanLimitNotice(userId, staged.staging(), null))));
+                staged.withFreePlanLimit(importService.freePlanLimitNotice(userId,
+                        noticeShownOn(staged.sessionId(), staged.heldForReviewJobId(), false), staged.staging(), null))));
     }
 
     // PDF Milestone 1 (com.finora.imports.pdf) -- digital/text-based bank statements only, no
@@ -123,7 +127,9 @@ public class ImportController {
                 importService.parseAndStagePdfWithSession(userId, file, password)));
         // Every section of a composite statement, as confirm-multi judges them. See FreePlanLimitNotice.
         return ResponseEntity.ok(ApiResponse.ok(staged.withFreePlanLimit(
-                importService.freePlanLimitNotice(userId, staged.staging(), staged.multiAccount() ? staged.sections() : null))));
+                importService.freePlanLimitNotice(userId,
+                        noticeShownOn(staged.sessionId(), staged.heldForReviewJobId(), staged.multiAccount()),
+                        staged.staging(), staged.multiAccount() ? staged.sections() : null))));
     }
 
     /**
@@ -216,13 +222,30 @@ public class ImportController {
         // open the review from here. Judged on the plan as it is now, so an upgrade clears it.
         return ApiResponse.ok(new StagingSessionResponse(session.getId(), staging,
                 importService.previousImportOf(currentUser.id(), session.getContentHash()))
-                .withFreePlanLimit(importService.freePlanLimitNotice(currentUser.id(), staging, null))
+                .withFreePlanLimit(importService.freePlanLimitNotice(currentUser.id(), session.getId(), staging, null))
                 .withApprovedAfterReview(importSessionService.wasApprovedAfterReview(session.getId())));
+    }
+
+    /**
+     * The session to record the Free-limit notice as shown on, or null for none. A statement held for
+     * the team's check still carries the notice in its response, but neither app opens the review
+     * screen for it (both follow the held job instead), so it was not shown. It is recorded when the
+     * review does open, from GET /sessions/{id}, after an approval.
+     *
+     * <p>Nor on a phone for a statement covering more than one account: the phone app cannot review
+     * one, and deletes it instead of opening the review (see ImportSessionService.discardedBy).
+     */
+    private UUID noticeShownOn(UUID sessionId, UUID heldForReviewJobId, boolean multiAccount) {
+        if (heldForReviewJobId != null) return null;
+        if (multiAccount && clientIdentity.platform() != com.finora.entity.ClientPlatform.WEB) return null;
+        return sessionId;
     }
 
     @DeleteMapping("/sessions/{id}")
     public ApiResponse<Void> deleteSession(@PathVariable UUID id) {
-        importSessionService.deleteSession(currentUser.id(), id);
+        // The platform only labels the discard on the evidence row (who discarded it); it decides
+        // nothing about the delete. See ImportSessionService.discardedBy.
+        importSessionService.deleteSession(currentUser.id(), id, clientIdentity.platform());
         return ApiResponse.ok(null, "Import session discarded");
     }
 

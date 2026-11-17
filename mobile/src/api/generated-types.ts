@@ -13826,6 +13826,15 @@ export interface components {
             importedAt?: string;
             /** Format: date-time */
             sessionConfirmedAt?: string;
+            /** Format: date-time */
+            discardedUnconfirmedAt?: string;
+            discardedBy?: string;
+            /** Format: date-time */
+            expiredUnconfirmedAt?: string;
+            /** Format: date-time */
+            freeLimitShownAt?: string;
+            /** Format: date-time */
+            freeLimitRefusedAt?: string;
         };
         Finding: {
             /** Format: int32 */

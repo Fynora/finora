@@ -148,7 +148,7 @@ function FindingRow({ finding }: { finding: ImportTraceFinding }) {
 
 function TraceView({ trace }: { trace: ImportTrace }) {
   const job = trace.job;
-  const analysis = trace.analysis?.analysis ?? null;
+  const analysis = trace.analysis ?? null;
 
   return (
     <>
@@ -306,9 +306,23 @@ function TraceView({ trace }: { trace: ImportTrace }) {
         icon={<CheckCircle2 size={16} className="text-primary" />}
         title="Completion"
         hint="Whether it landed, and what landed."
-        empty={trace.completion.statementImportId ? null
+        empty={trace.completion.statementImportId || stagedOutcomes(trace.completion).length > 0 ? null
           : 'Nothing was confirmed. Staging successfully and importing are different events — confirming is still the user’s decision.'}
       >
+        {stagedOutcomes(trace.completion).length > 0 && (
+          <div className={trace.completion.statementImportId ? 'mb-3' : undefined}>
+            <p className="text-xs text-muted mb-2">
+              {trace.completion.statementImportId
+                ? 'Before it was imported:'
+                : 'Nothing was confirmed. What happened to the staged statement:'}
+            </p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {stagedOutcomes(trace.completion).map(([label, at]) => (
+                <Field key={label} label={label} value={timestamp(at)} />
+              ))}
+            </div>
+          </div>
+        )}
         {trace.completion.statementImportId && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Field label="Statement import" value={trace.completion.statementImportId} mono />
@@ -320,6 +334,29 @@ function TraceView({ trace }: { trace: ImportTrace }) {
       </Panel>
     </>
   );
+}
+
+/** Who deleted a staged statement, in words. The phone app deletes one it cannot import by itself,
+ *  which is not the customer abandoning it. */
+function discardLabel(by: string | null): string {
+  if (by === 'CUSTOMER') return 'Discarded by the customer';
+  if (by === 'PHONE_MULTI_ACCOUNT') return 'Removed by the phone app: more than one account';
+  return 'Discarded';
+}
+
+/**
+ * What the evidence row recorded about a staged statement, in the order it can happen. The Free-limit
+ * events are listed even when the statement was imported later (an upgrade in between); a discard or
+ * an expiry can only end one that was not.
+ */
+function stagedOutcomes(completion: ImportTrace['completion']): [string, string][] {
+  const outcomes: [string, string | null][] = [
+    ['Free plan limit notice shown', completion.freeLimitShownAt],
+    ['Confirm refused by the Free plan limit', completion.freeLimitRefusedAt],
+    [discardLabel(completion.discardedBy), completion.discardedUnconfirmedAt],
+    ['Expired unconfirmed', completion.expiredUnconfirmedAt],
+  ];
+  return outcomes.filter((o): o is [string, string] => o[1] != null);
 }
 
 export default function ImportTracePage() {

@@ -33924,6 +33924,25 @@
                     "sessionConfirmedAt": {
                         "type": "string",
                         "format": "date-time"
+                    },
+                    "discardedUnconfirmedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "discardedBy": {
+                        "type": "string"
+                    },
+                    "expiredUnconfirmedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "freeLimitShownAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "freeLimitRefusedAt": {
+                        "type": "string",
+                        "format": "date-time"
                     }
                 }
             },

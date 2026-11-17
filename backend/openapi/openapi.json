@@ -10983,6 +10983,15 @@
                                 "OTHER"
                             ]
                         }
+                    },
+                    {
+                        "name": "confirmedByCustomer",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "boolean",
+                            "default": false
+                        }
                     }
                 ],
                 "responses": {

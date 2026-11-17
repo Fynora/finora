@@ -699,7 +699,7 @@ export default function Import() {
     clearError();
     setDiscardingSessionId(id);
     try {
-      await importApi.discardSession(id, reason);
+      await importApi.discardSession(id, reason, true);
       await queryClient.invalidateQueries({ queryKey: ['import-sessions'] });
       return true;
     } catch {

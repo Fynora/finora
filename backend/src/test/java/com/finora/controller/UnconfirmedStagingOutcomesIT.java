@@ -431,6 +431,21 @@ class UnconfirmedStagingOutcomesIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void aPhoneDiscardTheCustomerConfirmed_isTheirs_evenForAStatementCoveringMoreThanOneAccount() throws Exception {
+        // Phone builds from this change on ask first (the discard sheet), and never delete one by
+        // themselves; only an older build's silent deletion is the phone's.
+        User user = customer("FREE");
+        UUID sessionId = stageCsv(user, ONE_MONTH_CSV);
+        makeMultiAccount(sessionId);
+
+        assertThat(discard(user, sessionId, "MOBILE_IOS", "LOOKS_WRONG&confirmedByCustomer=true").getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+
+        assertThat(evidenceOf(sessionId).getDiscardedBy()).isEqualTo("CUSTOMER");
+        assertThat(evidenceOf(sessionId).getDiscardReason()).isEqualTo("LOOKS_WRONG");
+    }
+
+    @Test
     void aReasonThatIsNotOneOfTheChoices_isRefused_andNothingIsDiscarded() throws Exception {
         User user = customer("FREE");
         UUID sessionId = stageCsv(user, ONE_MONTH_CSV);

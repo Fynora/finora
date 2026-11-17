@@ -788,7 +788,7 @@ export function ImportScreen() {
     setDiscardingId(id);
     const startedAt = requestStartedAt();
     try {
-      await importApi.discardSession(id, reason);
+      await importApi.discardSession(id, reason, true);
       hapticSuccess();
       await unfinishedQ.refetch();
     } catch (e) {

@@ -690,8 +690,12 @@ export const importApi = {
       }>(`/import/sessions/${id}`)
       .then((r) => r.data),
   // `reason`: the customer's optional one-tap reason from the discard sheet; omitted when skipped.
-  discardSession: (id: string, reason?: DiscardReason | null) =>
-    api.delete(`/import/sessions/${id}`, reason ? { params: { reason } } : undefined),
+  // confirmedByCustomer: true only from a discard dialog the customer answered -- never from the
+  // app deleting a statement by itself.
+  discardSession: (id: string, reason?: DiscardReason | null, confirmedByCustomer = false) =>
+    api.delete(`/import/sessions/${id}`, {
+      params: { ...(reason ? { reason } : {}), ...(confirmedByCustomer ? { confirmedByCustomer: true } : {}) },
+    }),
   // "Your recent failed imports" -- Premium Import Reliability v1, §2.1. A document that never got
   // far enough to become an ImportSession (no header found, zero transactions, a scanned PDF)
   // previously left no trace its owner could see again; this is that trace, read back. Ported

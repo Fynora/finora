@@ -2572,7 +2572,7 @@ describe('ImportScreen — async import job (Phase 4)', () => {
     expectHaptics({});
     expect(await screen.findByText('Discard this import?')).toBeTruthy();
     await act(async () => { fireEvent.press(screen.getByTestId('discard-import-confirm')); });
-    await waitFor(() => expect(api.import.discardSession).toHaveBeenCalledWith('sess-old', null));
+    await waitFor(() => expect(api.import.discardSession).toHaveBeenCalledWith('sess-old', null, true));
     await waitFor(() => expectHaptics({ success: 1 }));
 
     api.import.discardSession.mockRejectedValueOnce(new Error('down'));
@@ -2600,7 +2600,7 @@ describe('ImportScreen — async import job (Phase 4)', () => {
     expect(screen.getByTestId('discard-reason-LATER').props.accessibilityState).toEqual({ selected: true });
     await act(async () => { fireEvent.press(screen.getByTestId('discard-import-confirm')); });
 
-    await waitFor(() => expect(api.import.discardSession).toHaveBeenCalledWith('sess-old', 'LATER'));
+    await waitFor(() => expect(api.import.discardSession).toHaveBeenCalledWith('sess-old', 'LATER', true));
   });
 });
 

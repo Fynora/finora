@@ -23285,6 +23285,7 @@ export interface operations {
         parameters: {
             query?: {
                 reason?: "WRONG_FILE" | "TOO_MANY_MONTHS" | "LOOKS_WRONG" | "LATER" | "OTHER";
+                confirmedByCustomer?: boolean;
             };
             header?: never;
             path: {

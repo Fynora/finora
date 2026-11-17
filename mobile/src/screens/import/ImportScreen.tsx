@@ -402,6 +402,11 @@ export function ImportScreen() {
   // someone who has just upgraded -- the backend checks the plan again at Import either way.
   const [freePlanLimit, setFreePlanLimit] = useState<FreePlanLimitNotice | null>(null);
   const [limitOverridden, setLimitOverridden] = useState(false);
+  // "Import only the latest month" (Sid, 2026-11-17): the Free customer chose to import just the
+  // notice's month; rows outside it are unticked, and the server checks the same. Undo restores
+  // what was ticked before.
+  const [latestMonthOnly, setLatestMonthOnly] = useState(false);
+  const [includedBeforeLatestMonth, setIncludedBeforeLatestMonth] = useState<boolean[] | null>(null);
   // The error message a "See plans" button belongs to: a Free-plan limit refusal at Import. Keyed
   // on the message rather than a separate flag, so any later error replacing it hides the button
   // without every setError call site having to remember to clear it.
@@ -650,6 +655,7 @@ export function ImportScreen() {
     setApprovedAfterReview(false);
     setFreePlanLimit(null);
     setLimitOverridden(false);
+    setLatestMonthOnly(false);
     setSummary(null);
     setAccountForm(initialAccountForm(null));
     setNewAccountBank(null);
@@ -762,6 +768,8 @@ export function ImportScreen() {
       setPreviousImport(res.previousImport ?? null);
       setFreePlanLimit(res.freePlanLimit ?? null);
       setLimitOverridden(false);
+      setLatestMonthOnly(false);
+    setLatestMonthOnly(false);
       hydrateReviewFrom(res.staging);
       setStep('review');
     } catch (e) {
@@ -846,6 +854,8 @@ export function ImportScreen() {
       setPreviousImport(res.previousImport ?? null);
       setFreePlanLimit(res.freePlanLimit ?? null);
       setLimitOverridden(false);
+      setLatestMonthOnly(false);
+    setLatestMonthOnly(false);
       hydrateReviewFrom(res.staging);
       setJobId(null);
       setStep('review');
@@ -965,6 +975,8 @@ export function ImportScreen() {
       setPreviousImport(res.previousImport ?? null);
       setFreePlanLimit(res.freePlanLimit ?? null);
       setLimitOverridden(false);
+      setLatestMonthOnly(false);
+    setLatestMonthOnly(false);
       // The document opened, so the password has done its whole job -- drop it and the file.
       setPendingPdf(null);
       setPdfPassword('');
@@ -1154,7 +1166,7 @@ export function ImportScreen() {
             userConfirmedContinue: ownershipAcknowledged.current ? true : undefined,
             holderIsMine: holderIsMine.current || (claimHolder && holderClaimAvailable()) ? true : undefined,
           })
-        : await importApi.confirm({
+        : await confirmFirstImport({
             sessionId: sessionId!,
             rows: buildRowPayload(rows, review, chosenCategory),
             existingAccountId: accountChoice === 'existing' ? selectedAccountId : null,
@@ -1777,7 +1789,7 @@ export function ImportScreen() {
     isReimport,
     accountChoice,
     selectedAccountId,
-    freePlanLimitBlocks: freePlanLimit !== null && !limitOverridden,
+    freePlanLimitBlocks: freePlanLimit !== null && !limitOverridden && !latestMonthOnly,
     amountOwedInvalid,
     newAccountBankMissing,
   };
@@ -1810,14 +1822,48 @@ export function ImportScreen() {
     />
   );
 
+  const latestMonth = freePlanLimit?.latestMonthFrom
+    ? new Date(`${freePlanLimit.latestMonthFrom}T00:00:00`).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
+    : null;
+  const latestMonthRows = freePlanLimit?.latestMonthRows ?? 0;
+  const latestMonthCount = `${latestMonthRows} ${latestMonthRows === 1 ? 'transaction' : 'transactions'}`;
+
+  function inLatestMonth(date: string | null | undefined): boolean {
+    const from = freePlanLimit?.latestMonthFrom;
+    const to = freePlanLimit?.latestMonthTo;
+    return !!date && !!from && !!to && date >= from && date <= to;
+  }
+
+  function chooseLatestMonthOnly() {
+    setIncludedBeforeLatestMonth(review.included);
+    setReview((prev) => ({ ...prev, included: prev.included.map((v, i) => v && inLatestMonth(rows[i]?.date)) }));
+    setLatestMonthOnly(true);
+  }
+
+  function undoLatestMonthOnly() {
+    if (includedBeforeLatestMonth) {
+      const restore = includedBeforeLatestMonth;
+      setReview((prev) => ({ ...prev, included: restore }));
+    }
+    setIncludedBeforeLatestMonth(null);
+    setLatestMonthOnly(false);
+  }
+
+  /** A first-time confirm; asks for "only the latest month" only when the customer chose it. */
+  function confirmFirstImport(payload: Parameters<typeof importApi.confirm>[0]) {
+    return latestMonthOnly ? importApi.confirm(payload, { latestMonthOnly: true }) : importApi.confirm(payload);
+  }
+
   const rowCard = (index: number) => (
     <StagedRowCard
       row={rows[index]}
       included={review.included[index]}
       category={chosenCategory[index]}
-      onToggleIncluded={() =>
-        setReview((prev) => setIncluded(prev, index, !prev.included[index]))
-      }
+      onToggleIncluded={() => {
+        // Ticking a row from another month leaves "only the latest month": the Free limit applies again.
+        if (latestMonthOnly && !review.included[index] && !inLatestMonth(rows[index]?.date)) setLatestMonthOnly(false);
+        setReview((prev) => setIncluded(prev, index, !prev.included[index]));
+      }}
       onPressCategory={() => setCategoryPickerFor(index)}
       balanceFlagged={flagged.balance?.includes(index) ?? false}
       descriptionFlagged={flagged.description?.includes(index) ?? false}
@@ -1867,7 +1913,18 @@ export function ImportScreen() {
               </View>
             ) : null}
 
-            {freePlanLimit && !reimport ? (
+            {freePlanLimit && !reimport && latestMonthOnly && latestMonth ? (
+              // Chosen: what is being imported, why the rest is left out, and what Plus would do instead.
+              <View style={[styles.section, styles.limitNotice]} testID="free-plan-limit-notice" accessibilityRole="text">
+                <Text style={[styles.body, { color: c.ink }]}>{`Importing only ${latestMonth}: ${latestMonthCount}.`}</Text>
+                <Text style={[styles.body, { color: c.muted }]}>
+                  The Free plan imports one month per statement, so the other months in this file are left out. With
+                  Plus, you can import the whole statement in one go.
+                </Text>
+                <Button label="See plans" variant="link" onPress={openPlans} />
+                <Button label="Undo" variant="link" onPress={undoLatestMonthOnly} />
+              </View>
+            ) : freePlanLimit && !reimport ? (
               <View
                 style={[styles.section, styles.limitNotice, { backgroundColor: c.warningBg }]}
                 testID="free-plan-limit-notice"
@@ -1875,9 +1932,18 @@ export function ImportScreen() {
               >
                 <Text style={[styles.body, { color: c.warningInk }]}>{freePlanLimit.message}</Text>
                 <Text style={[styles.body, { color: c.warningInk }]}>
-                  You can't import this statement on the Free plan. Upload a statement covering one month, or upgrade.
+                  {latestMonth
+                    ? `The Free plan imports one month per statement. Import just ${latestMonth} now, or upgrade to Plus to import the whole statement.`
+                    : "You can't import this statement on the Free plan. Upload a statement covering one month, or upgrade."}{' '}
                   Your upload stays under "Continue a previous import" for 48 hours.
                 </Text>
+                {latestMonth && (freePlanLimit.latestMonthRows ?? 0) > 0 ? (
+                  <Button
+                    label={`Import only ${latestMonth} (${latestMonthCount})`}
+                    testID="import-latest-month"
+                    onPress={chooseLatestMonthOnly}
+                  />
+                ) : null}
                 <Button label="See plans" variant="link" onPress={openPlans} />
                 {!limitOverridden ? (
                   <Button label="I've already upgraded" variant="link" onPress={() => setLimitOverridden(true)} />

@@ -608,7 +608,18 @@ public class ImportDto {
      * @param basis {@code PRINTED_PERIOD} or {@code TRANSACTIONS}: which span is too long
      */
     public record FreePlanLimitNotice(String errorCode, String message, LocalDate coveredFrom, LocalDate coveredTo,
-                                      String basis) {}
+                                      String basis,
+                                      // "Import only the latest month" (Sid, 2026-11-17): the statement's last full
+                                      // calendar month and how many of its transactions fall in it, which a Free
+                                      // customer may import on its own (POST /csv/confirm?latestMonthOnly=true).
+                                      // Null when there is none -- no whole month covered, or a statement covering
+                                      // more than one account, which keeps the plain refusal.
+                                      LocalDate latestMonthFrom, LocalDate latestMonthTo, Integer latestMonthRows) {
+        public FreePlanLimitNotice(String errorCode, String message, LocalDate coveredFrom, LocalDate coveredTo,
+                                   String basis) {
+            this(errorCode, message, coveredFrom, coveredTo, basis, null, null, null);
+        }
+    }
 
     /**
      * A confirmed import of the exact same file bytes by this user, shown on the review screen as a
@@ -903,6 +914,17 @@ public class ImportDto {
                     holderIsMine, amountOwedToday);
         }
 
+        /** The same request with the statement's own figures replaced: "Import only the latest month"
+         *  imports one month, so the period, opening and closing balance are that month's (server-
+         *  derived, see {@code FreeLatestMonth}), and the whole statement's amount due no longer applies. */
+        public ConfirmRequest withMonthFigures(BigDecimal opening, BigDecimal closing, LocalDate periodStart,
+                                               LocalDate periodEnd) {
+            return new ConfirmRequest(sessionId, rows, existingAccountId,
+                    newAccount == null ? null : newAccount.withOpeningBalance(opening),
+                    opening, closing, password, periodStart, periodEnd, null, null, userConfirmedContinue,
+                    idempotencyKey, holderIsMine, amountOwedToday);
+        }
+
         public ConfirmRequest withNewAccount(NewAccountRequest replacement) {
             return new ConfirmRequest(sessionId, rows, existingAccountId, replacement,
                     statementOpeningBalance, statementClosingBalance, password, statementPeriodStart,
@@ -992,6 +1014,14 @@ public class ImportDto {
             BigDecimal maturityAmount, BigDecimal installmentAmount,
             Integer installmentsPaid, Integer installmentsTotal
     ) {
+        /** The same request with {@code openingBalance} replaced (null for none). */
+        public NewAccountRequest withOpeningBalance(BigDecimal replacement) {
+            return new NewAccountRequest(name, accountType, replacement, creditLimit, dueDate,
+                    accountHolderName, accountNumberMasked, bankId, branchName, ifscCode, detectedProduct,
+                    productIdentityHash, principalAmount, interestRate, maturityDate, maturityAmount,
+                    installmentAmount, installmentsPaid, installmentsTotal);
+        }
+
         /** The same request without the product identity key. The key hashes the bank it was staged
          *  with; once the user has given the account a different bank, it would point at the wrong
          *  institution, so the account is created without one (spec 2026-10-22, section 5). */

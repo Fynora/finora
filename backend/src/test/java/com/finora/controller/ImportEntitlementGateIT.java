@@ -335,7 +335,7 @@ class ImportEntitlementGateIT extends AbstractIntegrationTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         assertThat(mapper.readTree(response.getBody()).get("message").asText()).isEqualTo(
                 "Free plan statements can cover at most one month. Its transactions run from 31 Jul 2026 to 6 Oct 2026. "
-                        + "Upgrade to Plus to import longer statement periods.");
+                        + "You can import just its transactions from August 2026, or upgrade to Plus to import all of it.");
     }
 
     @Test
@@ -349,7 +349,7 @@ class ImportEntitlementGateIT extends AbstractIntegrationTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         assertThat(mapper.readTree(response.getBody()).get("message").asText()).isEqualTo(
                 "Free plan statements can cover at most one month. It covers 1 Apr 2026 to 31 Mar 2027. "
-                        + "Upgrade to Plus to import longer statement periods.");
+                        + "You can import just its transactions from September 2026, or upgrade to Plus to import all of it.");
     }
 
     @Test
@@ -365,7 +365,8 @@ class ImportEntitlementGateIT extends AbstractIntegrationTest {
         JsonNode body = mapper.readTree(response.getBody());
         assertThat(body.get("errorCode").asText()).isEqualTo("ENTITLEMENT_003");
         assertThat(body.get("message").asText()).isEqualTo("Free plan statements can cover at most one month. "
-                + "Its transactions run from 5 Jan 2026 to 5 Mar 2026. Upgrade to Plus to import longer statement periods.");
+                + "Its transactions run from 5 Jan 2026 to 5 Mar 2026. You can import just its transactions from"
+                + " February 2026, or upgrade to Plus to import all of it.");
     }
 
     @Test
@@ -378,7 +379,7 @@ class ImportEntitlementGateIT extends AbstractIntegrationTest {
 
         assertThat(mapper.readTree(response.getBody()).get("message").asText()).isEqualTo(
                 "Free plan statements can cover at most one month. It covers 1 Jan 2026 to 31 Mar 2026. "
-                        + "Upgrade to Plus to import longer statement periods.");
+                        + "You can import just its transactions from January 2026, or upgrade to Plus to import all of it.");
     }
 
     @Test

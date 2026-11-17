@@ -4373,6 +4373,17 @@
                     "import-controller"
                 ],
                 "operationId": "confirm_1",
+                "parameters": [
+                    {
+                        "name": "latestMonthOnly",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "boolean",
+                            "default": false
+                        }
+                    }
+                ],
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -20662,6 +20673,18 @@
                     },
                     "basis": {
                         "type": "string"
+                    },
+                    "latestMonthFrom": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "latestMonthTo": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "latestMonthRows": {
+                        "type": "integer",
+                        "format": "int32"
                     }
                 }
             },

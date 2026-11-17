@@ -649,6 +649,41 @@ public class ImportService {
                                                  List<StagedRow> stagedRows, boolean oneOfSeveralAccounts) {
         FreeLimitFinding finding = freeLimitFinding(userId, detected, stagedRows, oneOfSeveralAccounts);
         if (finding == null) return;
+        refuseOverFreeLimit(sessionId, detected, finding);
+    }
+
+    /**
+     * "Import only the latest month" (Sid, 2026-11-17): the statement's last full calendar month, which
+     * the customer asked to import on its own, once every row they kept is in it. Judged here, from
+     * this session's own staged rows and detection -- never from the request's period or figures
+     * (see {@link #requireStatementWithinFreeLimit}). Asked for by a Free customer over the limit; a
+     * plan without the limit gets the same month if it asks, since its figures are the month's.
+     *
+     * @throws ApiException when there is no such month (the plain refusal, if the plan has the
+     *         limit), or a kept row falls outside it
+     */
+    private FreeLatestMonth.Month requireLatestMonthOnly(UUID userId, UUID sessionId, DetectedAccountInfo detected,
+                                                         List<StagedRow> stagedRows, List<ConfirmedRow> rows) {
+        LocalDate[] period = periodOf(detected);
+        FreeLatestMonth.Month month = FreeLatestMonth.lastFullMonth(period[0], period[1], stagedRows);
+        if (month == null) {
+            requireStatementWithinFreeLimit(userId, sessionId, detected, stagedRows, false);
+            throw new ApiException(ErrorCode.VALIDATION_ERROR.defaultStatus(), ErrorCode.VALIDATION_ERROR,
+                    "This statement has no full calendar month to import on its own.");
+        }
+        boolean outside = rows.stream().anyMatch(r -> r.include()
+                && (r.date() == null || r.date().isBefore(month.from()) || r.date().isAfter(month.to())));
+        if (outside) {
+            stampUnconfirmedOutcome(sessionId, StatementAnalysisRecorder.UnconfirmedOutcome.FREE_LIMIT_REFUSED);
+            throw new ApiException(ErrorCode.STATEMENT_PERIOD_TOO_LONG.defaultStatus(),
+                    ErrorCode.STATEMENT_PERIOD_TOO_LONG,
+                    "Only the transactions from " + month.from().format(MONTH_NAME) + " can be imported on their own.",
+                    Map.of("latestMonthFrom", month.from().toString(), "latestMonthTo", month.to().toString()));
+        }
+        return month;
+    }
+
+    private void refuseOverFreeLimit(UUID sessionId, DetectedAccountInfo detected, FreeLimitFinding finding) {
         LocalDate[] period = periodOf(detected);
         FreeStatementPeriod.Excess excess = finding.excess();
         if (excess.fromTransactions() && period[0] != null && period[1] != null) {
@@ -733,12 +768,26 @@ public class ImportService {
                 ? (oneOfSeveralAccounts ? "One account's transactions run from " : "Its transactions run from ")
                 : (oneOfSeveralAccounts ? "One account in this statement covers " : "It covers ");
         String found = lead + excess.from().format(shown) + " to " + excess.to().format(shown) + ".";
+        // A composite statement keeps the plain refusal: which section's month to offer, and how the
+        // sections' months line up, is a question this does not answer.
+        FreeLatestMonth.Month month = oneOfSeveralAccounts ? null
+                : FreeLatestMonth.lastFullMonth(period[0], period[1], stagedRows);
+        Integer monthRows = month == null ? null
+                : (int) stagedRows.stream().filter(r -> r.date() != null && !r.date().isBefore(month.from())
+                        && !r.date().isAfter(month.to())).count();
+        String offer = month == null
+                ? " Upgrade to Plus to import longer statement periods."
+                : " You can import just its transactions from " + month.from().format(MONTH_NAME)
+                        + ", or upgrade to Plus to import all of it.";
         return new FreeLimitFinding(excess, new FreePlanLimitNotice(
                 ErrorCode.STATEMENT_PERIOD_TOO_LONG.code(),
-                "Free plan statements can cover at most one month. " + found
-                        + " Upgrade to Plus to import longer statement periods.",
-                excess.from(), excess.to(), excess.fromTransactions() ? "TRANSACTIONS" : "PRINTED_PERIOD"));
+                "Free plan statements can cover at most one month. " + found + offer,
+                excess.from(), excess.to(), excess.fromTransactions() ? "TRANSACTIONS" : "PRINTED_PERIOD",
+                month == null ? null : month.from(), month == null ? null : month.to(), monthRows));
     }
+
+    private static final java.time.format.DateTimeFormatter MONTH_NAME =
+            java.time.format.DateTimeFormatter.ofPattern("MMMM yyyy", java.util.Locale.ENGLISH);
 
     private static long daysInclusive(LocalDate a, LocalDate b) {
         return Math.abs(java.time.temporal.ChronoUnit.DAYS.between(a, b)) + 1;
@@ -1183,6 +1232,18 @@ public class ImportService {
      */
     @Transactional
     public ConfirmResponse confirmSession(UUID userId, ConfirmRequest request) {
+        return confirmSession(userId, request, false);
+    }
+
+    /**
+     * @param latestMonthOnly import only the statement's last full calendar month ("Import only the
+     *        latest month", Sid 2026-11-17): every kept row must fall in it, and the statement's
+     *        period, opening and closing balance become that month's, derived from its own running
+     *        balance ({@link FreeLatestMonth}) -- the whole statement's would not add up against one
+     *        month's rows, and would set the account balance wrong.
+     */
+    @Transactional
+    public ConfirmResponse confirmSession(UUID userId, ConfirmRequest request, boolean latestMonthOnly) {
         if (request.sessionId() == null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "sessionId is required.");
         }
@@ -1210,7 +1271,15 @@ public class ImportService {
         // Against this session's own server-derived detection and staged rows, never
         // request.statementPeriodStart()/End() or request.rows() -- see
         // requireStatementWithinFreeLimit's own doc comment.
-        requireStatementWithinFreeLimit(userId, session.getId(), detectedAccount, stagedRows, false);
+        if (latestMonthOnly) {
+            FreeLatestMonth.Month month = requireLatestMonthOnly(userId, session.getId(), detectedAccount, stagedRows,
+                    request.rows());
+            FreeLatestMonth.Figures figures = FreeLatestMonth.figures(stagedRows, month);
+            request = request.withMonthFigures(figures.openingBalance(), figures.closingBalance(), month.from(),
+                    month.to());
+        } else {
+            requireStatementWithinFreeLimit(userId, session.getId(), detectedAccount, stagedRows, false);
+        }
         if (request.newAccount() != null) request = request.withNewAccount(request.newAccount().keyedOnlyFor(detectedAccount));
         ConfirmResponse response = confirm(userId, session.getFileName(), statementContentService.read(session), request, null,
                 session.getLayoutMetadataJson(), session.getLayoutFingerprint(), session.getActivatedCapabilitiesJson(),

@@ -8723,6 +8723,12 @@ export interface components {
             /** Format: date */
             coveredTo?: string;
             basis?: string;
+            /** Format: date */
+            latestMonthFrom?: string;
+            /** Format: date */
+            latestMonthTo?: string;
+            /** Format: int32 */
+            latestMonthRows?: number;
         };
         PdfStagingSessionResponse: {
             /** Format: uuid */
@@ -18386,7 +18392,9 @@ export interface operations {
     };
     confirm_1: {
         parameters: {
-            query?: never;
+            query?: {
+                latestMonthOnly?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;

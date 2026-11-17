@@ -549,6 +549,11 @@ export interface FreePlanLimitNotice {
   coveredFrom: string;
   coveredTo: string;
   basis: 'PRINTED_PERIOD' | 'TRANSACTIONS' | string;
+  /** "Import only the latest month": the statement's latest whole month with transactions, which a
+   *  Free customer may import on its own. Absent when there is none. */
+  latestMonthFrom?: string | null;
+  latestMonthTo?: string | null;
+  latestMonthRows?: number | null;
 }
 
 interface PdfStagingSessionResult {
@@ -672,8 +677,13 @@ export const importApi = {
         .then((r) => r.data)
     );
   },
-  confirm: (payload: ConfirmPayload) =>
-    api.post<ImportSummary>('/import/csv/confirm', payload).then((r) => r.data),
+  // latestMonthOnly: import only the statement's latest whole month (the Free plan offer); the server
+  // checks every kept row is in it and uses that month's own period and balances.
+  confirm: (payload: ConfirmPayload, opts?: { latestMonthOnly?: boolean }) =>
+    api
+      .post<ImportSummary>('/import/csv/confirm', payload,
+        opts?.latestMonthOnly ? { params: { latestMonthOnly: true } } : undefined)
+      .then((r) => r.data),
   confirmMulti: (payload: MultiAccountConfirmPayload) =>
     api.post<{ perAccount: ImportSummary[] }>('/import/pdf/confirm-multi', payload).then((r) => r.data),
   listSessions: () => api.get<ImportSessionSummary[]>('/import/sessions').then((r) => r.data),

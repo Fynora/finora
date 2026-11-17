@@ -169,8 +169,11 @@ public class ImportController {
     // same trust boundary ADR-0002 already established for the confirmed row list itself
     // (ConfirmedRowIntegrity.requireSameRows) rather than trusting the client's echoed rows.
     @PostMapping("/csv/confirm")
-    public ResponseEntity<ApiResponse<ConfirmResponse>> confirm(@Valid @RequestBody ConfirmRequest request) {
-        return ResponseEntity.ok(ApiResponse.ok(importService.confirmSession(currentUser.id(), request), "Import complete"));
+    public ResponseEntity<ApiResponse<ConfirmResponse>> confirm(@Valid @RequestBody ConfirmRequest request,
+            // "Import only the latest month" (Sid, 2026-11-17): see ImportService.confirmSession.
+            @RequestParam(defaultValue = "false") boolean latestMonthOnly) {
+        return ResponseEntity.ok(ApiResponse.ok(importService.confirmSession(currentUser.id(), request, latestMonthOnly),
+                "Import complete"));
     }
 
     // Confirms every account section of a multi-account PDF staging session together (see

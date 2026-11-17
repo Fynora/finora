@@ -4329,6 +4329,89 @@ describe('Import — Free plan one-month limit, told on upload', () => {
     expect(screen.queryByRole('button', { name: /i've already upgraded/i })).not.toBeInTheDocument();
   });
 
+  describe('Import only the latest month', () => {
+    const offer = { ...freePlanLimit, latestMonthFrom: '2026-10-01', latestMonthTo: '2026-10-31', latestMonthRows: 1 };
+    const septemberRow = { ...ONE_STAGED_ROW, date: '2026-09-12', description: 'SEPTEMBER ROW' };
+    const octoberRow = { ...ONE_STAGED_ROW, date: '2026-10-08', description: 'OCTOBER ROW' };
+
+    function stageWithOffer(notice: typeof freePlanLimit & Partial<typeof offer>) {
+      const base = stagingResultWith();
+      vi.mocked(importApi.stageCsv).mockReset().mockResolvedValue({
+        ...base,
+        staging: { ...base.staging, rows: [septemberRow, octoberRow], totalParsed: 2 },
+        freePlanLimit: notice,
+      } as never);
+      vi.mocked(importApi.confirm).mockReset().mockResolvedValue({
+        imported: 1, skipped: 1, duplicatesDetected: 0, transfersIdentified: 0, newMerchantsLearned: 0,
+        accountsCreated: [], productsCreated: {}, categoriesAssigned: {}, warnings: [], account: null,
+        totalCredits: 0, totalDebits: 486, statementOpeningBalance: null, statementClosingBalance: null,
+        statementPeriodStart: '2026-10-01', statementPeriodEnd: '2026-10-31', importDurationMs: 12, source: 'CSV',
+      } as never);
+    }
+
+    it('offers the month, says why, and imports just its rows with the month asked for', async () => {
+      stageWithOffer(offer);
+      const user = userEvent.setup();
+      renderImport();
+      await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+
+      const notice = await screen.findByTestId('free-plan-limit-notice');
+      expect(notice).toHaveTextContent('The Free plan imports one month per statement. Import just October 2026 now');
+      await user.click(within(notice).getByRole('button', { name: 'Import only October 2026 (1 transaction)' }));
+
+      const chosen = screen.getByTestId('free-plan-limit-notice');
+      expect(chosen).toHaveTextContent('Importing only October 2026: 1 transaction.');
+      expect(chosen).toHaveTextContent('The Free plan imports one month per statement, so the other months in this file are left out. With Plus, you can import the whole statement in one go.');
+      expect(within(chosen).getByRole('link', { name: /see plus plans/i })).toHaveAttribute('href', '/app/billing');
+      expect(screen.getByRole('button', { name: /confirm import/i })).toBeEnabled();
+
+      await user.click(screen.getByRole('button', { name: /confirm import/i }));
+
+      await waitFor(() => expect(importApi.confirm).toHaveBeenCalled());
+      const [payload, opts] = vi.mocked(importApi.confirm).mock.calls[0];
+      expect(opts).toEqual({ latestMonthOnly: true });
+      expect(payload.rows.map((r) => [r.description, r.include])).toEqual([['SEPTEMBER ROW', false], ['OCTOBER ROW', true]]);
+    });
+
+    it('Undo puts back what was ticked, and the limit holds the button again', async () => {
+      stageWithOffer(offer);
+      const user = userEvent.setup();
+      renderImport();
+      await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+      await user.click(await screen.findByTestId('import-latest-month'));
+
+      await user.click(screen.getByRole('button', { name: 'Undo' }));
+
+      expect(screen.getByTestId('import-latest-month')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /confirm import/i })).toBeDisabled();
+    });
+
+    it('ticking a row from another month leaves "only the latest month"', async () => {
+      stageWithOffer(offer);
+      const user = userEvent.setup();
+      renderImport();
+      await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+      await user.click(await screen.findByTestId('import-latest-month'));
+      const september = screen.getByText('SEPTEMBER ROW').closest('tr, li, div[role="row"], label') ?? document.body;
+
+      await user.click(within(september as HTMLElement).getByRole('checkbox'));
+
+      expect(screen.getByTestId('import-latest-month')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /confirm import/i })).toBeDisabled();
+    });
+
+    it('has no offer when the statement has no whole month', async () => {
+      stageWithOffer(freePlanLimit);
+      const user = userEvent.setup();
+      renderImport();
+      await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+
+      const notice = await screen.findByTestId('free-plan-limit-notice');
+      expect(within(notice).queryByTestId('import-latest-month')).not.toBeInTheDocument();
+      expect(notice).toHaveTextContent("You can't import this statement on the Free plan.");
+    });
+  });
+
   it('shows nothing and holds nothing when the statement fits', async () => {
     vi.mocked(importApi.stageCsv).mockReset().mockResolvedValue({ ...stagingResultWith(), freePlanLimit: null });
     const user = userEvent.setup();

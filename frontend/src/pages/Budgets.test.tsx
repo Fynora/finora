@@ -1,6 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Budgets from './Budgets';
 import { budgetsApi, categoriesApi, type CategoryOption } from '../api/endpoints';
@@ -9,12 +10,6 @@ import type { Budget } from '../types';
 vi.mock('../api/endpoints', () => ({
   budgetsApi: { list: vi.fn(), upsert: vi.fn(), remove: vi.fn() },
   categoriesApi: { list: vi.fn() },
-}));
-
-// The chart itself is not under test here and chart.js needs a real canvas, which jsdom doesn't
-// provide -- same reasoning and pattern Investments.test.tsx already uses for its own Doughnut/Line.
-vi.mock('react-chartjs-2', () => ({
-  Doughnut: () => <div data-testid="spending-breakdown-chart" />,
 }));
 
 function budget(overrides: Partial<Budget> = {}): Budget {
@@ -39,19 +34,45 @@ function category(overrides: Partial<CategoryOption> = {}): CategoryOption {
   };
 }
 
+// The five budgets drawn in Figma, on 17 Nov 2026 (day 17 of 30).
+const SAMPLE: Budget[] = [
+  budget({ id: 'b-ent', categoryId: 'c5', categoryName: 'Entertainment', spentThisMonth: 600, monthlyLimit: 2000 }),
+  budget({ id: 'b-fuel', categoryId: 'c4', categoryName: 'Fuel', spentThisMonth: 2000, monthlyLimit: 4000 }),
+  budget({ id: 'b-food', categoryId: 'c2', categoryName: 'Food and dining', spentThisMonth: 7200, monthlyLimit: 9000 }),
+  budget({ id: 'b-groc', categoryId: 'c3', categoryName: 'Groceries', spentThisMonth: 4500, monthlyLimit: 8000 }),
+  budget({ id: 'b-shop', categoryId: 'c1', categoryName: 'Shopping', spentThisMonth: 8400, monthlyLimit: 6000 }),
+];
+
 function renderPage() {
   const queryClient = new QueryClient();
   return render(
-    <QueryClientProvider client={queryClient}>
-      <Budgets />
-    </QueryClientProvider>
+    <MemoryRouter>
+      <QueryClientProvider client={queryClient}>
+        <Budgets />
+      </QueryClientProvider>
+    </MemoryRouter>
   );
+}
+
+function rowNames() {
+  return screen.getAllByTestId('budget-row').map((r) => within(r).getByTestId('budget-name').textContent);
+}
+
+async function openMenu(name: string) {
+  await userEvent.click(await screen.findByRole('button', { name: `More actions for ${name}` }));
+  return screen.getByRole('menu');
 }
 
 describe('Budgets', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 10, 17, 10));
     vi.mocked(categoriesApi.list).mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('fetches categories alongside budgets, to look up each budget row\'s icon and color', async () => {
@@ -63,78 +84,99 @@ describe('Budgets', () => {
     await waitFor(() => expect(categoriesApi.list).toHaveBeenCalledTimes(1));
   });
 
-  it('shows the four stat cards once budgets and categories have loaded', async () => {
-    vi.mocked(budgetsApi.list).mockResolvedValue([
-      budget({ id: 'b1', categoryId: 'c1', categoryName: 'Dining', monthlyLimit: 10000, spentThisMonth: 8400 }),
-      budget({ id: 'b2', categoryId: 'c2', categoryName: 'Shopping', monthlyLimit: 8000, spentThisMonth: 4230 }),
-    ]);
-    renderPage();
-
-    // Total Spend = 8400 + 4230 = 12630; Total Budget = 10000 + 8000 = 18000
-    expect(await screen.findByText('₹12,630')).toBeInTheDocument();
-    expect(screen.getByText('₹12,630 / ₹18,000')).toBeInTheDocument();
-    // Budgets on Track: "on track" is < 90% used. Dining is 84% (on track), Shopping is 53% (on track) -> 2 of 2.
-    expect(screen.getByText('2 of 2')).toBeInTheDocument();
-    expect(screen.getByText('Budgets on Track')).toBeInTheDocument();
-    expect(screen.getByText('Days Left')).toBeInTheDocument();
-  });
-
-  it('counts a budget at or above 90% used as not on track', async () => {
-    vi.mocked(budgetsApi.list).mockResolvedValue([
-      budget({ id: 'b1', categoryId: 'c1', monthlyLimit: 4000, spentThisMonth: 3800 }), // 95%, not on track
-      budget({ id: 'b2', categoryId: 'c2', monthlyLimit: 8000, spentThisMonth: 4230 }), // 53%, on track
-    ]);
-    renderPage();
-
-    expect(await screen.findByText('1 of 2')).toBeInTheDocument();
-  });
-
-  it('shows an "On track" pill for a budget under 90% used', async () => {
-    vi.mocked(budgetsApi.list).mockResolvedValue([budget({ monthlyLimit: 10000, spentThisMonth: 5000 })]);
-    renderPage();
-
-    expect(await screen.findByText('On track')).toBeInTheDocument();
-  });
-
-  it('shows an "Almost there" pill for a budget between 90% and 100% used', async () => {
-    vi.mocked(budgetsApi.list).mockResolvedValue([budget({ monthlyLimit: 10000, spentThisMonth: 9200 })]);
-    renderPage();
-
-    expect(await screen.findByText('Almost there')).toBeInTheDocument();
-  });
-
-  it('shows an "Over budget" pill once spend reaches or exceeds the limit', async () => {
-    vi.mocked(budgetsApi.list).mockResolvedValue([budget({ monthlyLimit: 10000, spentThisMonth: 10500 })]);
-    renderPage();
-
-    expect(await screen.findByText('Over budget')).toBeInTheDocument();
-  });
-
   it("renders the budget's category icon using the matched category's color", async () => {
     vi.mocked(budgetsApi.list).mockResolvedValue([budget({ categoryId: 'c1', categoryName: 'Dining' })]);
     vi.mocked(categoriesApi.list).mockResolvedValue([category({ id: 'c1', icon: 'utensils', color: 'orange' })]);
     renderPage();
 
-    const row = await screen.findByText('Dining');
-    const iconEl = row.closest('[data-testid="budget-row"]')?.querySelector('svg');
-    expect(iconEl).toBeTruthy();
+    const row = (await screen.findByText('Dining')).closest('[data-testid="budget-row"]');
+    expect(row?.querySelector('svg')).toBeTruthy();
   });
 
-  it('shows an empty state for the spending breakdown chart when there are no budgets', async () => {
-    vi.mocked(budgetsApi.list).mockResolvedValue([]);
+  it('shows the month header and the hero for the month so far', async () => {
+    vi.mocked(budgetsApi.list).mockResolvedValue(SAMPLE);
     renderPage();
 
-    expect(await screen.findByText('No spending to break down yet')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Budgets' })).toBeInTheDocument();
+    expect(screen.getByText('November 2026 · day 17 of 30')).toBeInTheDocument();
+    expect(screen.getByText('₹22,700')).toBeInTheDocument();
+    expect(screen.getByText('₹11,059 over your budgets')).toBeInTheDocument();
   });
 
-  it('renders the Spending Breakdown section header once budgets exist', async () => {
-    vi.mocked(budgetsApi.list).mockResolvedValue([budget({ categoryName: 'Dining', spentThisMonth: 2000 })]);
+  it('groups budgets as Over, Heading over at this pace and On track, problems first', async () => {
+    vi.mocked(budgetsApi.list).mockResolvedValue(SAMPLE);
     renderPage();
 
-    expect(await screen.findByText('Spending Breakdown')).toBeInTheDocument();
+    await screen.findByText('Over · 1');
+    const headings = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent);
+    expect(headings).toEqual(['Over · 1', 'Heading over at this pace · 1', 'On track · 3']);
+    expect(rowNames()).toEqual(['Shopping', 'Food and dining', 'Groceries', 'Fuel', 'Entertainment']);
   });
 
-  it('still saves a budget through the restyled form', async () => {
+  it('hides groups that have no budgets', async () => {
+    vi.mocked(budgetsApi.list).mockResolvedValue([SAMPLE[3]]);
+    renderPage();
+
+    await screen.findByText('On track · 1');
+    expect(screen.queryByText(/^Over ·/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Heading over at this pace ·/)).not.toBeInTheDocument();
+  });
+
+  it('shows per-day safe amounts and the forecast line on each row', async () => {
+    vi.mocked(budgetsApi.list).mockResolvedValue(SAMPLE);
+    renderPage();
+
+    const food = (await screen.findByText('Food and dining')).closest('[data-testid="budget-row"]') as HTMLElement;
+    expect(within(food).getByText('₹138 / day safe')).toBeInTheDocument();
+    expect(within(food).getByText('Heading ₹3,706 over by 30 Nov')).toBeInTheDocument();
+    expect(within(food).getByText('₹7,200')).toBeInTheDocument();
+    expect(within(food).getByText('₹9,000')).toBeInTheDocument();
+    const shop = screen.getByText('Shopping').closest('[data-testid="budget-row"]') as HTMLElement;
+    expect(within(shop).getByText('₹2,400 over')).toBeInTheDocument();
+    expect(within(shop).getByRole('img', { name: 'Spent 140%, month 57% gone' })).toBeInTheDocument();
+  });
+
+  it('reads Last day on the final day of the month', async () => {
+    vi.setSystemTime(new Date(2026, 10, 30, 10));
+    vi.mocked(budgetsApi.list).mockResolvedValue([budget({ categoryName: 'Fuel', spentThisMonth: 1000, monthlyLimit: 2800 })]);
+    renderPage();
+
+    const row = (await screen.findByText('Fuel')).closest('[data-testid="budget-row"]') as HTMLElement;
+    expect(within(row).getByText('Last day · ₹1,800 left')).toBeInTheDocument();
+  });
+
+  it('See transactions links to the ledger filtered to the category and this month', async () => {
+    vi.mocked(budgetsApi.list).mockResolvedValue([budget({ categoryName: 'Food and dining' })]);
+    renderPage();
+
+    const menu = await openMenu('Food and dining');
+    expect(within(menu).getByRole('menuitem', { name: 'See transactions' })).toHaveAttribute(
+      'href', '/app/transactions?category=Food%20and%20dining&from=2026-11-01&to=2026-11-30',
+    );
+  });
+
+  it('the row menu closes on Escape and returns focus to its button', async () => {
+    vi.mocked(budgetsApi.list).mockResolvedValue([budget({ categoryName: 'Dining' })]);
+    renderPage();
+
+    await openMenu('Dining');
+    await userEvent.keyboard('{Escape}');
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'More actions for Dining' })).toHaveFocus();
+  });
+
+  it('the row menu closes when clicking elsewhere on the page', async () => {
+    vi.mocked(budgetsApi.list).mockResolvedValue([budget({ categoryName: 'Dining' })]);
+    renderPage();
+
+    await openMenu('Dining');
+    await userEvent.click(screen.getByRole('heading', { level: 1, name: 'Budgets' }));
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
+  it('still saves a budget through the form', async () => {
     vi.mocked(budgetsApi.list).mockResolvedValue([]);
     vi.mocked(budgetsApi.upsert).mockResolvedValue(budget());
     renderPage();
@@ -156,22 +198,6 @@ describe('Budgets', () => {
     expect(screen.queryByText('Could not load budgets.')).not.toBeInTheDocument();
   });
 
-  it('renders stat cards, the category list, the spending breakdown chart, and the form together', async () => {
-    vi.mocked(budgetsApi.list).mockResolvedValue([
-      budget({ id: 'b1', categoryId: 'c1', categoryName: 'Dining', monthlyLimit: 10000, spentThisMonth: 8400 }),
-    ]);
-    vi.mocked(categoriesApi.list).mockResolvedValue([category({ id: 'c1', icon: 'utensils', color: 'orange' })]);
-    renderPage();
-
-    expect(await screen.findByText('Total Spend')).toBeInTheDocument();
-    expect(screen.getByText('Dining')).toBeInTheDocument();
-    // 8400 / 10000 = 84%, under the 90% "On track" threshold -- same budget Task 3's stat-card
-    // test already classifies as on-track.
-    expect(screen.getByText('On track')).toBeInTheDocument();
-    expect(screen.getByText('Spending Breakdown')).toBeInTheDocument();
-    expect(screen.getByText('Set a Budget')).toBeInTheDocument();
-  });
-
   // The actual bug this page had: `budgets` started `[]`, which the render logic couldn't tell
   // apart from "genuinely no budgets set" -- so the EmptyState rendered immediately on every
   // mount, before the fetch had a chance to resolve, then popped to real content once it did.
@@ -185,8 +211,6 @@ describe('Budgets', () => {
 
     renderPage();
 
-    // Still loading -- the empty-state copy must not be there yet, regardless of how much of the
-    // delayed-skeleton window has elapsed.
     expect(screen.queryByText('No budgets set')).not.toBeInTheDocument();
 
     resolveList!([budget()]);
@@ -194,11 +218,13 @@ describe('Budgets', () => {
     expect(screen.queryByText('No budgets set')).not.toBeInTheDocument();
   });
 
-  it('shows the empty state once loading finishes with genuinely no budgets', async () => {
+  it('shows the empty state, and no hero, once loading finishes with genuinely no budgets', async () => {
     vi.mocked(budgetsApi.list).mockResolvedValue([]);
     renderPage();
 
     expect(await screen.findByText('No budgets set')).toBeInTheDocument();
+    expect(screen.getByText('Choose New budget to start tracking a category.')).toBeInTheDocument();
+    expect(screen.queryByText('Safe to spend')).not.toBeInTheDocument();
   });
 
   it('renders each budget once loaded', async () => {
@@ -213,12 +239,6 @@ describe('Budgets', () => {
   });
 
   it('surfaces a failed load as an error, distinct from the loading state', async () => {
-    // Not asserting on the EmptyState here: a failed fetch still leaves `budgets` at its default
-    // `[]`, so the empty-state copy shows alongside the error banner today -- pre-existing
-    // behavior this fix doesn't touch (a full error-state pass is explicitly out of scope for
-    // this roadmap, see its "Explicitly deferred" section). What this fix does guarantee is that
-    // the error path also clears `loading`, so the page doesn't stay stuck showing a skeleton
-    // forever on a failed request.
     vi.mocked(budgetsApi.list).mockRejectedValue(new Error('network error'));
     renderPage();
 
@@ -232,7 +252,8 @@ describe('Budgets', () => {
     vi.mocked(budgetsApi.remove).mockResolvedValue({} as never);
     renderPage();
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Remove the Dining budget' }));
+    const menu = await openMenu('Dining');
+    await userEvent.click(within(menu).getByRole('menuitem', { name: 'Remove budget' }));
     expect(screen.getByText('Remove the Dining budget?')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Remove' }));
 
@@ -244,7 +265,8 @@ describe('Budgets', () => {
     vi.mocked(budgetsApi.list).mockResolvedValue([budget({ id: 'b1', categoryName: 'Dining' })]);
     renderPage();
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Remove the Dining budget' }));
+    const menu = await openMenu('Dining');
+    await userEvent.click(within(menu).getByRole('menuitem', { name: 'Remove budget' }));
     await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 
     expect(budgetsApi.remove).not.toHaveBeenCalled();
@@ -256,7 +278,8 @@ describe('Budgets', () => {
     vi.mocked(budgetsApi.remove).mockRejectedValue({ response: { data: { message: 'No such budget.' } } });
     renderPage();
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Remove the Dining budget' }));
+    const menu = await openMenu('Dining');
+    await userEvent.click(within(menu).getByRole('menuitem', { name: 'Remove budget' }));
     await userEvent.click(screen.getByRole('button', { name: 'Remove' }));
 
     expect(await screen.findByText('No such budget.')).toBeInTheDocument();

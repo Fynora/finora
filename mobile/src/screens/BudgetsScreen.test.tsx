@@ -153,112 +153,216 @@ describe('BudgetsScreen', () => {
     expect(screen.queryByText('Could not load budgets.')).toBeNull();
   });
 
-  it('saves a budget for the category chosen from the picker', async () => {
-    renderScreen();
-    await screen.findByText('₹461 / day safe');
-
-    fireEvent.press(screen.getByLabelText('Choose a category'));
-    await settle();
-    // By testID, not role/name: the category also appears as a budget row below, which is now
-    // ALSO a button whose accessible name (Track C/C4's drill-through label) CONTAINS "Groceries"
-    // as a substring -- getByRole's name match isn't exact, so it matched both.
-    fireEvent.press(screen.getByTestId('category-Groceries'));
-    await settle();
-    fireEvent.changeText(screen.getByLabelText(/Monthly limit/i), '12000');
-    fireEvent.press(screen.getByText('Set Budget'));
-    await settle();
-
-    await waitFor(() => expect(api.upsert).toHaveBeenCalledWith('Groceries', 12000));
-    expect(hapticSuccess).toHaveBeenCalledTimes(1);
-  });
-
-  it('refreshes the Journey card after a budget is saved, since a first budget is a milestone', async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
-    const invalidate = jest.spyOn(queryClient, 'invalidateQueries');
-    render(<QueryClientProvider client={queryClient}><BudgetsScreen /></QueryClientProvider>);
-    await screen.findByText('₹461 / day safe');
-
-    fireEvent.press(screen.getByLabelText('Choose a category'));
-    await settle();
-    fireEvent.press(screen.getByTestId('category-Groceries'));
-    await settle();
-    fireEvent.changeText(screen.getByLabelText(/Monthly limit/i), '12000');
-    fireEvent.press(screen.getByText('Set Budget'));
-    await settle();
-
-    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ['timeline'] }));
-  });
-
-  // Regression: this screen used to open OptionPickerModal, a bare fixed list with no create
-  // affordance -- setting up a budget for a category that doesn't exist yet is a real scenario,
-  // and it was unreachable here.
-  it('offers to create a new category from the budget picker', async () => {
-    renderScreen();
-    await screen.findByText('₹461 / day safe');
-
-    fireEvent.press(screen.getByLabelText('Choose a category'));
-    await settle();
-
-    expect(screen.getByText('New category')).toBeTruthy();
-  });
-
-  // A genuine server-side failure gets hapticError, not hapticWarning -- hapticWarning is
-  // reserved for the client-side "form isn't complete yet" cases covered below, a different
-  // outcome from "the form was fine and the server rejected it anyway."
-  it('signals an error haptically, not just success or a validation warning, when the save itself fails', async () => {
-    api.upsert.mockRejectedValueOnce(new Error('network down'));
-    renderScreen();
-    await screen.findByText('₹461 / day safe');
-
-    fireEvent.press(screen.getByLabelText('Choose a category'));
-    await settle();
-    fireEvent.press(screen.getByTestId('category-Groceries'));
-    await settle();
-    fireEvent.changeText(screen.getByLabelText(/Monthly limit/i), '12000');
-    fireEvent.press(screen.getByText('Set Budget'));
-    await settle();
-
-    expect(await screen.findByText('Could not save this budget. Try again.')).toBeTruthy();
-    expect(hapticError).toHaveBeenCalledTimes(1);
-    expect(hapticWarning).not.toHaveBeenCalled();
-    expect(hapticSuccess).not.toHaveBeenCalled();
-  });
-
-  // The web page takes the category as free text, so a typo silently creates a budget nothing is
-  // ever filed under. Picking from the real category list is what prevents that.
-  it('refuses to save without a category', async () => {
-    renderScreen();
-    await screen.findByText('₹461 / day safe');
-
-    fireEvent.changeText(screen.getByLabelText(/Monthly limit/i), '12000');
-    fireEvent.press(screen.getByText('Set Budget'));
-    await settle();
-
-    expect(api.upsert).not.toHaveBeenCalled();
-    expect(screen.getByText('Pick a category first.')).toBeTruthy();
-    expect(hapticWarning).toHaveBeenCalledTimes(1);
-  });
-
-  it('refuses a limit that is not a positive number', async () => {
-    renderScreen();
-    await screen.findByText('₹461 / day safe');
-
-    fireEvent.press(screen.getByLabelText('Choose a category'));
-    await settle();
-    // By testID, not role/name: the category also appears as a budget row below, which is now
-    // ALSO a button whose accessible name (Track C/C4's drill-through label) CONTAINS "Groceries"
-    // as a substring -- getByRole's name match isn't exact, so it matched both.
-    fireEvent.press(screen.getByTestId('category-Groceries'));
-    await settle();
-
-    for (const bad of ['0', '-1', 'abc']) {
-      fireEvent.changeText(screen.getByLabelText(/Monthly limit/i), bad);
-      fireEvent.press(screen.getByText('Set Budget'));
+  describe('New budget sheet', () => {
+    async function openNewBudget() {
+      await screen.findByText('₹461 / day safe');
+      fireEvent.press(screen.getByLabelText('New budget'));
       await settle();
     }
 
-    expect(api.upsert).not.toHaveBeenCalled();
-    expect(hapticWarning).toHaveBeenCalledTimes(3);
+    async function pickGroceries() {
+      fireEvent.press(screen.getByLabelText('Choose a category'));
+      await settle();
+      // By testID, not role/name: the category also appears as a budget card, whose accessible
+      // name also contains "Groceries".
+      fireEvent.press(screen.getByTestId('category-Groceries'));
+      await settle();
+    }
+
+    it('saves a budget for the category chosen from the picker', async () => {
+      renderScreen();
+      await openNewBudget();
+      await pickGroceries();
+      fireEvent.changeText(screen.getByLabelText(/Monthly limit/i), '12000');
+      fireEvent.press(screen.getByText('Save budget'));
+      await settle();
+
+      await waitFor(() => expect(api.upsert).toHaveBeenCalledWith('Groceries', 12000));
+      expect(hapticSuccess).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(screen.queryByText('Save budget')).toBeNull());
+    });
+
+    it('refreshes the Journey card after a budget is saved, since a first budget is a milestone', async () => {
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+      const invalidate = jest.spyOn(queryClient, 'invalidateQueries');
+      render(<QueryClientProvider client={queryClient}><BudgetsScreen /></QueryClientProvider>);
+      await openNewBudget();
+      await pickGroceries();
+      fireEvent.changeText(screen.getByLabelText(/Monthly limit/i), '12000');
+      fireEvent.press(screen.getByText('Save budget'));
+      await settle();
+
+      await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ['timeline'] }));
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ['budgets'] });
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ['dashboard-summary'] });
+    });
+
+    // Regression: this screen used to open OptionPickerModal, a bare fixed list with no create
+    // affordance -- setting up a budget for a category that doesn't exist yet is a real scenario.
+    it('offers to create a new category from the budget picker', async () => {
+      renderScreen();
+      await openNewBudget();
+      fireEvent.press(screen.getByLabelText('Choose a category'));
+      await settle();
+
+      expect(screen.getByText('New category')).toBeTruthy();
+    });
+
+    // A genuine server-side failure gets hapticError, not hapticWarning -- hapticWarning is
+    // reserved for the client-side "form isn't complete yet" cases below.
+    it('signals an error haptically, not just success or a validation warning, when the save itself fails', async () => {
+      api.upsert.mockRejectedValueOnce(new Error('network down'));
+      renderScreen();
+      await openNewBudget();
+      await pickGroceries();
+      fireEvent.changeText(screen.getByLabelText(/Monthly limit/i), '12000');
+      fireEvent.press(screen.getByText('Save budget'));
+      await settle();
+
+      expect(await screen.findByText('Could not save this budget. Try again.')).toBeTruthy();
+      expect(screen.getByText('Save budget')).toBeTruthy();
+      expect(hapticError).toHaveBeenCalledTimes(1);
+      expect(hapticWarning).not.toHaveBeenCalled();
+      expect(hapticSuccess).not.toHaveBeenCalled();
+    });
+
+    it('refuses to save without a category', async () => {
+      renderScreen();
+      await openNewBudget();
+      fireEvent.changeText(screen.getByLabelText(/Monthly limit/i), '12000');
+      fireEvent.press(screen.getByText('Save budget'));
+      await settle();
+
+      expect(api.upsert).not.toHaveBeenCalled();
+      expect(screen.getByText('Pick a category first.')).toBeTruthy();
+      expect(hapticWarning).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuses a limit that is not a positive number', async () => {
+      renderScreen();
+      await openNewBudget();
+      await pickGroceries();
+
+      for (const bad of ['', '0', '-1', 'abc']) {
+        fireEvent.changeText(screen.getByLabelText(/Monthly limit/i), bad);
+        fireEvent.press(screen.getByText('Save budget'));
+        await settle();
+      }
+
+      expect(api.upsert).not.toHaveBeenCalled();
+      expect(hapticWarning).toHaveBeenCalledTimes(4);
+    });
+
+    it('no longer shows an always-open add form', async () => {
+      renderScreen();
+      await screen.findByText('₹461 / day safe');
+
+      expect(screen.queryByText('Set Budget')).toBeNull();
+      expect(screen.queryByLabelText('Choose a category')).toBeNull();
+    });
+  });
+
+  describe('three-dot menu and Edit limit sheet', () => {
+    async function openMenu(name: string) {
+      fireEvent.press(await screen.findByLabelText(`More actions for ${name}`));
+      await settle();
+    }
+
+    it('the three-dot button opens Edit limit, See transactions and Remove budget', async () => {
+      renderScreen();
+      await openMenu('Groceries');
+
+      expect(screen.getByLabelText('Edit limit')).toBeTruthy();
+      expect(screen.getByLabelText('See transactions')).toBeTruthy();
+      expect(screen.getByLabelText('Remove budget')).toBeTruthy();
+    });
+
+    it('only one sheet is open at a time when moving from the menu to Edit limit', async () => {
+      renderScreen();
+      await openMenu('Groceries');
+      fireEvent.press(screen.getByLabelText('Edit limit'));
+      await settle();
+
+      expect(screen.queryByLabelText('See transactions')).toBeNull();
+      expect(screen.getByText('Save limit')).toBeTruthy();
+    });
+
+    it('Edit limit saves the new amount and refreshes the list', async () => {
+      renderScreen();
+      await openMenu('Groceries');
+      fireEvent.press(screen.getByLabelText('Edit limit'));
+      await settle();
+
+      expect(screen.getByLabelText(/Monthly limit/i).props.value).toBe('10000');
+      expect(screen.getByText('₹4,000 spent so far. At ₹10,000 you can spend ₹461 a day for the next 13 days.')).toBeTruthy();
+      fireEvent.press(screen.getByLabelText('Add ₹500'));
+      expect(screen.getByLabelText(/Monthly limit/i).props.value).toBe('10500');
+      expect(screen.getByText('₹4,000 spent so far. At ₹10,500 you can spend ₹500 a day for the next 13 days.')).toBeTruthy();
+      fireEvent.press(screen.getByText('Save limit'));
+      await settle();
+
+      await waitFor(() => expect(api.upsert).toHaveBeenCalledWith('Groceries', 10500));
+      expect(hapticSuccess).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(api.list).toHaveBeenCalledTimes(2));
+      expect(screen.queryByText('Save limit')).toBeNull();
+    });
+
+    it('Edit limit says when the typed limit is already used up', async () => {
+      renderScreen();
+      await openMenu('Groceries');
+      fireEvent.press(screen.getByLabelText('Edit limit'));
+      await settle();
+      fireEvent.changeText(screen.getByLabelText(/Monthly limit/i), '3000');
+
+      expect(screen.getByText('₹4,000 spent so far, already more than ₹3,000.')).toBeTruthy();
+    });
+
+    it('Edit limit refuses an empty, zero, negative or non-number amount', async () => {
+      renderScreen();
+      await openMenu('Groceries');
+      fireEvent.press(screen.getByLabelText('Edit limit'));
+      await settle();
+
+      for (const bad of ['', '0', '-5', 'abc']) {
+        fireEvent.changeText(screen.getByLabelText(/Monthly limit/i), bad);
+        fireEvent.press(screen.getByText('Save limit'));
+        await settle();
+      }
+
+      expect(api.upsert).not.toHaveBeenCalled();
+      expect(hapticWarning).toHaveBeenCalledTimes(4);
+      expect(screen.getByText('Monthly limit must be a number greater than zero.')).toBeTruthy();
+    });
+
+    it('a double tap on Save limit sends one request', async () => {
+      api.upsert.mockReset().mockReturnValue(new Promise(() => {}));
+      renderScreen();
+      await openMenu('Groceries');
+      fireEvent.press(screen.getByLabelText('Edit limit'));
+      await settle();
+
+      // The label turns to "Saving…" after the first press, so hold on to the same button.
+      const saveButton = screen.getByText('Save limit');
+      fireEvent.press(saveButton);
+      fireEvent.press(saveButton);
+      await settle();
+
+      expect(api.upsert).toHaveBeenCalledTimes(1);
+    });
+
+    it('See transactions opens this month in this category', async () => {
+      renderScreen();
+      await openMenu('Groceries');
+      const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };
+      navigate.mockClear();
+      fireEvent.press(screen.getByLabelText('See transactions'));
+      await settle();
+
+      expect(navigate).toHaveBeenCalledWith('Transactions', {
+        filters: expect.objectContaining({ categoryId: 'c-1' }),
+      });
+      expect(screen.queryByLabelText('Edit limit')).toBeNull();
+    });
   });
 
   it('says so plainly when no budgets are set, with no hero', async () => {
@@ -269,23 +373,20 @@ describe('BudgetsScreen', () => {
     expect(screen.queryByText('Safe to spend')).toBeNull();
   });
 
-  // Phase 5 (Low-Priority Polish). The empty state used to say "Set one above" with nothing to
-  // tap. Its own action opens the SAME category picker "Choose a category" already does (worded
-  // distinctly, though, so the two don't collide as two identically-labeled controls once both
-  // are on screen at once -- an empty list keeps the always-visible add-form Card mounted above
-  // it). Proven by driving the picker it opens all the way through a real save, the same way the
-  // "saves a budget..." test above proves the pre-existing trigger opens a working picker.
-  it('opens a working category picker from the empty state\'s own action', async () => {
+  // The empty state's own action opens the New budget sheet, proven by driving it through a save.
+  it('opens a working New budget sheet from the empty state\'s own action', async () => {
     api.list.mockReset().mockResolvedValue([]);
     renderScreen();
     await screen.findByText(/No budgets set yet/);
 
     fireEvent.press(screen.getByText('Set your first budget'));
     await settle();
+    fireEvent.press(screen.getByLabelText('Choose a category'));
+    await settle();
     fireEvent.press(screen.getByTestId('category-Groceries'));
     await settle();
     fireEvent.changeText(screen.getByLabelText(/Monthly limit/i), '12000');
-    fireEvent.press(screen.getByText('Set Budget'));
+    fireEvent.press(screen.getByText('Save budget'));
 
     await waitFor(() => expect(api.upsert).toHaveBeenCalledWith('Groceries', 12000));
   });
@@ -311,16 +412,17 @@ describe('BudgetsScreen', () => {
 });
 
 describe('skeleton loading', () => {
-  it('shows skeleton budget cards on first load, with the add-budget form already usable', () => {
+  it('shows skeleton budget cards on first load, with New budget already usable', async () => {
     api.list.mockReset().mockReturnValue(new Promise(() => {}));
     categories.list.mockReset().mockResolvedValue([{ id: 'c-1', name: 'Groceries', isSystem: true, icon: 'shopping-cart', color: 'green' }]);
 
     renderScreen();
 
-    // The shell -- category picker and Set Budget button -- must not wait on the budgets list.
-    expect(screen.getByLabelText('Choose a category')).toBeTruthy();
-    expect(screen.getByText('Set Budget')).toBeTruthy();
+    // Adding a budget must not wait on the budgets list.
     expect(screen.getAllByTestId('skeleton-budget-card', { hidden: true }).length).toBeGreaterThan(0);
+    fireEvent.press(screen.getByLabelText('New budget'));
+    await settle();
+    expect(screen.getByText('Save budget')).toBeTruthy();
   });
 });
 
@@ -349,11 +451,19 @@ describe('BudgetsScreen — removing a budget', () => {
     categories.list.mockReset().mockResolvedValue([]);
   });
 
+  async function chooseRemove(name: string) {
+    fireEvent.press(await screen.findByLabelText(`More actions for ${name}`));
+    await settle();
+    fireEvent.press(screen.getByLabelText('Remove budget'));
+    await settle();
+  }
+
   it('asks first, then removes that budget and refreshes the list', async () => {
     const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     renderScreen();
-    fireEvent.press(await screen.findByLabelText('More actions for Dining'));
+    await chooseRemove('Dining');
     expect(alertSpy.mock.calls[0][0]).toBe('Remove the Dining budget?');
+    expect(alertSpy.mock.calls[0][1]).toBe('Your transactions stay as they are. You can set a budget for this category again at any time.');
     expect(api.remove).not.toHaveBeenCalled();
 
     const buttons = alertSpy.mock.calls[0][2]!;
@@ -369,7 +479,7 @@ describe('BudgetsScreen — removing a budget', () => {
     api.remove.mockRejectedValueOnce(new Error('down'));
     const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     renderScreen();
-    fireEvent.press(await screen.findByLabelText('More actions for Groceries'));
+    await chooseRemove('Groceries');
     const buttons = alertSpy.mock.calls[0][2]!;
     await act(async () => { buttons.find((b) => b.text === 'Remove')!.onPress!(); });
 
@@ -378,15 +488,16 @@ describe('BudgetsScreen — removing a budget', () => {
     alertSpy.mockRestore();
   });
 
-  it('pressing Remove does not also open the transactions', async () => {
+  it('pressing the three-dot button and Remove does not also open the transactions', async () => {
     const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     renderScreen();
-    const removeButton = await screen.findByLabelText('More actions for Dining');
+    await screen.findByLabelText('More actions for Dining');
     const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };
     navigate.mockClear();
-    fireEvent.press(removeButton);
+    await chooseRemove('Dining');
 
     expect(navigate).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText('Remove budget')).toBeNull();
     alertSpy.mockRestore();
   });
 });

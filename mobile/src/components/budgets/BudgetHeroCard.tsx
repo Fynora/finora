@@ -34,7 +34,7 @@ export function BudgetHeroCard({ totalSpent, totalLimit, overall, clock, money }
           <Text style={[typography.bodyS, { color: c.mutedInk }]}>{`of ${money(totalLimit)}`}</Text>
         </BudgetRing>
         <View style={styles.tiles}>
-          <View style={[styles.tile, { backgroundColor: c.bg }]}>
+          <View style={[styles.tile, { backgroundColor: c.bg /* glass-exempt: figure tile inside the glass hero card; opaque bg is its contrast */ }]}>
             {lastDay && !isOver ? (
               <Text style={[typography.numberS, { color: c.ink }]}>{`Last day · ${money(overall.remaining)} left`}</Text>
             ) : (
@@ -45,7 +45,7 @@ export function BudgetHeroCard({ totalSpent, totalLimit, overall, clock, money }
             )}
             <Text style={[typography.bodyS, { color: c.mutedInk }]}>Safe to spend</Text>
           </View>
-          <View style={[styles.tile, { backgroundColor: c.bg }]}>
+          <View style={[styles.tile, { backgroundColor: c.bg /* glass-exempt: figure tile inside the glass hero card; opaque bg is its contrast */ }]}>
             <View style={styles.figureRow}>
               <Text style={[typography.numberM, { color: c.ink }]}>{String(clock.daysLeft)}</Text>
               <Text style={[typography.bodyS, { color: c.mutedInk }]}> days</Text>

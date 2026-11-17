@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import { usePreventScreenCapture } from '../lib/screenCapture';
@@ -95,6 +96,26 @@ describe('BudgetsScreen', () => {
     expect(screen.getByText('₹369')).toBeTruthy();
     expect(screen.getByText('At this pace you reach ₹18,000 by 30 Nov, ₹3,000 over your budgets.')).toBeTruthy();
     expect(screen.getByLabelText('₹10,200 spent of ₹15,000. ₹369 a day safe for 13 days. At this pace ₹18,000 by 30 Nov.')).toBeTruthy();
+  });
+
+  // jest renders at fontScale 2. The ring is a fixed-size graphic, so its centre text may grow only
+  // as far as the hole has room for (same rule as DonutChart's centre); uncapped, "₹22,700" was cut
+  // to "₹2" on an iPhone Air simulator at the largest text size.
+  it('caps the ring centre text so it stays inside the ring at large text', async () => {
+    renderScreen();
+
+    expect((await screen.findByDisplayValue('₹10,200')).props.maxFontSizeMultiplier).toBe(1.15);
+    expect(screen.getByText('of ₹15,000').props.maxFontSizeMultiplier).toBe(1.3);
+    expect(screen.getByText('of ₹15,000').props.numberOfLines).toBe(1);
+  });
+
+  // Side by side, "₹816" broke into "₹81" / "6" at the largest text size.
+  it('stacks the hero tiles at large text and keeps each figure on one line', async () => {
+    renderScreen();
+
+    await screen.findByText('₹369');
+    expect(StyleSheet.flatten(screen.getByTestId('hero-tiles').props.style).flexDirection).toBe('column');
+    expect(screen.getByText('₹369').props.numberOfLines).toBe(1);
   });
 
   it('groups cards as Over, Heading over at this pace and On track, problems first', async () => {

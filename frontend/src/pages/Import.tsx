@@ -56,6 +56,8 @@ import { accountNameForBank, bankHint, bankSourceOf, initialBankChoice } from '.
 import { BankPicker } from '../components/BankPicker';
 import { isHeld } from '../lib/importJob';
 import { Button, ConfirmDialog, IconButton, FinoraCard, useDialogA11y } from '../design-system';
+import { DiscardReasonPicker } from '../components/DiscardReasonPicker';
+import type { DiscardReason } from '../lib/discardReasons';
 import { QuickSortCta } from '../components/QuickSortCta';
 import { ImportMoneyInCard } from '../components/inflow/ImportMoneyInCard';
 import { AiSortCard } from '../components/AiSortCard';
@@ -449,6 +451,8 @@ export default function Import() {
   // in the unfinished-imports list -- a plain boolean, since the review screen only ever has one
   // current session to discard.
   const [confirmDiscardReviewOpen, setConfirmDiscardReviewOpen] = useState(false);
+  // The optional reason picked in whichever discard dialog is open (only one can be).
+  const [discardReason, setDiscardReason] = useState<DiscardReason | null>(null);
   const { data: unfinishedSessions } = useQuery({
     queryKey: ['import-sessions'],
     queryFn: () => importApi.listSessions(),
@@ -556,6 +560,24 @@ export default function Import() {
    * confirm payload came to differ between two paths (see lib/newAccountPayload.ts). One of these
    * per arrival route is one too many.
    */
+  /**
+   * A reopened session (from "Continue a previous import" or a finished queued upload) into the
+   * review: a statement covering more than one account into the section review, exactly as a
+   * fresh /pdf/stage of it opens; anything else into the single-account review, as before.
+   */
+  function openStagedReview(
+    session: { staging: StagingResult | null; multiAccount?: boolean; sections?: StagedAccountSection[] | null },
+    accountsForMatch: Account[] = existingAccounts,
+  ) {
+    if (session.multiAccount && session.sections) {
+      setFileFormat('PDF');
+      setMultiSections(session.sections.map((s) => initialSectionState(s, accountsForMatch)));
+      return;
+    }
+    setMultiSections(null);
+    hydrateReviewFrom(session.staging!, accountsForMatch);
+  }
+
   function hydrateReviewFrom(staging: StagingResult, accountsForMatch: Account[] = existingAccounts) {
     setRows(staging.rows);
     // A flagged row starts EXCLUDED but UNRESOLVED -- not silently unticked. The confirm button
@@ -622,7 +644,7 @@ export default function Import() {
       setFreePlanLimit(session.freePlanLimit ?? null);
       setLimitOverridden(false);
       setLatestMonthOnly(false);
-      hydrateReviewFrom(session.staging);
+      openStagedReview(session);
       setJobId(null);
       setStep('review');
     } catch (e: any) {
@@ -666,7 +688,7 @@ export default function Import() {
       setFreePlanLimit(session.freePlanLimit ?? null);
       setLimitOverridden(false);
       setLatestMonthOnly(false);
-      hydrateReviewFrom(session.staging, accountsForMatch);
+      openStagedReview(session, accountsForMatch);
       setStep('review');
     } catch (e: any) {
       // Bug fix, caught by review: isReviewable(job) on ImportDetail.tsx stays true forever once
@@ -694,7 +716,7 @@ export default function Import() {
     }
   }
 
-  async function discardStagedSession(id: string): Promise<boolean> {
+  async function discardStagedSession(id: string, reason?: DiscardReason | null): Promise<boolean> {
     // Bug fix, caught by review: this function never cleared the banner on success, unlike every
     // other action on this page -- an unrelated error left showing (e.g. an ACTION_REQUIRED parse
     // failure, amber-colored) would sit there indefinitely, now misleadingly still reading as
@@ -702,7 +724,7 @@ export default function Import() {
     clearError();
     setDiscardingSessionId(id);
     try {
-      await importApi.discardSession(id);
+      await importApi.discardSession(id, reason, true);
       await queryClient.invalidateQueries({ queryKey: ['import-sessions'] });
       return true;
     } catch {
@@ -718,9 +740,9 @@ export default function Import() {
    *  afterward. Only calls startOver() when the discard actually succeeded -- if it failed,
    *  discardStagedSession already showed the error, and resetting the review state on top of an
    *  unresolved failure would silently discard what the user was looking at for no reason. */
-  async function discardReviewSessionAndStartOver() {
+  async function discardReviewSessionAndStartOver(reason?: DiscardReason | null) {
     if (!sessionId) return;
-    const discarded = await discardStagedSession(sessionId);
+    const discarded = await discardStagedSession(sessionId, reason);
     if (discarded) {
       startOver();
       // After startOver, whose clearError would otherwise clear it straight away.
@@ -2170,10 +2192,16 @@ export default function Import() {
           onConfirm={() => {
             const id = confirmDiscardId;
             setConfirmDiscardId(null);
-            void discardStagedSession(id);
+            void discardStagedSession(id, discardReason);
+            setDiscardReason(null);
           }}
-          onCancel={() => setConfirmDiscardId(null)}
-        />
+          onCancel={() => {
+            setConfirmDiscardId(null);
+            setDiscardReason(null);
+          }}
+        >
+          <DiscardReasonPicker value={discardReason} onChange={setDiscardReason} />
+        </ConfirmDialog>
       )}
 
       {step === 'review' && confirmDiscardReviewOpen && (
@@ -2184,10 +2212,16 @@ export default function Import() {
           danger
           onConfirm={() => {
             setConfirmDiscardReviewOpen(false);
-            void discardReviewSessionAndStartOver();
+            void discardReviewSessionAndStartOver(discardReason);
+            setDiscardReason(null);
           }}
-          onCancel={() => setConfirmDiscardReviewOpen(false)}
-        />
+          onCancel={() => {
+            setConfirmDiscardReviewOpen(false);
+            setDiscardReason(null);
+          }}
+        >
+          <DiscardReasonPicker value={discardReason} onChange={setDiscardReason} />
+        </ConfirmDialog>
       )}
 
       {step === 'review' && ownershipWarningOpen && (

@@ -89,6 +89,8 @@ import { trackNavigation } from '../../lib/trackNavigation';
 import { trackFunnel, type FunnelEvent } from '../../lib/trackFunnel';
 import { WhatStoppedYou } from '../../components/activation/WhatStoppedYou';
 import { GlassScreen } from '../../components/GlassScreen';
+import { DiscardImportSheet } from '../../components/DiscardImportSheet';
+import type { DiscardReason } from '../../lib/discardReasons';
 import { padForTabBar, useTabBarSpace } from '../../navigation/useTabBarSpace';
 
 type Step = 'upload' | 'review' | 'summary';
@@ -142,6 +144,11 @@ function emailHint(): string {
     ? 'Open the email and tap the attachment, then choose Fynora. If it opens in Gmail instead, save it, then open it from Files and choose Fynora.'
     : 'Open the email, tap the PDF, then Share → Fynora.';
 }
+
+/** A statement covering more than one account, staged from the phone (Sid, 2026-11-17): kept, and
+ *  finished on the website, which reviews composite statements. */
+export const MULTI_ACCOUNT_ON_WEB =
+  'This statement covers more than one account, which the phone app can’t import yet. It’s saved: open Fynora on the web and continue it from “Continue a previous import” within 48 hours.';
 
 export function ImportScreen() {
   const c = useTheme();
@@ -407,6 +414,8 @@ export function ImportScreen() {
   // what was ticked before.
   const [latestMonthOnly, setLatestMonthOnly] = useState(false);
   const [includedBeforeLatestMonth, setIncludedBeforeLatestMonth] = useState<boolean[] | null>(null);
+  // The unfinished import whose discard sheet is open (with its optional reason), or null.
+  const [discardTarget, setDiscardTarget] = useState<{ id: string; fileName: string } | null>(null);
   // The error message a "See plans" button belongs to: a Free-plan limit refusal at Import. Keyed
   // on the message rather than a separate flag, so any later error replacing it hides the button
   // without every setError call site having to remember to clear it.
@@ -763,6 +772,12 @@ export function ImportScreen() {
     const startedAt = requestStartedAt();
     try {
       const res = await importApi.getSession(id);
+      // A statement covering more than one account comes back with no single-account rows; the
+      // list offers no Review for one, but should one arrive here, say where to finish it.
+      if (!res.staging) {
+        setError(MULTI_ACCOUNT_ON_WEB);
+        return;
+      }
       setSessionId(res.sessionId);
       setApprovedAfterReview(res.approvedAfterReview === true);
       setPreviousImport(res.previousImport ?? null);
@@ -783,22 +798,15 @@ export function ImportScreen() {
   }
 
   function confirmDiscardSession(sess: { id: string; fileName: string }) {
-    AppAlert.alert(
-      'Discard this import?',
-      `"${sess.fileName}" and everything reviewed so far will be removed. The statement itself isn't affected.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Discard', style: 'destructive', onPress: () => void discardUnfinished(sess.id) },
-      ]
-    );
+    setDiscardTarget({ id: sess.id, fileName: sess.fileName });
   }
 
-  async function discardUnfinished(id: string) {
+  async function discardUnfinished(id: string, reason: DiscardReason | null = null) {
     setError(null);
     setDiscardingId(id);
     const startedAt = requestStartedAt();
     try {
-      await importApi.discardSession(id);
+      await importApi.discardSession(id, reason, true);
       hapticSuccess();
       await unfinishedQ.refetch();
     } catch (e) {
@@ -841,11 +849,10 @@ export function ImportScreen() {
       // (mirrors PdfStagingSessionResult.staging being null when multiAccount is true). Applying
       // the same exclusion here rather than crashing hydrateReviewFrom on an undefined staging.
       if (!res.staging) {
-        await importApi.discardSession(sessionId).catch(() => {});
+        // Kept, not deleted: the website reviews it from "Continue a previous import".
         setJobId(null);
-        setError(
-          'This statement covers more than one account. Multi-account statements can only be imported from the Fynora web app for now.'
-        );
+        setError(MULTI_ACCOUNT_ON_WEB);
+        void unfinishedQ.refetch();
         return;
       }
       setSessionId(res.sessionId);
@@ -986,11 +993,10 @@ export function ImportScreen() {
       // and getting it wrong files someone's transactions against the wrong balance -- so this
       // says so plainly rather than guessing or silently importing only the first section.
       if ('multiAccount' in res && res.multiAccount) {
-        await importApi.discardSession(res.sessionId).catch(() => {});
-        setError(
-          'This statement covers more than one account. Multi-account statements can only be imported from the Fynora web app for now.'
-        );
+        // Kept, not deleted: the website reviews it from "Continue a previous import".
+        setError(MULTI_ACCOUNT_ON_WEB);
         setUploadProgress(null);
+        void unfinishedQ.refetch();
         return;
       }
 
@@ -1342,7 +1348,9 @@ export function ImportScreen() {
                       {sess.fileName}
                     </Text>
                     <Text style={[styles.unfinishedMeta, { color: c.mutedInk }]} numberOfLines={largeText ? undefined : 1}>
-                      {sess.rowCount} {sess.rowCount === 1 ? 'transaction' : 'transactions'} ·{' '}
+                      {sess.multiAccount
+                        ? 'More than one account'
+                        : `${sess.rowCount} ${sess.rowCount === 1 ? 'transaction' : 'transactions'}`} ·{' '}
                       {expiresInLabel(sess.expiresAt)}
                     </Text>
                   </View>
@@ -1350,15 +1358,27 @@ export function ImportScreen() {
                     <ActivityIndicator size="small" color={c.muted} />
                   ) : (
                     <View style={styles.unfinishedActions}>
-                      <Pressable
-                        onPress={() => void resumeSession(sess.id)}
-                        disabled={discardingId === sess.id}
-                        hitSlop={8}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Review import of ${sess.fileName}`}
-                      >
-                        <Text style={[styles.unfinishedAction, { color: c.primary }]}>Review</Text>
-                      </Pressable>
+                      {sess.multiAccount ? (
+                        // Covers more than one account: the phone cannot review it, the website can
+                        // (from "Continue a previous import"), so this says where to go instead.
+                        <Text
+                          testID={`finish-on-web-${sess.id}`}
+                          style={[styles.unfinishedAction, { color: c.muted }]}
+                          accessibilityLabel={`${sess.fileName} covers more than one account. Finish it on the Fynora website.`}
+                        >
+                          Finish on the web
+                        </Text>
+                      ) : (
+                        <Pressable
+                          onPress={() => void resumeSession(sess.id)}
+                          disabled={discardingId === sess.id}
+                          hitSlop={8}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Review import of ${sess.fileName}`}
+                        >
+                          <Text style={[styles.unfinishedAction, { color: c.primary }]}>Review</Text>
+                        </Pressable>
+                      )}
                       <Pressable
                         onPress={() => confirmDiscardSession(sess)}
                         disabled={discardingId === sess.id}
@@ -1429,6 +1449,13 @@ export function ImportScreen() {
               // Sid's choice (2026-10-24) after the corpus check: the generic line, no issuer named.
               <Text style={[styles.helpText, { color: c.muted }]}>
                 No bank statement to hand? A credit card statement works too.
+              </Text>
+            )}
+            {uploadProgress === null && (
+              // Before the upload, as the website says it (Sid, 2026-11-17): a Free customer with a
+              // three-month download learns the limit now, not after the statement has been read.
+              <Text testID="free-limit-tip" style={[styles.helpText, { color: c.muted }]}>
+                On the Free plan, a statement can cover up to one month. Plus imports longer statements in one go.
               </Text>
             )}
 
@@ -1652,6 +1679,17 @@ export function ImportScreen() {
             onReceived={followSentFile}
           />
         )}
+        {discardTarget ? (
+          <DiscardImportSheet
+            fileName={discardTarget.fileName}
+            onDiscard={(reason) => {
+              const id = discardTarget.id;
+              setDiscardTarget(null);
+              void discardUnfinished(id, reason);
+            }}
+            onClose={() => setDiscardTarget(null)}
+          />
+        ) : null}
       </GlassScreen>
     );
   }

@@ -296,12 +296,13 @@ public class ImportTraceService {
                         .orElse(null);
         Instant discarded = analysis == null ? null : analysis.getDiscardedUnconfirmedAt();
         String discardedBy = analysis == null ? null : analysis.getDiscardedBy();
+        String discardReason = analysis == null ? null : analysis.getDiscardReason();
         Instant expired = analysis == null ? null : analysis.getExpiredUnconfirmedAt();
         Instant limitShown = analysis == null ? null : analysis.getFreeLimitShownAt();
         Instant limitRefused = analysis == null ? null : analysis.getFreeLimitRefusedAt();
         if (statementImport == null) {
             return new ImportTraceDto.Completion(null, null, null, null, confirmedAt,
-                    discarded, discardedBy, expired, limitShown, limitRefused);
+                    discarded, discardedBy, discardReason, expired, limitShown, limitRefused);
         }
         return new ImportTraceDto.Completion(
                 statementImport.getId(),
@@ -309,6 +310,6 @@ public class ImportTraceService {
                 statementImport.getTransactionsSkipped(),
                 statementImport.getImportedAt(),
                 confirmedAt,
-                discarded, discardedBy, expired, limitShown, limitRefused);
+                discarded, discardedBy, discardReason, expired, limitShown, limitRefused);
     }
 }

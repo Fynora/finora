@@ -194,8 +194,13 @@ public class ImportController {
     // one session. listResumableSessions() owns the kind filtering so this controller doesn't have
     // to know which kinds toSummary() can actually handle.
     @GetMapping("/sessions")
-    public ApiResponse<List<ImportSessionSummaryDto>> listSessions() {
-        List<ImportSessionSummaryDto> sessions = importSessionService.listResumableSessions(currentUser.id()).stream()
+    public ApiResponse<List<ImportSessionSummaryDto>> listSessions(
+            // Statements covering more than one account, which GET /sessions/{id} now reopens with
+            // their sections. Only when asked: an app from before this cannot reopen one, and would
+            // show a row that fails when tapped.
+            @RequestParam(defaultValue = "false") boolean includeMultiAccount) {
+        List<ImportSessionSummaryDto> sessions = importSessionService
+                .listResumableSessions(currentUser.id(), includeMultiAccount).stream()
                 .map(this::toSummary)
                 .toList();
         return ApiResponse.ok(sessions);
@@ -204,6 +209,9 @@ public class ImportController {
     @GetMapping("/sessions/{id}")
     public ApiResponse<StagingSessionResponse> getSession(@PathVariable UUID id) {
         ImportSession session = importSessionService.getOwnedSession(currentUser.id(), id);
+        if (ImportSession.KIND_MULTI_ACCOUNT.equals(session.getSessionKind())) {
+            return ApiResponse.ok(multiAccountSession(session));
+        }
         List<StagedRow> rows = importSessionService.readStagedRows(session);
         int dupCount = (int) rows.stream().filter(StagedRow::likelyDuplicate).count();
         // unparseableRows is intentionally NOT persisted on ImportSession (v1 scope -- see
@@ -245,10 +253,15 @@ public class ImportController {
     }
 
     @DeleteMapping("/sessions/{id}")
-    public ApiResponse<Void> deleteSession(@PathVariable UUID id) {
+    public ApiResponse<Void> deleteSession(@PathVariable UUID id,
+            // Optional one-tap reason from the discard dialog (V327). Absent from older apps.
+            @RequestParam(required = false) com.finora.imports.DiscardReason reason,
+            // The app asked and the customer chose Discard (see ImportSessionService.deleteSession).
+            @RequestParam(defaultValue = "false") boolean confirmedByCustomer) {
         // The platform only labels the discard on the evidence row (who discarded it); it decides
         // nothing about the delete. See ImportSessionService.discardedBy.
-        importSessionService.deleteSession(currentUser.id(), id, clientIdentity.platform());
+        importSessionService.deleteSession(currentUser.id(), id, clientIdentity.platform(), reason,
+                confirmedByCustomer);
         return ApiResponse.ok(null, "Import session discarded");
     }
 
@@ -266,9 +279,27 @@ public class ImportController {
         return ApiResponse.ok(analysisRecorder.recentUnresolvedCustomerFailures(currentUser.id(), RECENT_FAILURES_LIMIT));
     }
 
+    /**
+     * A statement covering more than one account, reopened: its sections, as /pdf/stage first gave
+     * them, so the web's section review opens the same way from "Continue a previous import" or a
+     * queued upload. The Free plan notice judges every section, as confirm-multi does; it is
+     * recorded as shown only on the web (see {@link #noticeShownOn}).
+     */
+    private StagingSessionResponse multiAccountSession(ImportSession session) {
+        List<StagedAccountSection> sections = importSessionService.readSections(session);
+        return StagingSessionResponse.ofSections(session.getId(), sections,
+                        importService.previousImportOf(currentUser.id(), session.getContentHash()))
+                .withFreePlanLimit(importService.freePlanLimitNotice(currentUser.id(),
+                        noticeShownOn(session.getId(), null, true), null, sections))
+                .withApprovedAfterReview(importSessionService.wasApprovedAfterReview(session.getId()));
+    }
+
     private ImportSessionSummaryDto toSummary(ImportSession session) {
-        List<StagedRow> rows = importSessionService.readStagedRows(session);
-        return new ImportSessionSummaryDto(session.getId(), session.getFileName(), rows.size(),
-                session.getCreatedAt(), session.getExpiresAt());
+        boolean multi = ImportSession.KIND_MULTI_ACCOUNT.equals(session.getSessionKind());
+        int rowCount = multi
+                ? importSessionService.readSections(session).stream().mapToInt(s -> s.rows().size()).sum()
+                : importSessionService.readStagedRows(session).size();
+        return new ImportSessionSummaryDto(session.getId(), session.getFileName(), rowCount,
+                session.getCreatedAt(), session.getExpiresAt(), multi);
     }
 }

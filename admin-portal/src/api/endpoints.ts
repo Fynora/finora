@@ -20,7 +20,7 @@ import type {
   PlatformDiagnosticsDto, PlatformSettingsDto, PlatformStatsDto, ReconciliationStatsDto, RecentImportDto,
   RelationshipDto, RelationshipMergeRequest, RoleDto, RuleDto,
   SearchResultDto, TrustedSenderDto, SubscriptionHealthDto, SubscriptionSummaryDto, SystemHealthDto,
-  BackgroundJobDto, BackgroundJobFailureDto, DecisionQueueRow, ReadingQualityReport,
+  BackgroundJobDto, BackgroundJobFailureDto, DecisionQueueRow, ReadingQualityReport, StagedOutcomesReport,
   TestMerchantTemplateRequest, TestMerchantTemplateResult, TestRuleRequest, TestRuleResult,
   TopCategoryPoint, TopMerchantPoint, TransactionDto, TrendPoint,
   UpdateBankRequest, UpdateFeatureFlagRequest, UpdateMerchantTemplateRequest,
@@ -439,6 +439,9 @@ export const adminReferralsApi = {
 export const adminReadingQualityApi = {
   report: (weeks: 4 | 12) =>
     api.get<ReadingQualityReport>('/admin/imports/reading-quality', { params: { weeks } }).then((r) => r.data),
+  stagedOutcomes: (weeks: 4 | 12) =>
+    api.get<StagedOutcomesReport>('/admin/imports/reading-quality/staged-outcomes', { params: { weeks } })
+      .then((r) => r.data),
 };
 
 export const adminDecisionQueueApi = {

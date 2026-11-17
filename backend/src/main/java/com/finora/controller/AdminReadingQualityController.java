@@ -22,14 +22,24 @@ import java.time.Instant;
 public class AdminReadingQualityController {
 
     private final ReadingQualityService readingQuality;
+    private final com.finora.service.StagedOutcomesService stagedOutcomes;
 
-    public AdminReadingQualityController(ReadingQualityService readingQuality) {
+    public AdminReadingQualityController(ReadingQualityService readingQuality,
+                                         com.finora.service.StagedOutcomesService stagedOutcomes) {
         this.readingQuality = readingQuality;
+        this.stagedOutcomes = stagedOutcomes;
     }
 
     /** @param weeks 4 or 12: this week and the ones before it */
     @GetMapping
     public ApiResponse<ReadingQualityDto.Report> readingQuality(@RequestParam(defaultValue = "12") int weeks) {
         return ApiResponse.ok(readingQuality.report(weeks, Instant.now()));
+    }
+
+    /** What became of customers' staged statements, week by week. Counts only. @param weeks 4 or 12 */
+    @GetMapping("/staged-outcomes")
+    public ApiResponse<com.finora.dto.StagedOutcomesDto.Report> stagedOutcomes(
+            @RequestParam(defaultValue = "12") int weeks) {
+        return ApiResponse.ok(stagedOutcomes.report(weeks, Instant.now()));
     }
 }

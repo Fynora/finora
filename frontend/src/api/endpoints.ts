@@ -2,6 +2,7 @@ import { api, rawApi, type ApiEnvelope } from './client';
 import { markActivity } from '../lib/idleSignOut';
 import type { SignupAttribution } from '../lib/signupAttribution';
 import { downloadBlob } from '../lib/download';
+import type { DiscardReason } from '../lib/discardReasons';
 import type { ConvertedStatement } from '../pages/converter/statementSheets';
 import type { components } from './generated-types';
 
@@ -517,6 +518,8 @@ export interface ImportSessionSummary {
   rowCount: number;
   createdAt: string;
   expiresAt: string;
+  /** A statement covering more than one account, reopened into the section review. */
+  multiAccount?: boolean;
 }
 
 // Premium Import Reliability v1, §2.1 -- mirrors backend ImportDto.ImportFailureSummaryDto
@@ -667,19 +670,32 @@ export const importApi = {
     api.post<{ perAccount: ImportSummary[] }>('/import/pdf/confirm-multi', payload).then((r) => r.data),
   // "Your unfinished imports" -- lets the UI offer to resume a staged-but-not-yet-confirmed
   // session (e.g. after a reload) instead of it silently sitting there until it expires.
-  listSessions: () => api.get<ImportSessionSummary[]>('/import/sessions').then((r) => r.data),
+  // includeMultiAccount: this page reopens statements covering more than one account (with their
+  // sections), so it asks for them; an app that cannot is never sent one.
+  listSessions: () =>
+    api.get<ImportSessionSummary[]>('/import/sessions', { params: { includeMultiAccount: true } }).then((r) => r.data),
   getSession: (id: string) =>
     api
       .get<{
         sessionId: string;
-        staging: StagingResult;
+        // Null when multiAccount is true: a statement covering more than one account comes back
+        // as its sections instead, as /pdf/stage first gave them.
+        staging: StagingResult | null;
+        multiAccount?: boolean;
+        sections?: StagedAccountSection[] | null;
         previousImport?: PreviousImport | null;
         freePlanLimit?: FreePlanLimitNotice | null;
         // Gate 2b: true when a reviewer released this session after an accuracy hold.
         approvedAfterReview?: boolean;
       }>(`/import/sessions/${id}`)
       .then((r) => r.data),
-  discardSession: (id: string) => api.delete(`/import/sessions/${id}`),
+  // `reason`: the customer's optional one-tap reason from the discard dialog; omitted when skipped.
+  // confirmedByCustomer: true only from a discard dialog the customer answered -- never from the
+  // app deleting a statement by itself.
+  discardSession: (id: string, reason?: DiscardReason | null, confirmedByCustomer = false) =>
+    api.delete(`/import/sessions/${id}`, {
+      params: { ...(reason ? { reason } : {}), ...(confirmedByCustomer ? { confirmedByCustomer: true } : {}) },
+    }),
   // "Your recent failed imports" -- Premium Import Reliability v1, §2.1. A document that never got
   // far enough to become an ImportSession (no header found, zero transactions, a scanned PDF)
   // previously left no trace its owner could see again; this is that trace, read back.

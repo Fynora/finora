@@ -62,8 +62,9 @@ public class StatementAnalysisRecorder {
         this.objectMapper = objectMapper;
     }
 
-    /** A later fact about a staged statement that was never imported (V326). */
-    public enum UnconfirmedOutcome { FREE_LIMIT_SHOWN, FREE_LIMIT_REFUSED }
+    /** A later fact about a staged statement (V326; CONFIRMED is V327). Named for the first two, which
+     *  came first; kept so in-flight changes that use the name still compile. */
+    public enum UnconfirmedOutcome { FREE_LIMIT_SHOWN, FREE_LIMIT_REFUSED, CONFIRMED }
 
     /**
      * Stamps {@code outcome} on the read that staged {@code sessionId}, where it is still unset.
@@ -84,6 +85,7 @@ public class StatementAnalysisRecorder {
         switch (outcome) {
             case FREE_LIMIT_SHOWN -> repository.stampFreeLimitShown(sessionId, now);
             case FREE_LIMIT_REFUSED -> repository.stampFreeLimitRefused(sessionId, now);
+            case CONFIRMED -> repository.stampConfirmed(sessionId, now);
         }
     }
 

@@ -717,19 +717,29 @@ public class ImportDto {
      */
     public record StagingSessionResponse(UUID sessionId, StagingResponse staging, PreviousImport previousImport,
                                          UUID heldForReviewJobId, FreePlanLimitNotice freePlanLimit,
-                                         boolean approvedAfterReview) {
+                                         boolean approvedAfterReview, boolean multiAccount,
+                                         List<StagedAccountSection> sections) {
         /** See {@link PdfStagingSessionResponse}'s matching constructor. */
         public StagingSessionResponse(UUID sessionId, StagingResponse staging) {
-            this(sessionId, staging, null, null, null, false);
+            this(sessionId, staging, null, null, null, false, false, null);
         }
 
         /** Every construction site that predates the trust check on this endpoint: not held. */
         public StagingSessionResponse(UUID sessionId, StagingResponse staging, PreviousImport previousImport) {
-            this(sessionId, staging, previousImport, null, null, false);
+            this(sessionId, staging, previousImport, null, null, false, false, null);
+        }
+
+        /** A statement covering more than one account, reopened from GET /import/sessions/{id}:
+         *  {@code staging} null and {@code sections} set, as {@link PdfStagingSessionResponse} has
+         *  them when the statement is first staged. */
+        public static StagingSessionResponse ofSections(UUID sessionId, List<StagedAccountSection> sections,
+                                                        PreviousImport previousImport) {
+            return new StagingSessionResponse(sessionId, null, previousImport, null, null, false, true, sections);
         }
 
         public StagingSessionResponse heldForReview(UUID jobId) {
-            return new StagingSessionResponse(sessionId, staging, previousImport, jobId, freePlanLimit, approvedAfterReview);
+            return new StagingSessionResponse(sessionId, staging, previousImport, jobId, freePlanLimit, approvedAfterReview,
+                    multiAccount, sections);
         }
 
         /** The Free one-month limit this statement will be refused under at confirm, or null when it
@@ -737,7 +747,7 @@ public class ImportDto {
          *  controller on every response the review screen opens from. */
         public StagingSessionResponse withFreePlanLimit(FreePlanLimitNotice notice) {
             return new StagingSessionResponse(sessionId, staging, previousImport, heldForReviewJobId, notice,
-                    approvedAfterReview);
+                    approvedAfterReview, multiAccount, sections);
         }
 
         /** Gate 2b (spec §5.3): a reviewer released this session after an accuracy hold, so the
@@ -745,7 +755,7 @@ public class ImportDto {
          *  GET /import/sessions/{id}, the one door an approved hold's review opens from. */
         public StagingSessionResponse withApprovedAfterReview(boolean approved) {
             return new StagingSessionResponse(sessionId, staging, previousImport, heldForReviewJobId, freePlanLimit,
-                    approved);
+                    approved, multiAccount, sections);
         }
     }
 
@@ -753,7 +763,11 @@ public class ImportDto {
      *  include the full staged rows (that's a second call, GET /import/sessions/{id}, once the
      *  user picks one to resume) -- this is just enough to render a list. */
     public record ImportSessionSummaryDto(
-            UUID id, String fileName, int rowCount, java.time.Instant createdAt, java.time.Instant expiresAt
+            UUID id, String fileName, int rowCount, java.time.Instant createdAt, java.time.Instant expiresAt,
+            // A statement covering more than one account: reviewed on the web (its section review);
+            // the phone app lists it as one to finish there. Listed only when asked for
+            // (GET /import/sessions?includeMultiAccount=true), so older apps never see one.
+            boolean multiAccount
     ) {}
 
     /** One entry in "your recent failed imports" -- GET /import/failures (Premium Import

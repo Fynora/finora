@@ -5860,6 +5860,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/imports/reading-quality/staged-outcomes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["stagedOutcomes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/imports/layouts": {
         parameters: {
             query?: never;
@@ -8875,6 +8891,8 @@ export interface components {
             heldForReviewJobId?: string;
             freePlanLimit?: components["schemas"]["FreePlanLimitNotice"];
             approvedAfterReview?: boolean;
+            multiAccount?: boolean;
+            sections?: components["schemas"]["StagedAccountSection"][];
         };
         GoalCreateRequest: {
             name: string;
@@ -11676,6 +11694,7 @@ export interface components {
             createdAt?: string;
             /** Format: date-time */
             expiresAt?: string;
+            multiAccount?: boolean;
         };
         ApiResponseListProgress: {
             success?: boolean;
@@ -13835,6 +13854,7 @@ export interface components {
             /** Format: date-time */
             discardedUnconfirmedAt?: string;
             discardedBy?: string;
+            discardReason?: string;
             /** Format: date-time */
             expiredUnconfirmedAt?: string;
             /** Format: date-time */
@@ -14045,6 +14065,65 @@ export interface components {
             holds?: number;
             /** Format: int64 */
             fixes?: number;
+        };
+        ApiResponseStagedOutcomesReport: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["StagedOutcomesReport"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        StagedOutcomesDiscardReasons: {
+            /** Format: int64 */
+            wrongFile?: number;
+            /** Format: int64 */
+            tooManyMonths?: number;
+            /** Format: int64 */
+            looksWrong?: number;
+            /** Format: int64 */
+            later?: number;
+            /** Format: int64 */
+            other?: number;
+            /** Format: int64 */
+            noReason?: number;
+        };
+        StagedOutcomesReport: {
+            /** Format: int32 */
+            weeks?: number;
+            /** Format: date */
+            recordedSince?: string;
+            weekly?: components["schemas"]["StagedOutcomesWeek"][];
+            total?: components["schemas"]["StagedOutcomesWeek"];
+        };
+        StagedOutcomesWeek: {
+            /** Format: date */
+            weekStart?: string;
+            /** Format: int64 */
+            staged?: number;
+            /** Format: int64 */
+            imported?: number;
+            /** Format: int64 */
+            discardedByCustomer?: number;
+            /** Format: int64 */
+            removedByPhone?: number;
+            /** Format: int64 */
+            expired?: number;
+            /** Format: int64 */
+            stillOpen?: number;
+            /** Format: int64 */
+            notRecorded?: number;
+            /** Format: int64 */
+            freeLimitShown?: number;
+            /** Format: int64 */
+            freeLimitRefused?: number;
+            /** Format: int64 */
+            freeLimitThenImported?: number;
+            discardReasons?: components["schemas"]["StagedOutcomesDiscardReasons"];
         };
         ApiResponseListLayoutSummary: {
             success?: boolean;
@@ -23173,7 +23252,9 @@ export interface operations {
     };
     listSessions: {
         parameters: {
-            query?: never;
+            query?: {
+                includeMultiAccount?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -23215,7 +23296,10 @@ export interface operations {
     };
     deleteSession: {
         parameters: {
-            query?: never;
+            query?: {
+                reason?: "WRONG_FILE" | "TOO_MANY_MONTHS" | "LOOKS_WRONG" | "LATER" | "OTHER";
+                confirmedByCustomer?: boolean;
+            };
             header?: never;
             path: {
                 id: string;
@@ -25048,6 +25132,28 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseReadingQualityReport"];
+                };
+            };
+        };
+    };
+    stagedOutcomes: {
+        parameters: {
+            query?: {
+                weeks?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseStagedOutcomesReport"];
                 };
             };
         };

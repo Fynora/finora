@@ -10910,6 +10910,17 @@
                     "import-controller"
                 ],
                 "operationId": "listSessions",
+                "parameters": [
+                    {
+                        "name": "includeMultiAccount",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "boolean",
+                            "default": false
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -21046,6 +21057,15 @@
                     },
                     "approvedAfterReview": {
                         "type": "boolean"
+                    },
+                    "multiAccount": {
+                        "type": "boolean"
+                    },
+                    "sections": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/StagedAccountSection"
+                        }
                     }
                 }
             },
@@ -28484,6 +28504,9 @@
                     "expiresAt": {
                         "type": "string",
                         "format": "date-time"
+                    },
+                    "multiAccount": {
+                        "type": "boolean"
                     }
                 }
             },

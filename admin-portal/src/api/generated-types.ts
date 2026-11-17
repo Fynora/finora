@@ -8869,6 +8869,8 @@ export interface components {
             heldForReviewJobId?: string;
             freePlanLimit?: components["schemas"]["FreePlanLimitNotice"];
             approvedAfterReview?: boolean;
+            multiAccount?: boolean;
+            sections?: components["schemas"]["StagedAccountSection"][];
         };
         GoalCreateRequest: {
             name: string;
@@ -11670,6 +11672,7 @@ export interface components {
             createdAt?: string;
             /** Format: date-time */
             expiresAt?: string;
+            multiAccount?: boolean;
         };
         ApiResponseListProgress: {
             success?: boolean;
@@ -23165,7 +23168,9 @@ export interface operations {
     };
     listSessions: {
         parameters: {
-            query?: never;
+            query?: {
+                includeMultiAccount?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;

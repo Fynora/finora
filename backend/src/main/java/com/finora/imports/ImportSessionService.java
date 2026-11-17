@@ -548,8 +548,21 @@ public class ImportSessionService {
      */
     @Transactional(readOnly = true)
     public List<ImportSession> listResumableSessions(UUID userId) {
+        return listResumableSessions(userId, false);
+    }
+
+    /**
+     * @param includeMultiAccount also statements covering more than one account, which
+     *        GET /import/sessions/{id} reopens with their sections. Asked for by the apps that can
+     *        show one (the web reviews it; the phone lists it to finish on the web); an older app
+     *        never asks, so it never gets a row it cannot open. {@link #supportsResume} itself is
+     *        unchanged: the unconfirmed-import reminder still only names single-account statements.
+     */
+    @Transactional(readOnly = true)
+    public List<ImportSession> listResumableSessions(UUID userId, boolean includeMultiAccount) {
         List<ImportSession> active = listActiveSessions(userId).stream()
-                .filter(this::supportsResume)
+                .filter(s -> supportsResume(s)
+                        || (includeMultiAccount && ImportSession.KIND_MULTI_ACCOUNT.equals(s.getSessionKind())))
                 .toList();
         // A held session is technically STAGED and technically resumable in shape, but "resume"
         // here means "pick up where you left off and confirm" -- exactly the step a trust hold

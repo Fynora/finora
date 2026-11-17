@@ -583,6 +583,57 @@ const detectedWithBank = {
   bank: { id: 'HDFC', officialName: 'HDFC Bank', shortName: 'HDFC' }, bankSource: 'FILE',
 } as DetectedAccountInfo;
 
+describe('ImportScreen — statements covering more than one account, and the Free limit up front', () => {
+  beforeEach(() => {
+    mockRouteParams = undefined;
+    api.accounts.list.mockReset().mockResolvedValue([]);
+    api.categories.list.mockReset().mockResolvedValue([]);
+    api.import.listSessions.mockReset().mockResolvedValue([]);
+    api.import.discardSession.mockReset().mockResolvedValue(undefined as never);
+    jest.mocked(DocumentPicker.getDocumentAsync).mockReset().mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///statement.csv', name: 'statement.csv' } as never],
+    } as never);
+  });
+
+  it('keeps a statement covering more than one account, and says to finish it on the web', async () => {
+    api.import.stageCsv.mockReset().mockResolvedValue({
+      sessionId: 'session-m', multiAccount: true, staging: null,
+      sections: [{ detectedAccount: detectedWithBank, rows: [stagedRow('A')], totalParsed: 1, flaggedDuplicates: 0, unparseableRows: [] }],
+    } as never);
+    render(tree());
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+
+    expect(await screen.findByText(/more than one account/i, {}, { timeout: 8000 })).toBeTruthy();
+    expect(api.import.discardSession).not.toHaveBeenCalled();
+    await waitFor(() => expect(api.import.listSessions.mock.calls.length).toBeGreaterThanOrEqual(2));
+  });
+
+  it('lists one waiting with "Finish on the web" in place of Review, and it can still be discarded', async () => {
+    api.import.listSessions.mockResolvedValue([
+      { id: 'sess-m', fileName: 'composite.pdf', rowCount: 8, createdAt: '2026-09-01T00:00:00Z',
+        expiresAt: '2099-01-01T00:00:00Z', multiAccount: true },
+      { id: 'sess-1', fileName: 'one.csv', rowCount: 3, createdAt: '2026-09-01T00:00:00Z',
+        expiresAt: '2099-01-01T00:00:00Z', multiAccount: false },
+    ] as never);
+    render(tree());
+
+    expect(await screen.findByTestId('finish-on-web-sess-m')).toBeTruthy();
+    expect(screen.queryByLabelText('Review import of composite.pdf')).toBeNull();
+    expect(screen.getByLabelText('Discard import of composite.pdf')).toBeTruthy();
+    expect(screen.getByLabelText('Review import of one.csv')).toBeTruthy();
+  });
+
+  it('tells a customer the one-month Free limit before they upload', async () => {
+    render(tree());
+
+    expect(await screen.findByTestId('free-limit-tip')).toBeTruthy();
+    expect(screen.getByTestId('free-limit-tip')).toHaveTextContent(
+      'On the Free plan, a statement can cover up to one month. Plus imports longer statements in one go.');
+  });
+});
+
 describe('ImportScreen — new-account credit limit and due date fields', () => {
   beforeEach(() => {
     mockRouteParams = undefined;
@@ -2505,7 +2556,7 @@ describe('ImportScreen — async import job (Phase 4)', () => {
     });
   });
 
-  it('blocks a multi-account result the same way the synchronous path does', async () => {
+  it('keeps a queued multi-account result for the web instead of deleting it', async () => {
     api.importJobs.progress.mockResolvedValueOnce(
       jobProgress({ status: 'COMPLETED', userStatus: 'COMPLETED', rowsTotal: 3, rowsProcessed: 3, importSessionId: 'session-1' })
     );
@@ -2517,8 +2568,9 @@ describe('ImportScreen — async import job (Phase 4)', () => {
     fireEvent.press(await screen.findByText('Choose a file'));
     await settle();
 
-    await waitFor(() => expect(api.import.discardSession).toHaveBeenCalledWith('session-1'), { timeout: 3000 });
-    expect(await screen.findByText(/more than one account/i)).toBeTruthy();
+    expect(await screen.findByText(/more than one account/i, {}, { timeout: 3000 })).toBeTruthy();
+    expect(screen.getByText(/continue it from “Continue a previous import”/)).toBeTruthy();
+    expect(api.import.discardSession).not.toHaveBeenCalled();
     expect(await screen.findByText('Choose a file')).toBeTruthy();
   });
 

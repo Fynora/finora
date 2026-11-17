@@ -1045,7 +1045,8 @@ public class DataExportService {
             default -> 0;
         };
         return new ImportSessionSummaryDto(session.getId(), session.getFileName(), rowCount,
-                session.getCreatedAt(), session.getExpiresAt());
+                session.getCreatedAt(), session.getExpiresAt(),
+                ImportSession.KIND_MULTI_ACCOUNT.equals(session.getSessionKind()));
     }
 
     private Manifest buildManifest(ExportBundle bundle) {

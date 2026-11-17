@@ -762,6 +762,12 @@ export function ImportScreen() {
     const startedAt = requestStartedAt();
     try {
       const res = await importApi.getSession(id);
+      // A statement covering more than one account comes back with no single-account rows; the
+      // list offers no Review for one, but should one arrive here, say where to finish it.
+      if (!res.staging) {
+        setError(MULTI_ACCOUNT_ON_WEB);
+        return;
+      }
       setSessionId(res.sessionId);
       setApprovedAfterReview(res.approvedAfterReview === true);
       setPreviousImport(res.previousImport ?? null);
@@ -1332,7 +1338,9 @@ export function ImportScreen() {
                       {sess.fileName}
                     </Text>
                     <Text style={[styles.unfinishedMeta, { color: c.mutedInk }]} numberOfLines={largeText ? undefined : 1}>
-                      {sess.rowCount} {sess.rowCount === 1 ? 'transaction' : 'transactions'} ·{' '}
+                      {sess.multiAccount
+                        ? 'More than one account'
+                        : `${sess.rowCount} ${sess.rowCount === 1 ? 'transaction' : 'transactions'}`} ·{' '}
                       {expiresInLabel(sess.expiresAt)}
                     </Text>
                   </View>

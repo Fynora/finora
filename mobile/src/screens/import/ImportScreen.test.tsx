@@ -620,6 +620,8 @@ describe('ImportScreen — statements covering more than one account, and the Fr
     render(tree());
 
     expect(await screen.findByTestId('finish-on-web-sess-m')).toBeTruthy();
+    expect(screen.getByTestId('ready-row-sess-m')).toHaveTextContent(/More than one account/);
+    expect(screen.getByTestId('ready-row-sess-1')).toHaveTextContent(/3 transactions/);
     expect(screen.queryByLabelText('Review import of composite.pdf')).toBeNull();
     expect(screen.getByLabelText('Discard import of composite.pdf')).toBeTruthy();
     expect(screen.getByLabelText('Review import of one.csv')).toBeTruthy();

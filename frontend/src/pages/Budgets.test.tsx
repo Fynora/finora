@@ -393,6 +393,28 @@ describe('Budgets', () => {
     await waitFor(() => expect(screen.getByText('Could not load budgets.')).toBeInTheDocument());
   });
 
+  it('a failed load does not also claim there are no budgets', async () => {
+    vi.mocked(budgetsApi.list).mockRejectedValue(new Error('network error'));
+    renderPage();
+
+    await screen.findByText('Could not load budgets.');
+    expect(screen.queryByText('No budgets set')).not.toBeInTheDocument();
+  });
+
+  it('gives each open limit editor its own field, even for names that differ only in punctuation', async () => {
+    vi.mocked(budgetsApi.list).mockResolvedValue([
+      budget({ id: 'b1', categoryName: 'Food & drink', monthlyLimit: 3000, spentThisMonth: 100 }),
+      budget({ id: 'b2', categoryName: 'Food - drink', monthlyLimit: 4000, spentThisMonth: 100 }),
+    ]);
+    renderPage();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit the Food & drink limit, now ₹3,000' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Edit the Food - drink limit, now ₹4,000' }));
+
+    expect(screen.getByLabelText('Monthly limit for Food & drink')).toHaveValue('3000');
+    expect(screen.getByLabelText('Monthly limit for Food - drink')).toHaveValue('4000');
+  });
+
   it('removes a budget after the user confirms, then reloads the list', async () => {
     vi.mocked(budgetsApi.list)
       .mockResolvedValueOnce([budget({ id: 'b1', categoryName: 'Dining' })])

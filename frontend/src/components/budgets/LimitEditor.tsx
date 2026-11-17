@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { Button } from '../../design-system';
 
 const CHIPS = [500, 1000];
@@ -22,7 +22,8 @@ export function LimitEditor({
   const [saving, setSaving] = useState(false);
   // State updates land after the event; a ref stops a fast second click before `saving` re-renders.
   const inFlight = useRef(false);
-  const inputId = `limit-${categoryName.replace(/\W+/g, '-')}`;
+  // useId, not the category name: two names that differ only in punctuation would collide.
+  const inputId = `limit-${useId()}`;
 
   async function save() {
     if (inFlight.current) return;

@@ -69,7 +69,9 @@ export function BudgetsScreen() {
   // getParent() reaches the tab navigator (Track C/C4).
   const navigation = useNavigation<NavigationProp<ParamListBase>>();
   const [newOpen, setNewOpen] = useState(false);
+  // The menu's budget outlives `menuOpen` so the sheet keeps its title while it slides away.
   const [menuFor, setMenuFor] = useState<Budget | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [editFor, setEditFor] = useState<Budget | null>(null);
   const [error, setError] = useState<string | null>(null);
   const singleFlight = useSingleFlight();
@@ -204,7 +206,7 @@ export function BudgetsScreen() {
                       color={colorHexFor(cat?.color ?? 'gray')}
                       money={fmtCurrency}
                       onOpen={() => openTransactions(navigation, b)}
-                      onMore={() => setMenuFor(b)}
+                      onMore={() => { setMenuFor(b); setMenuOpen(true); }}
                     />
                   );
                 })}
@@ -219,11 +221,11 @@ export function BudgetsScreen() {
 
       <BudgetActionsSheet
         budget={menuFor}
-        visible={menuFor !== null}
-        onClose={() => setMenuFor(null)}
-        onEdit={() => { setEditFor(menuFor); setMenuFor(null); }}
-        onSeeTransactions={() => { const b = menuFor; setMenuFor(null); if (b) openTransactions(navigation, b); }}
-        onRemove={() => { const b = menuFor; setMenuFor(null); if (b) confirmRemove(b); }}
+        visible={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        onEdit={() => { setEditFor(menuFor); setMenuOpen(false); }}
+        onSeeTransactions={() => { setMenuOpen(false); if (menuFor) openTransactions(navigation, menuFor); }}
+        onRemove={() => { setMenuOpen(false); if (menuFor) confirmRemove(menuFor); }}
       />
       {editFor ? (
         <EditLimitSheet

@@ -157,6 +157,9 @@ export default function Budgets() {
           </FinoraCard>
         )
       ) : budgets.length === 0 ? (
+        // A failed load leaves `budgets` at []; the error above already says so, and "No budgets
+        // set" under it would be a false statement.
+        error === 'Could not load budgets.' ? null : (
         <FinoraCard>
           <EmptyState
             icon={PiggyBank}
@@ -166,6 +169,7 @@ export default function Budgets() {
             desc="Choose New budget to start tracking a category."
           />
         </FinoraCard>
+        )
       ) : (
         <FinoraCard padding="none" className="px-6 pb-5 pt-2">
           {groups.map((g) => (

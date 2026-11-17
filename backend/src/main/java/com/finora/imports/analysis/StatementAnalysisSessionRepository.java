@@ -61,14 +61,16 @@ public interface StatementAnalysisSessionRepository extends JpaRepository<Statem
 
     /** V326: this staged session was deleted unconfirmed, and by whom
      *  ({@link StatementAnalysisSession#DISCARDED_BY_CUSTOMER} or
-     *  {@link StatementAnalysisSession#DISCARDED_BY_PHONE_MULTI_ACCOUNT}). Only where still null. */
+     *  {@link StatementAnalysisSession#DISCARDED_BY_PHONE_MULTI_ACCOUNT}), with the customer's
+     *  optional reason (V327; null when none was given). Only where still null. */
     @org.springframework.transaction.annotation.Transactional
     @Modifying
-    @Query(value = "UPDATE statement_analysis_sessions SET discarded_unconfirmed_at = :now, discarded_by = :by "
+    @Query(value = "UPDATE statement_analysis_sessions SET discarded_unconfirmed_at = :now, discarded_by = :by, "
+            + "discard_reason = :reason "
             + "WHERE import_session_id = :sessionId AND discarded_unconfirmed_at IS NULL",
             nativeQuery = true)
     int stampDiscardedUnconfirmed(@Param("sessionId") UUID sessionId, @Param("now") Instant now,
-                                  @Param("by") String by);
+                                  @Param("by") String by, @Param("reason") String reason);
 
     /** V326: the review screen was given the Free plan's one-month notice. First time only. */
     @org.springframework.transaction.annotation.Transactional
@@ -85,6 +87,14 @@ public interface StatementAnalysisSessionRepository extends JpaRepository<Statem
             + "WHERE import_session_id = :sessionId AND free_limit_refused_at IS NULL",
             nativeQuery = true)
     int stampFreeLimitRefused(@Param("sessionId") UUID sessionId, @Param("now") Instant now);
+
+    /** V327: the statement was imported (called after the confirm committed). First time only. */
+    @org.springframework.transaction.annotation.Transactional
+    @Modifying
+    @Query(value = "UPDATE statement_analysis_sessions SET confirmed_at = :now "
+            + "WHERE import_session_id = :sessionId AND confirmed_at IS NULL",
+            nativeQuery = true)
+    int stampConfirmed(@Param("sessionId") UUID sessionId, @Param("now") Instant now);
 
     /**
      * The reference counter, from a database sequence rather than a count of existing rows.

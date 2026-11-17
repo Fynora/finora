@@ -89,6 +89,8 @@ import { trackNavigation } from '../../lib/trackNavigation';
 import { trackFunnel, type FunnelEvent } from '../../lib/trackFunnel';
 import { WhatStoppedYou } from '../../components/activation/WhatStoppedYou';
 import { GlassScreen } from '../../components/GlassScreen';
+import { DiscardImportSheet } from '../../components/DiscardImportSheet';
+import type { DiscardReason } from '../../lib/discardReasons';
 import { padForTabBar, useTabBarSpace } from '../../navigation/useTabBarSpace';
 
 type Step = 'upload' | 'review' | 'summary';
@@ -402,6 +404,8 @@ export function ImportScreen() {
   // someone who has just upgraded -- the backend checks the plan again at Import either way.
   const [freePlanLimit, setFreePlanLimit] = useState<FreePlanLimitNotice | null>(null);
   const [limitOverridden, setLimitOverridden] = useState(false);
+  // The unfinished import whose discard sheet is open (with its optional reason), or null.
+  const [discardTarget, setDiscardTarget] = useState<{ id: string; fileName: string } | null>(null);
   // The error message a "See plans" button belongs to: a Free-plan limit refusal at Import. Keyed
   // on the message rather than a separate flag, so any later error replacing it hides the button
   // without every setError call site having to remember to clear it.
@@ -776,22 +780,15 @@ export function ImportScreen() {
   }
 
   function confirmDiscardSession(sess: { id: string; fileName: string }) {
-    AppAlert.alert(
-      'Discard this import?',
-      `"${sess.fileName}" and everything reviewed so far will be removed. The statement itself isn't affected.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Discard', style: 'destructive', onPress: () => void discardUnfinished(sess.id) },
-      ]
-    );
+    setDiscardTarget({ id: sess.id, fileName: sess.fileName });
   }
 
-  async function discardUnfinished(id: string) {
+  async function discardUnfinished(id: string, reason: DiscardReason | null = null) {
     setError(null);
     setDiscardingId(id);
     const startedAt = requestStartedAt();
     try {
-      await importApi.discardSession(id);
+      await importApi.discardSession(id, reason);
       hapticSuccess();
       await unfinishedQ.refetch();
     } catch (e) {
@@ -1639,6 +1636,17 @@ export function ImportScreen() {
             onReceived={followSentFile}
           />
         )}
+        {discardTarget ? (
+          <DiscardImportSheet
+            fileName={discardTarget.fileName}
+            onDiscard={(reason) => {
+              const id = discardTarget.id;
+              setDiscardTarget(null);
+              void discardUnfinished(id, reason);
+            }}
+            onClose={() => setDiscardTarget(null)}
+          />
+        ) : null}
       </GlassScreen>
     );
   }

@@ -242,10 +242,12 @@ public class ImportController {
     }
 
     @DeleteMapping("/sessions/{id}")
-    public ApiResponse<Void> deleteSession(@PathVariable UUID id) {
+    public ApiResponse<Void> deleteSession(@PathVariable UUID id,
+            // Optional one-tap reason from the discard dialog (V327). Absent from older apps.
+            @RequestParam(required = false) com.finora.imports.DiscardReason reason) {
         // The platform only labels the discard on the evidence row (who discarded it); it decides
         // nothing about the delete. See ImportSessionService.discardedBy.
-        importSessionService.deleteSession(currentUser.id(), id, clientIdentity.platform());
+        importSessionService.deleteSession(currentUser.id(), id, clientIdentity.platform(), reason);
         return ApiResponse.ok(null, "Import session discarded");
     }
 

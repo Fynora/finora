@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { useDialogA11y } from './useDialogA11y';
 
 /**
@@ -13,7 +14,7 @@ import { useDialogA11y } from './useDialogA11y';
  */
 export function ConfirmDialog({
   title, message, confirmLabel = 'Confirm', cancelLabel = 'Cancel', secondaryLabel, onSecondary, danger, busy,
-  onConfirm, onCancel,
+  onConfirm, onCancel, children,
 }: {
   title: string;
   message: string;
@@ -28,6 +29,8 @@ export function ConfirmDialog({
   busy?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
+  /** Optional extra content under the message, e.g. a set of choices. */
+  children?: ReactNode;
 }) {
   // Focus moves in on open (onto Cancel, the first control -- WAI-ARIA's guidance for a destructive
   // confirmation is to focus the least destructive action, so a reflexive Enter dismisses rather
@@ -51,6 +54,7 @@ export function ConfirmDialog({
         >
           <h3 id="confirm-dialog-title" className="font-semibold text-ink text-sm">{title}</h3>
           <p className="text-sm text-muted">{message}</p>
+          {children}
           <div className="flex justify-end gap-2">
             <button
               type="button"

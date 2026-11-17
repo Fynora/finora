@@ -857,6 +857,16 @@ public class ImportSessionService {
      */
     @Transactional
     public void deleteSession(UUID userId, UUID sessionId, com.finora.entity.ClientPlatform platform) {
+        deleteSession(userId, sessionId, platform, null);
+    }
+
+    /**
+     * @param reason the customer's optional one-tap reason (V327), or null. Recorded only for a
+     *        discard that is the customer's own; a phone removing a statement it cannot import has none.
+     */
+    @Transactional
+    public void deleteSession(UUID userId, UUID sessionId, com.finora.entity.ClientPlatform platform,
+                              DiscardReason reason) {
         ImportSession session = getOwnedSession(userId, sessionId);
         // Not while a trust review is open on it -- the third place that rule lives, beside
         // sweepExpiredSessions and findLiveSessionByContentHash. The session is the reviewer's
@@ -882,7 +892,10 @@ public class ImportSessionService {
         // Only one the customer uploaded (source null), for the reason stampAbandoned gives, and in
         // its own transaction so a failed stamp can never stop the discard.
         if (session.getSource() == null) {
-            stampDiscarded(sessionId, discardedBy(session, platform));
+            String by = discardedBy(session, platform);
+            stampDiscarded(sessionId, by,
+                    reason != null && com.finora.imports.analysis.StatementAnalysisSession.DISCARDED_BY_CUSTOMER.equals(by)
+                            ? reason.name() : null);
         }
         importSessionRepository.delete(session);
     }
@@ -902,11 +915,11 @@ public class ImportSessionService {
                 : com.finora.imports.analysis.StatementAnalysisSession.DISCARDED_BY_CUSTOMER;
     }
 
-    private void stampDiscarded(UUID sessionId, String by) {
+    private void stampDiscarded(UUID sessionId, String by, String reason) {
         try {
             Instant now = Instant.now();
             separateTransaction.executeWithoutResult(status ->
-                    analysisSessionRepository.stampDiscardedUnconfirmed(sessionId, now, by));
+                    analysisSessionRepository.stampDiscardedUnconfirmed(sessionId, now, by, reason));
         } catch (RuntimeException e) {
             log.warn("Could not record that import session {} was discarded unconfirmed; discarding it anyway",
                     sessionId, e);

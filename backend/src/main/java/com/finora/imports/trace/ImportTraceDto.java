@@ -163,6 +163,9 @@ public final class ImportTraceDto {
             // CUSTOMER, or PHONE_MULTI_ACCOUNT when the phone app deleted it itself because it
             // cannot import a statement covering more than one account. Null when not discarded.
             String discardedBy,
+            // The customer's optional reason for discarding it (WRONG_FILE, TOO_MANY_MONTHS,
+            // LOOKS_WRONG, LATER, OTHER); null when none was given or it was not discarded.
+            String discardReason,
             Instant expiredUnconfirmedAt,
             Instant freeLimitShownAt,
             Instant freeLimitRefusedAt

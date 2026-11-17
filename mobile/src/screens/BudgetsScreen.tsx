@@ -4,40 +4,57 @@ import {
 } from 'react-native';
 import { AppRefreshControl } from '../components/AppRefreshControl';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, type NavigationProp, type ParamListBase } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { usePreventScreenCapture } from '../lib/screenCapture';
-import { AnimatedNumber } from '../components/AnimatedNumber';
 import { Button } from '../components/Button';
 import { Card, EmptyState } from '../components/Card';
 import { CategoryPickerModal } from '../components/CategoryPickerModal';
 import { SkeletonBudgetCard, SkeletonGroup } from '../components/skeletons/Skeletons';
-import { ProgressBar } from '../components/ProgressBar';
 import { TextField } from '../components/TextField';
-import { budgetsApi } from '../api/endpoints';
+import { BudgetCard } from '../components/budgets/BudgetCard';
+import { BudgetHeroCard } from '../components/budgets/BudgetHeroCard';
+import { groupInk } from '../components/budgets/PaceBar';
+import { budgetsApi, categoriesApi } from '../api/endpoints';
 import { AppAlert } from '../lib/appAlert';
 import type { Budget } from '../types';
 import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { currentYearMonth, fmtCurrency, monthDateRange, monthLabel } from '../lib/format';
 import { hapticError, hapticSuccess, hapticWarning } from '../lib/haptics';
-import { useLargeFontScale } from '../lib/useLargeFontScale';
+import { colorHexFor, iconNameFor } from '../lib/categoryIcons';
+import { GROUP_LABEL, groupBudgets, monthClock, overallPace } from '../lib/budgetPace';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { useTransientFlag } from '../lib/useTransientFlag';
 import { parsePositiveAmount } from '../lib/validation';
-import { radius, spacing, useTheme } from '../theme';
+import { radius, spacing, typography, useTheme } from '../theme';
 import type { AppTabParamList } from '../navigation/types';
 import { trackNavigation } from '../lib/trackNavigation';
 import { GlassScreen } from '../components/GlassScreen';
 import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
+/** This month's transactions in one category -- what a budget card is already showing a total of. */
+function openTransactions(navigation: NavigationProp<ParamListBase>, b: Budget) {
+  const month = currentYearMonth();
+  const { dateFrom, dateTo } = monthDateRange(month);
+  trackNavigation('transactions', 'contextual');
+  navigation.getParent<BottomTabNavigationProp<AppTabParamList>>()?.navigate('Transactions', {
+    filters: {
+      categoryId: b.categoryId, dateFrom, dateTo,
+      label: `${b.categoryName} · ${monthLabel(month)}`,
+      nonce: Date.now(),
+    },
+  });
+}
+
 /**
- * Port of frontend/src/pages/Budgets.tsx.
+ * Budgets: the month at a glance (ring hero), then every budget grouped by risk -- over, heading
+ * over at this pace, on track -- with a pace marker on each bar. Every number and status line comes
+ * from lib/budgetPace.ts, a byte-for-byte copy of the web app's, so both apps say the same thing.
+ * Design: docs/superpowers/specs/2026-11-17-budgets-redesign-design.md
  *
- * One deliberate difference: the web page takes the category as free text, so a typo silently
- * creates a budget against a category no transaction will ever be filed under -- it reads as a
- * budget that never fills up. Here the category comes from the same picker the import review uses,
- * which is both the better touch affordance and the fix for that.
+ * The category comes from the same picker the import review uses, never free text, so a typo can't
+ * create a budget against a category no transaction will ever be filed under.
  */
 export function BudgetsScreen() {
   // D3 (Track D security cleanup). Budget amounts and category spend are financial figures like
@@ -46,12 +63,11 @@ export function BudgetsScreen() {
   usePreventScreenCapture();
   const c = useTheme();
   const tabBar = useTabBarSpace();
-  const largeText = useLargeFontScale();
   const queryClient = useQueryClient();
   // BudgetsScreen lives inside the More stack (see AppTabs.tsx), not on the tab bar itself --
   // getParent() reaches the tab navigator the same way StatementHistoryScreen's own re-import
   // link does, for the identical reason (Track C/C4).
-  const navigation = useNavigation();
+  const navigation = useNavigation<NavigationProp<ParamListBase>>();
   const [category, setCategory] = useState<string | null>(null);
   const [limit, setLimit] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -64,6 +80,13 @@ export function BudgetsScreen() {
     queryKey: ['budgets'],
     queryFn: () => budgetsApi.list(),
   });
+  // Icons and colours only. A failure falls back to a neutral icon and never blocks the budgets.
+  const { data: categories = [] } = useQuery({
+    queryKey: ['categories'],
+    queryFn: () => categoriesApi.list(),
+    retry: false,
+  });
+  const categoryById = new Map(categories.map((cat) => [cat.id, cat]));
 
   async function save() {
     const amount = parsePositiveAmount(limit);
@@ -87,9 +110,7 @@ export function BudgetsScreen() {
         setLimit('');
         confirmSaved();
         hapticSuccess();
-        // Dashboard's budget widget and the health score/notifications both read this -- see the
-        // web page's own comment. 'budgets' alone would leave the Dashboard stale until its cache
-        // aged out.
+        // Dashboard's budget widget and the health score/notifications both read this.
         void queryClient.invalidateQueries({ queryKey: ['budgets'] });
         void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
         // A first budget is a Journey milestone; the Dashboard's Journey card isn't on this screen.
@@ -132,6 +153,10 @@ export function BudgetsScreen() {
     });
   }
 
+  const clock = monthClock(new Date());
+  const totalSpent = budgets.reduce((sum, b) => sum + b.spentThisMonth, 0);
+  const totalLimit = budgets.reduce((sum, b) => sum + b.monthlyLimit, 0);
+
   return (
     <GlassScreen style={styles.glassRoot}>
     <ScrollView
@@ -141,7 +166,11 @@ export function BudgetsScreen() {
         <AppRefreshControl refreshing={isFetching && !isLoading} onRefresh={() => void refetch()} tintColor={c.primary} />
       }
     >
-      <Card>
+      {!isLoading && !isError && budgets.length > 0 ? (
+        <BudgetHeroCard totalSpent={totalSpent} totalLimit={totalLimit} overall={overallPace(budgets, clock)} clock={clock} money={fmtCurrency} />
+      ) : null}
+
+      <Card style={styles.formCard}>
         <Text style={[styles.fieldLabel, { color: c.muted }]}>Category</Text>
         <Pressable
           onPress={() => setPickerOpen(true)}
@@ -187,78 +216,43 @@ export function BudgetsScreen() {
         ) : budgets.length === 0 ? (
           <Card>
             <EmptyState
-              message="No budgets set yet. Set one above to start tracking a category."
-              // Bug caught by the pre-existing add-form's own picker trigger sharing the same
-              // default accessibilityLabel ("Choose a category") -- both are on screen at once
-              // when the list is empty, and getByLabelText/getByText would have found two.
+              message="No budgets set yet. Tap New budget to set one."
               actionLabel="Set your first budget"
               onAction={() => setPickerOpen(true)}
             />
           </Card>
         ) : (
-          budgets.map((b) => {
-            const pct = b.monthlyLimit > 0 ? (b.spentThisMonth / b.monthlyLimit) * 100 : 0;
-            // Same three thresholds as the web page: over budget, close to it, comfortable.
-            const barColor = pct >= 100 ? c.danger : pct >= 90 ? c.warning : c.success;
-            const remaining = b.monthlyLimit - b.spentThisMonth;
-            return (
-              <Card key={b.id} style={styles.budgetCard}>
-                {/* One accessible node: the category, the amounts and the bar are a single fact,
-                    and swiping through them separately loses which spend belongs to which limit.
-                    A Pressable rather than the plain View this used to be (Track C/C4): this
-                    month's spend against THIS category is exactly what a budget card is already
-                    showing a total of, so it's the drill-through's most direct source. */}
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`${b.categoryName}: ${fmtCurrency(b.spentThisMonth)} spent of ${fmtCurrency(
-                    b.monthlyLimit
-                  )}. ${
-                    remaining >= 0 ? `${fmtCurrency(remaining)} left` : `${fmtCurrency(-remaining)} over budget`
-                  }`}
-                  accessibilityHint="Opens these transactions"
-                  android_ripple={{ color: c.border }}
-                  onPress={() => {
-                    const month = currentYearMonth();
-                    const { dateFrom, dateTo } = monthDateRange(month);
-                    trackNavigation('transactions', 'contextual');
-                    navigation.getParent<BottomTabNavigationProp<AppTabParamList>>()?.navigate('Transactions', {
-                      filters: {
-                        categoryId: b.categoryId, dateFrom, dateTo,
-                        label: `${b.categoryName} · ${monthLabel(month)}`,
-                        nonce: Date.now(),
-                      },
-                    });
-                  }}
-                >
-                  <View style={styles.budgetHeader}>
-                    <Text style={[styles.budgetName, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
-                      {b.categoryName}
-                    </Text>
-                    <View style={styles.budgetAmountsRow}>
-                      <AnimatedNumber value={b.spentThisMonth} style={[styles.budgetAmounts, { color: c.muted }]} />
-                      <Text style={[styles.budgetAmounts, { color: c.muted }]}> / </Text>
-                      <AnimatedNumber value={b.monthlyLimit} style={[styles.budgetAmounts, { color: c.muted }]} />
-                    </View>
-                  </View>
-                  <ProgressBar pct={pct} color={barColor} />
-                  <Text style={[styles.budgetFoot, { color: remaining >= 0 ? c.muted : c.dangerInk }]}>
-                    {remaining >= 0
-                      ? `${fmtCurrency(remaining)} left this month`
-                      : `${fmtCurrency(-remaining)} over budget`}
+          <>
+            {groupBudgets(budgets, clock).map((g) => (
+              <View key={g.group} style={styles.group}>
+                <View style={styles.groupHeading}>
+                  <View style={[styles.groupDot, { backgroundColor: groupInk(c, g.group) }]} />
+                  <Text accessibilityRole="header" style={[typography.labelS, { color: groupInk(c, g.group) }]}>
+                    {`${GROUP_LABEL[g.group]} · ${g.items.length}`}
                   </Text>
-                </Pressable>
-                {/* Its own button, outside the card's Pressable: that one opens the transactions. */}
-                <Pressable
-                  onPress={() => confirmRemove(b)}
-                  style={[styles.removeAction, { borderColor: c.danger }]}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Remove the ${b.categoryName} budget`}
-                >
-                  <Text style={[styles.removeText, { color: c.dangerInk }]}>Remove</Text>
-                </Pressable>
-              </Card>
-            );
-          })
+                </View>
+                {g.items.map(({ budget: b, pace }) => {
+                  const cat = categoryById.get(b.categoryId);
+                  return (
+                    <BudgetCard
+                      key={b.id}
+                      budget={b}
+                      pace={pace}
+                      clock={clock}
+                      iconName={iconNameFor(cat?.icon ?? 'tag')}
+                      color={colorHexFor(cat?.color ?? 'gray')}
+                      money={fmtCurrency}
+                      onOpen={() => openTransactions(navigation, b)}
+                      onMore={() => confirmRemove(b)}
+                    />
+                  );
+                })}
+              </View>
+            ))}
+            <Text style={[typography.bodyS, styles.hint, { color: c.mutedInk }]}>
+              Tap a card to see its transactions. The three-dot button edits or removes.
+            </Text>
+          </>
         )}
       </View>
 
@@ -282,8 +276,8 @@ export function BudgetsScreen() {
 
 const styles = StyleSheet.create({
   glassRoot: { flex: 1 },
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  content: { padding: spacing.md, paddingBottom: spacing.xl },
+  content: { padding: spacing.md, paddingBottom: spacing.xl, gap: spacing.ms },
+  formCard: {},
   fieldLabel: { fontSize: 12, fontWeight: '500', marginBottom: 6 },
   picker: {
     flexDirection: 'row',
@@ -299,29 +293,11 @@ const styles = StyleSheet.create({
   limitField: { marginTop: spacing.sm },
   error: { fontSize: 13, marginTop: spacing.sm },
   saved: { fontSize: 13, marginTop: spacing.sm },
-  list: { marginTop: spacing.md, gap: spacing.sm },
+  list: { gap: spacing.sm },
   // The cards' spacing inside `list`, kept when they are wrapped in one placeholder group.
   skeletonList: { gap: spacing.sm },
-  budgetCard: {},
-  budgetHeader: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-    marginBottom: spacing.sm,
-  },
-  budgetName: { fontSize: 14, fontWeight: '600', flex: 1, marginRight: spacing.sm },
-  budgetAmountsRow: { flexDirection: 'row', alignItems: 'baseline' },
-  budgetAmounts: { fontSize: 12 },
-  budgetFoot: { fontSize: 11, marginTop: 6 },
-  removeAction: {
-    alignSelf: 'flex-start',
-    borderWidth: 1,
-    borderRadius: 8,
-    minHeight: 44,
-    paddingHorizontal: spacing.md,
-    marginTop: spacing.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  removeText: { fontSize: 13, fontWeight: '600' },
+  group: { gap: spacing.sm },
+  groupHeading: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingTop: spacing.sm, paddingLeft: spacing.xs },
+  groupDot: { width: 8, height: 8, borderRadius: 4 },
+  hint: { paddingHorizontal: spacing.xs, paddingTop: spacing.xs },
 });

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import { usePreventScreenCapture } from '../lib/screenCapture';
@@ -42,8 +42,18 @@ async function settle() {
   await act(async () => {});
 }
 
+// Every pace figure depends on the day of the month, so tests pin 17 Nov 2026 (day 17 of 30),
+// the day the Figma frames were drawn for. Only the clock is faked by setSystemTime's effect on
+// Date; queueMicrotask stays real so promises resolve as usual (same combination
+// DashboardScreen.test.tsx uses).
+function pinDate(d: Date) {
+  jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
+  jest.setSystemTime(d);
+}
+
 describe('BudgetsScreen', () => {
   beforeEach(() => {
+    pinDate(new Date(2026, 10, 17, 10));
     api.list.mockReset().mockResolvedValue(budgets);
     api.upsert.mockReset().mockResolvedValue(budgets[0]);
     api.remove.mockReset().mockResolvedValue({} as never);
@@ -53,10 +63,16 @@ describe('BudgetsScreen', () => {
     ]);
   });
 
-  it('states what is left, in words, for a budget still under its limit', async () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('shows per-day safe amounts and the forecast line on each card', async () => {
     renderScreen();
 
-    expect(await screen.findByText('₹6,000 left this month')).toBeTruthy();
+    expect(await screen.findByText('₹461 / day safe')).toBeTruthy();
+    expect(screen.getByText('About ₹7,059 by 30 Nov')).toBeTruthy();
+    expect(screen.getByText('₹4,000 of ₹10,000')).toBeTruthy();
   });
 
   // Overspending is the thing a budget screen exists to surface, and a progress bar alone can only
@@ -64,15 +80,82 @@ describe('BudgetsScreen', () => {
   it('says how far over budget an overspent category is', async () => {
     renderScreen();
 
-    expect(await screen.findByText('₹1,200 over budget')).toBeTruthy();
+    expect(await screen.findByText('₹1,200 over')).toBeTruthy();
     expect(
-      screen.getByLabelText(/Dining: ₹6,200 spent of ₹5,000. ₹1,200 over budget/)
+      screen.getByLabelText('Dining: ₹6,200 spent of ₹5,000. ₹1,200 over budget.')
     ).toBeTruthy();
+  });
+
+  it('shows the month at a glance: spent, safe per day and where this pace lands', async () => {
+    renderScreen();
+
+    // The ring's centre figure is an AnimatedNumber (a read-only TextInput), hence display value.
+    expect(await screen.findByDisplayValue('₹10,200')).toBeTruthy();
+    expect(screen.getByText('of ₹15,000')).toBeTruthy();
+    expect(screen.getByText('₹369')).toBeTruthy();
+    expect(screen.getByText('At this pace you reach ₹18,000 by 30 Nov, ₹3,000 over your budgets.')).toBeTruthy();
+    expect(screen.getByLabelText('₹10,200 spent of ₹15,000. ₹369 a day safe for 13 days. At this pace ₹18,000 by 30 Nov.')).toBeTruthy();
+  });
+
+  it('groups cards as Over, Heading over at this pace and On track, problems first', async () => {
+    api.list.mockReset().mockResolvedValue([
+      ...budgets,
+      { id: 'b-3', categoryId: 'c-3', categoryName: 'Fuel', monthlyLimit: 9000, spentThisMonth: 7200 },
+    ]);
+    renderScreen();
+
+    expect(await screen.findByText('Over · 1')).toBeTruthy();
+    expect(screen.getByText('Heading over at this pace · 1')).toBeTruthy();
+    expect(screen.getByText('On track · 1')).toBeTruthy();
+    const order = screen.getAllByTestId(/^budget-card-/).map((n) => n.props.testID);
+    expect(order).toEqual(['budget-card-b-2', 'budget-card-b-3', 'budget-card-b-1']);
+  });
+
+  it('hides groups that have no budgets', async () => {
+    api.list.mockReset().mockResolvedValue([budgets[0]]);
+    renderScreen();
+
+    expect(await screen.findByText('On track · 1')).toBeTruthy();
+    expect(screen.queryByText(/^Over ·/)).toBeNull();
+    expect(screen.queryByText(/^Heading over at this pace ·/)).toBeNull();
+  });
+
+  it('reads Last day on the final day of the month', async () => {
+    pinDate(new Date(2026, 10, 30, 10));
+    api.list.mockReset().mockResolvedValue([
+      { id: 'b-1', categoryId: 'c-1', categoryName: 'Groceries', monthlyLimit: 2800, spentThisMonth: 1000 },
+    ]);
+    renderScreen();
+
+    // Both the card and the hero's safe-to-spend tile say it, each about its own amount.
+    const card = await screen.findByTestId('budget-card-b-1');
+    expect(within(card).getByText('Last day · ₹1,800 left')).toBeTruthy();
+    expect(screen.queryByText(/\/ day/)).toBeNull();
+  });
+
+  // jest renders at fontScale 2 (large text), so this is the large-text layout.
+  it('keeps the three-dot button for a long category name at large text', async () => {
+    const longName = 'Entertainment and subscriptions for the whole family';
+    api.list.mockReset().mockResolvedValue([
+      { id: 'b-9', categoryId: 'c-9', categoryName: longName, monthlyLimit: 3000, spentThisMonth: 500 },
+    ]);
+    renderScreen();
+
+    expect(await screen.findByLabelText(`More actions for ${longName}`)).toBeTruthy();
+    expect(screen.getByText(longName).props.numberOfLines).toBeUndefined();
+  });
+
+  it('still shows budgets with a neutral icon when categories fail to load', async () => {
+    categories.list.mockReset().mockRejectedValue(new Error('categories down'));
+    renderScreen();
+
+    expect(await screen.findByText('Groceries')).toBeTruthy();
+    expect(screen.queryByText('Could not load budgets.')).toBeNull();
   });
 
   it('saves a budget for the category chosen from the picker', async () => {
     renderScreen();
-    await screen.findByText('₹6,000 left this month');
+    await screen.findByText('₹461 / day safe');
 
     fireEvent.press(screen.getByLabelText('Choose a category'));
     await settle();
@@ -93,7 +176,7 @@ describe('BudgetsScreen', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
     const invalidate = jest.spyOn(queryClient, 'invalidateQueries');
     render(<QueryClientProvider client={queryClient}><BudgetsScreen /></QueryClientProvider>);
-    await screen.findByText('₹6,000 left this month');
+    await screen.findByText('₹461 / day safe');
 
     fireEvent.press(screen.getByLabelText('Choose a category'));
     await settle();
@@ -111,7 +194,7 @@ describe('BudgetsScreen', () => {
   // and it was unreachable here.
   it('offers to create a new category from the budget picker', async () => {
     renderScreen();
-    await screen.findByText('₹6,000 left this month');
+    await screen.findByText('₹461 / day safe');
 
     fireEvent.press(screen.getByLabelText('Choose a category'));
     await settle();
@@ -125,7 +208,7 @@ describe('BudgetsScreen', () => {
   it('signals an error haptically, not just success or a validation warning, when the save itself fails', async () => {
     api.upsert.mockRejectedValueOnce(new Error('network down'));
     renderScreen();
-    await screen.findByText('₹6,000 left this month');
+    await screen.findByText('₹461 / day safe');
 
     fireEvent.press(screen.getByLabelText('Choose a category'));
     await settle();
@@ -145,7 +228,7 @@ describe('BudgetsScreen', () => {
   // ever filed under. Picking from the real category list is what prevents that.
   it('refuses to save without a category', async () => {
     renderScreen();
-    await screen.findByText('₹6,000 left this month');
+    await screen.findByText('₹461 / day safe');
 
     fireEvent.changeText(screen.getByLabelText(/Monthly limit/i), '12000');
     fireEvent.press(screen.getByText('Set Budget'));
@@ -158,7 +241,7 @@ describe('BudgetsScreen', () => {
 
   it('refuses a limit that is not a positive number', async () => {
     renderScreen();
-    await screen.findByText('₹6,000 left this month');
+    await screen.findByText('₹461 / day safe');
 
     fireEvent.press(screen.getByLabelText('Choose a category'));
     await settle();
@@ -178,11 +261,12 @@ describe('BudgetsScreen', () => {
     expect(hapticWarning).toHaveBeenCalledTimes(3);
   });
 
-  it('says so plainly when no budgets are set', async () => {
+  it('says so plainly when no budgets are set, with no hero', async () => {
     api.list.mockReset().mockResolvedValue([]);
     renderScreen();
 
-    expect(await screen.findByText(/No budgets set yet/)).toBeTruthy();
+    expect(await screen.findByText('No budgets set yet. Tap New budget to set one.')).toBeTruthy();
+    expect(screen.queryByText('Safe to spend')).toBeNull();
   });
 
   // Phase 5 (Low-Priority Polish). The empty state used to say "Set one above" with nothing to
@@ -209,7 +293,7 @@ describe('BudgetsScreen', () => {
   describe('drill-through into the ledger (Track C/C4)', () => {
     it('opens Transactions filtered to this category and the current calendar month', async () => {
       renderScreen();
-      await screen.findByText('₹6,000 left this month');
+      await screen.findByText('₹461 / day safe');
       const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };
       navigate.mockClear();
 
@@ -268,7 +352,7 @@ describe('BudgetsScreen — removing a budget', () => {
   it('asks first, then removes that budget and refreshes the list', async () => {
     const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     renderScreen();
-    fireEvent.press(await screen.findByLabelText('Remove the Dining budget'));
+    fireEvent.press(await screen.findByLabelText('More actions for Dining'));
     expect(alertSpy.mock.calls[0][0]).toBe('Remove the Dining budget?');
     expect(api.remove).not.toHaveBeenCalled();
 
@@ -285,7 +369,7 @@ describe('BudgetsScreen — removing a budget', () => {
     api.remove.mockRejectedValueOnce(new Error('down'));
     const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     renderScreen();
-    fireEvent.press(await screen.findByLabelText('Remove the Groceries budget'));
+    fireEvent.press(await screen.findByLabelText('More actions for Groceries'));
     const buttons = alertSpy.mock.calls[0][2]!;
     await act(async () => { buttons.find((b) => b.text === 'Remove')!.onPress!(); });
 
@@ -297,7 +381,7 @@ describe('BudgetsScreen — removing a budget', () => {
   it('pressing Remove does not also open the transactions', async () => {
     const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     renderScreen();
-    const removeButton = await screen.findByLabelText('Remove the Dining budget');
+    const removeButton = await screen.findByLabelText('More actions for Dining');
     const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };
     navigate.mockClear();
     fireEvent.press(removeButton);

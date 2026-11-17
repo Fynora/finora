@@ -50,8 +50,8 @@ describe('BudgetHero', () => {
 
   it('draws no spent arc when nothing is spent yet (a round cap would show a stray dot)', () => {
     renderHero([{ spentThisMonth: 0, monthlyLimit: 3000 }], new Date(2026, 10, 17));
-    expect(screen.queryByTestId('ring-spent')).not.toBeInTheDocument();
-    expect(screen.getByTestId('ring-month')).toBeInTheDocument();
+    expect(screen.queryByTestId('spent-arc')).not.toBeInTheDocument();
+    expect(screen.getByTestId('month-arc')).toBeInTheDocument();
   });
 
   it('gives screen readers one summary of the three figures', () => {

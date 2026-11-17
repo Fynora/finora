@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { PiggyBank } from 'lucide-react';
+import { PiggyBank, Plus } from 'lucide-react';
 import { budgetsApi, categoriesApi, type CategoryOption } from '../api/endpoints';
 import type { Budget } from '../types';
-import { FinoraCard, EmptyState, Button, ConfirmDialog, Skeleton, SectionHeader } from '../design-system';
+import { FinoraCard, EmptyState, Button, ConfirmDialog, Skeleton } from '../design-system';
+import { NewBudgetDialog } from '../components/budgets/NewBudgetDialog';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
 import { GROUP_LABEL, groupBudgets, monthClock, overallPace, type BudgetGroup } from '../lib/budgetPace';
 import { BudgetHero } from '../components/budgets/BudgetHero';
@@ -34,11 +35,8 @@ const GROUP_DOT: Record<BudgetGroup, string> = {
  */
 export default function Budgets() {
   const [budgets, setBudgets] = useState<Budget[]>([]);
-  const [newCategory, setNewCategory] = useState('');
-  const [newLimit, setNewLimit] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [newOpen, setNewOpen] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState<Budget | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
   // `loading` gates the EmptyState explicitly: `budgets` starts `[]`, which can't be told apart from
@@ -47,8 +45,10 @@ export default function Budgets() {
   const [categoriesById, setCategoriesById] = useState<Map<string, CategoryOption>>(new Map());
   const queryClient = useQueryClient();
 
-  function load() {
-    setLoading(true);
+  /** `refresh`: reload after a save or remove without dropping back to the loading state, so the
+   *  hero and list stay on screen instead of blanking until the request returns. */
+  function load(refresh = false) {
+    if (!refresh) setLoading(true);
     // Categories only supply each row's icon/color, with a safe fallback in the row -- so a
     // categories hiccup must not block budgets. allSettled lets it degrade to the fallback while a
     // budgets failure still surfaces the real error.
@@ -68,7 +68,7 @@ export default function Budgets() {
       .catch(() => setError('Could not load budgets.'))
       .finally(() => setLoading(false));
   }
-  useEffect(load, []);
+  useEffect(() => load(), []);
   const showSkeleton = useDelayedLoading(loading);
 
   function invalidateBudgetReaders() {
@@ -80,28 +80,12 @@ export default function Budgets() {
     void queryClient.invalidateQueries({ queryKey: ['onboarding'] });
   }
 
-  async function addOrUpdate() {
-    if (!newCategory || !newLimit) return;
-    const limit = parseFloat(newLimit);
-    if (!(limit > 0)) {
-      setError('Monthly limit must be greater than zero.');
-      return;
-    }
+  /** Upsert by category name, as before. Rejections propagate so the editor or dialog shows them. */
+  async function saveBudget(categoryName: string, limit: number) {
+    await budgetsApi.upsert(categoryName, limit);
     setError(null);
-    setSaving(true);
-    try {
-      await budgetsApi.upsert(newCategory, limit);
-      setNewCategory('');
-      setNewLimit('');
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-      load();
-      invalidateBudgetReaders();
-    } catch (e: any) {
-      setError(e.response?.data?.message ?? 'Could not save this budget. Try again.');
-    } finally {
-      setSaving(false);
-    }
+    load(true);
+    invalidateBudgetReaders();
   }
 
   async function remove(budget: Budget) {
@@ -109,7 +93,7 @@ export default function Budgets() {
     setRemovingId(budget.id);
     try {
       await budgetsApi.remove(budget.id);
-      load();
+      load(true);
       invalidateBudgetReaders();
     } catch (e: any) {
       setError(e.response?.data?.message ?? 'Could not remove this budget. Try again.');
@@ -131,6 +115,10 @@ export default function Budgets() {
           <h1 className="font-display text-2xl font-extrabold text-ink md:text-3xl">Budgets</h1>
           <p className="text-sm text-muted">{`${clock.monthLabel} · day ${clock.dayOfMonth} of ${clock.daysInMonth}`}</p>
         </div>
+        <Button onClick={() => setNewOpen(true)}>
+          <Plus size={16} aria-hidden="true" />
+          New budget
+        </Button>
       </div>
 
       {loading ? (
@@ -148,24 +136,7 @@ export default function Budgets() {
         <BudgetHero totalSpent={totalSpent} totalLimit={totalLimit} overall={overallPace(budgets, clock)} clock={clock} money={fmt} />
       )}
 
-      <FinoraCard>
-        <SectionHeader title="Set a Budget" size="sm" />
-        <div className="flex gap-2 items-end">
-          <div>
-            <label htmlFor="budget-category" className="block text-xs uppercase text-muted mb-1">Category</label>
-            <input id="budget-category" value={newCategory} onChange={(e) => setNewCategory(e.target.value)} className="bg-card text-ink border rounded px-2 py-1.5 text-sm" />
-          </div>
-          <div>
-            <label htmlFor="budget-monthly-limit" className="block text-xs uppercase text-muted mb-1">Monthly limit</label>
-            <input id="budget-monthly-limit" type="number" value={newLimit} onChange={(e) => setNewLimit(e.target.value)} className="bg-card text-ink border rounded px-2 py-1.5 text-sm" />
-          </div>
-          <Button onClick={addOrUpdate} loading={saving} size="md" className="uppercase">
-            Set Budget
-          </Button>
-          {saved && <span className="text-success text-xs">Saved.</span>}
-        </div>
-      </FinoraCard>
-      {error && <p className="text-danger text-sm">{error}</p>}
+      {error && <p role="alert" className="text-danger text-sm">{error}</p>}
 
       {loading ? (
         showSkeleton && (
@@ -212,6 +183,7 @@ export default function Budgets() {
                   today={today}
                   category={categoriesById.get(b.categoryId)}
                   money={fmt}
+                  onSaveLimit={(limit) => saveBudget(b.categoryName, limit)}
                   onRemove={() => setConfirmRemove(b)}
                   removing={removingId === b.id}
                 />
@@ -223,6 +195,16 @@ export default function Budgets() {
             Marks where spending should be today if you spread each budget evenly over the month. Dotted limits can be edited in place.
           </p>
         </FinoraCard>
+      )}
+
+      {newOpen && (
+        <NewBudgetDialog
+          onClose={() => setNewOpen(false)}
+          onSave={async (categoryName, limit) => {
+            await saveBudget(categoryName, limit);
+            setNewOpen(false);
+          }}
+        />
       )}
 
       {confirmRemove && (

@@ -32,13 +32,13 @@ export function BudgetRing({
         <circle cx={mid} cy={mid} r={outerR} fill="none" strokeWidth={outerStroke} className="stroke-surface" />
         {spentFrac > 0 && (
           <circle
-            data-testid="ring-spent" cx={mid} cy={mid} r={outerR} fill="none" strokeWidth={outerStroke}
+            data-testid="spent-arc" cx={mid} cy={mid} r={outerR} fill="none" strokeWidth={outerStroke}
             strokeLinecap="round" stroke="currentColor" strokeDasharray={arc(outerR, spentFrac)} className={GROUP_TONE[group]}
           />
         )}
         <circle cx={mid} cy={mid} r={innerR} fill="none" strokeWidth={innerStroke} className="stroke-surface" />
         <circle
-          data-testid="ring-month" cx={mid} cy={mid} r={innerR} fill="none" strokeWidth={innerStroke}
+          data-testid="month-arc" cx={mid} cy={mid} r={innerR} fill="none" strokeWidth={innerStroke}
           strokeLinecap="round" stroke="currentColor" strokeDasharray={arc(innerR, monthFrac)} className="text-muted"
         />
       </svg>

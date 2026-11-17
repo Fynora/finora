@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { Wallet } from 'lucide-react';
+import { LimitEditor } from './LimitEditor';
 import type { CategoryOption } from '../../api/endpoints';
 import type { Budget } from '../../types';
 import { describePace, type BudgetPace, type MonthClock } from '../../lib/budgetPace';
@@ -19,7 +21,7 @@ export function transactionsHref(categoryName: string, today: Date, clock: Month
 }
 
 export function BudgetRow({
-  budget, pace, clock, today, category, money, onEdit, onRemove, removing,
+  budget, pace, clock, today, category, money, onSaveLimit, onRemove, removing,
 }: {
   budget: Budget;
   pace: BudgetPace;
@@ -27,18 +29,49 @@ export function BudgetRow({
   today: Date;
   category?: CategoryOption;
   money: Money;
-  onEdit?: () => void;
+  /** Saves a new limit; rejects with the server's error so the editor can show it and stay open. */
+  onSaveLimit?: (limit: number) => Promise<void>;
   onRemove: () => void;
   removing: boolean;
 }) {
+  const [editing, setEditing] = useState(false);
   const Icon = ICON_COMPONENTS[category?.icon ?? 'tag'] ?? Wallet;
   const color = COLOR_HEX[category?.color ?? 'gray'];
   const copy = describePace(pace, clock, money);
   const items: RowMenuItem[] = [
-    ...(onEdit ? [{ label: 'Edit limit', onSelect: onEdit }] : []),
+    ...(onSaveLimit ? [{ label: 'Edit limit', onSelect: () => setEditing(true) }] : []),
     { label: 'See transactions', to: transactionsHref(budget.categoryName, today, clock) },
     { label: 'Remove budget', onSelect: onRemove, danger: true },
   ];
+
+  const icon = (
+    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full" style={{ backgroundColor: `${color}26` }}>
+      <Icon size={16} style={{ color }} aria-hidden="true" />
+    </div>
+  );
+  const name = (
+    <span data-testid="budget-name" className="min-w-0 flex-1 truncate font-medium text-ink md:w-40 md:flex-none">
+      {budget.categoryName}
+    </span>
+  );
+
+  if (editing && onSaveLimit) {
+    return (
+      <div data-testid="budget-row" className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border py-3 text-sm md:flex-nowrap">
+        {icon}
+        {name}
+        <LimitEditor
+          categoryName={budget.categoryName}
+          initial={budget.monthlyLimit}
+          onSave={async (limit) => {
+            await onSaveLimit(limit);
+            setEditing(false);
+          }}
+          onCancel={() => setEditing(false)}
+        />
+      </div>
+    );
+  }
 
   return (
     <div
@@ -46,12 +79,8 @@ export function BudgetRow({
       aria-busy={removing || undefined}
       className={`flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border py-3.5 text-sm md:flex-nowrap ${removing ? 'opacity-60' : ''}`}
     >
-      <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full" style={{ backgroundColor: `${color}26` }}>
-        <Icon size={16} style={{ color }} aria-hidden="true" />
-      </div>
-      <span data-testid="budget-name" className="min-w-0 flex-1 truncate font-medium text-ink md:w-40 md:flex-none">
-        {budget.categoryName}
-      </span>
+      {icon}
+      {name}
       <PaceBar
         spentFrac={pace.spentFrac}
         monthFrac={clock.monthFrac}
@@ -61,7 +90,19 @@ export function BudgetRow({
       <span className="flex-shrink-0 text-right md:w-40">
         <span className="font-semibold text-ink">{money(budget.spentThisMonth)}</span>
         <span className="text-muted"> / </span>
-        <span className="text-muted underline decoration-dotted underline-offset-4">{money(budget.monthlyLimit)}</span>
+        {onSaveLimit ? (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            aria-label={`Edit the ${budget.categoryName} limit, now ${money(budget.monthlyLimit)}`}
+            title="Edit limit"
+            className="rounded text-muted underline decoration-dotted underline-offset-4 hover:text-ink"
+          >
+            {money(budget.monthlyLimit)}
+          </button>
+        ) : (
+          <span className="text-muted">{money(budget.monthlyLimit)}</span>
+        )}
       </span>
       {/* Below md the bar and this status drop to their own full-width lines (both order-last, in
           DOM order); from md up everything sits on one row as in the Figma frame. */}

@@ -176,17 +176,165 @@ describe('Budgets', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 
-  it('still saves a budget through the form', async () => {
-    vi.mocked(budgetsApi.list).mockResolvedValue([]);
-    vi.mocked(budgetsApi.upsert).mockResolvedValue(budget());
-    renderPage();
+  describe('editing a limit in place', () => {
+    const FOOD = budget({ id: 'b-food', categoryName: 'Food and dining', spentThisMonth: 7200, monthlyLimit: 9000 });
 
-    await screen.findByText('No budgets set');
-    await userEvent.type(screen.getByLabelText('Category'), 'Travel');
-    await userEvent.type(screen.getByLabelText('Monthly limit'), '3000');
-    await userEvent.click(screen.getByRole('button', { name: /set budget/i }));
+    async function startEdit() {
+      await userEvent.click(await screen.findByRole('button', { name: 'Edit the Food and dining limit, now ₹9,000' }));
+      return screen.getByLabelText('Monthly limit for Food and dining');
+    }
 
-    await waitFor(() => expect(budgetsApi.upsert).toHaveBeenCalledWith('Travel', 3000));
+    it('clicking the dotted limit edits it in place and saves the new amount', async () => {
+      vi.mocked(budgetsApi.list).mockResolvedValue([FOOD]);
+      vi.mocked(budgetsApi.upsert).mockResolvedValue(FOOD);
+      renderPage();
+
+      const input = await startEdit();
+      expect(input).toHaveValue('9000');
+      await userEvent.click(screen.getByRole('button', { name: '+500' }));
+      expect(input).toHaveValue('9500');
+      await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(budgetsApi.upsert).toHaveBeenCalledWith('Food and dining', 9500));
+      await waitFor(() => expect(screen.queryByLabelText('Monthly limit for Food and dining')).not.toBeInTheDocument());
+    });
+
+    it('Edit limit in the row menu opens the same editor', async () => {
+      vi.mocked(budgetsApi.list).mockResolvedValue([FOOD]);
+      renderPage();
+
+      const menu = await openMenu('Food and dining');
+      await userEvent.click(within(menu).getByRole('menuitem', { name: 'Edit limit' }));
+
+      expect(screen.getByLabelText('Monthly limit for Food and dining')).toHaveFocus();
+    });
+
+    it('Enter saves the typed amount', async () => {
+      vi.mocked(budgetsApi.list).mockResolvedValue([FOOD]);
+      vi.mocked(budgetsApi.upsert).mockResolvedValue(FOOD);
+      renderPage();
+
+      const input = await startEdit();
+      await userEvent.clear(input);
+      await userEvent.type(input, '12000{Enter}');
+
+      await waitFor(() => expect(budgetsApi.upsert).toHaveBeenCalledWith('Food and dining', 12000));
+    });
+
+    it('Escape cancels an in-place edit without saving', async () => {
+      vi.mocked(budgetsApi.list).mockResolvedValue([FOOD]);
+      renderPage();
+
+      const input = await startEdit();
+      await userEvent.clear(input);
+      await userEvent.type(input, '1{Escape}');
+
+      expect(screen.queryByLabelText('Monthly limit for Food and dining')).not.toBeInTheDocument();
+      expect(budgetsApi.upsert).not.toHaveBeenCalled();
+      expect(screen.getByRole('button', { name: 'Edit the Food and dining limit, now ₹9,000' })).toBeInTheDocument();
+    });
+
+    it.each(['', '0', '-5', 'abc'])('refuses the limit %j without calling the server', async (typed) => {
+      vi.mocked(budgetsApi.list).mockResolvedValue([FOOD]);
+      renderPage();
+
+      const input = await startEdit();
+      await userEvent.clear(input);
+      if (typed) await userEvent.type(input, typed);
+      await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+      expect(await screen.findByText('Monthly limit must be greater than zero.')).toBeInTheDocument();
+      expect(budgetsApi.upsert).not.toHaveBeenCalled();
+    });
+
+    it('a double click on Save sends one request', async () => {
+      vi.mocked(budgetsApi.list).mockResolvedValue([FOOD]);
+      vi.mocked(budgetsApi.upsert).mockReturnValue(new Promise(() => {}));
+      renderPage();
+
+      await startEdit();
+      await userEvent.dblClick(screen.getByRole('button', { name: 'Save' }));
+
+      expect(budgetsApi.upsert).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the list on screen while it reloads after a save', async () => {
+      vi.mocked(budgetsApi.list)
+        .mockResolvedValueOnce([FOOD])
+        .mockReturnValueOnce(new Promise(() => {}));
+      vi.mocked(budgetsApi.upsert).mockResolvedValue(FOOD);
+      renderPage();
+
+      await startEdit();
+      await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(budgetsApi.list).toHaveBeenCalledTimes(2));
+      expect(screen.getByText('Food and dining')).toBeInTheDocument();
+      expect(screen.getByText('Safe to spend')).toBeInTheDocument();
+    });
+
+    it("shows the server's message when saving fails and keeps the editor open", async () => {
+      vi.mocked(budgetsApi.list).mockResolvedValue([FOOD]);
+      vi.mocked(budgetsApi.upsert).mockRejectedValue({ response: { data: { message: 'Limit too large.' } } });
+      renderPage();
+
+      await startEdit();
+      await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+      expect(await screen.findByText('Limit too large.')).toBeInTheDocument();
+      expect(screen.getByLabelText('Monthly limit for Food and dining')).toBeInTheDocument();
+    });
+  });
+
+  describe('New budget', () => {
+    it('saves the category picked in the dialog', async () => {
+      vi.mocked(budgetsApi.list).mockResolvedValue([]);
+      vi.mocked(categoriesApi.list).mockResolvedValue([category({ id: 'c9', name: 'Travel' })]);
+      vi.mocked(budgetsApi.upsert).mockResolvedValue(budget());
+      renderPage();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'New budget' }));
+      const dialog = screen.getByRole('dialog', { name: 'New budget' });
+      await userEvent.click(within(dialog).getByRole('combobox'));
+      await userEvent.click(await screen.findByRole('option', { name: /Travel/ }));
+      await userEvent.type(within(dialog).getByLabelText('Monthly limit'), '3000');
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Save budget' }));
+
+      await waitFor(() => expect(budgetsApi.upsert).toHaveBeenCalledWith('Travel', 3000));
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New budget' })).not.toBeInTheDocument());
+    });
+
+    it('refuses to save without a category', async () => {
+      vi.mocked(budgetsApi.list).mockResolvedValue([]);
+      renderPage();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'New budget' }));
+      const dialog = screen.getByRole('dialog', { name: 'New budget' });
+      await userEvent.type(within(dialog).getByLabelText('Monthly limit'), '3000');
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Save budget' }));
+
+      expect(await within(dialog).findByText('Pick a category first.')).toBeInTheDocument();
+      expect(budgetsApi.upsert).not.toHaveBeenCalled();
+    });
+
+    it('Cancel closes the dialog without saving', async () => {
+      vi.mocked(budgetsApi.list).mockResolvedValue([]);
+      renderPage();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'New budget' }));
+      await userEvent.click(within(screen.getByRole('dialog', { name: 'New budget' })).getByRole('button', { name: 'Cancel' }));
+
+      expect(screen.queryByRole('dialog', { name: 'New budget' })).not.toBeInTheDocument();
+      expect(budgetsApi.upsert).not.toHaveBeenCalled();
+    });
+
+    it('no longer shows the old free-text category form', async () => {
+      vi.mocked(budgetsApi.list).mockResolvedValue([]);
+      renderPage();
+
+      await screen.findByText('No budgets set');
+      expect(screen.queryByText('Set a Budget')).not.toBeInTheDocument();
+    });
   });
 
   it('still shows budgets, falling back to a default icon, when categories fail to load', async () => {

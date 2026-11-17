@@ -119,7 +119,9 @@ export function describePace(p: BudgetPace, clock: MonthClock, money: Money): Pa
   if (p.group === 'heading-over') {
     return { main: `${money(p.safePerDay)} / day safe`, sub: `Heading ${money(p.forecastOverBy)} over by ${clock.monthEndLabel}` };
   }
-  return { main: `${money(p.safePerDay)} / day safe`, sub: `About ${money(p.forecast)} by ${clock.monthEndLabel}` };
+  // "About ₹0 by 30 Nov" is true but reads like a glitch; say what it means.
+  const sub = p.spentFrac === 0 ? 'Nothing spent yet' : `About ${money(p.forecast)} by ${clock.monthEndLabel}`;
+  return { main: `${money(p.safePerDay)} / day safe`, sub };
 }
 
 export function paceA11yLabel(name: string, spent: number, limit: number, p: BudgetPace, clock: MonthClock, money: Money): string {

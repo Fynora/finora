@@ -125,6 +125,10 @@ describe('describePace', () => {
     expect(describePace(budgetPace(1000, 2800, last), last, money)).toEqual({ main: 'Last day · ₹1,800 left', sub: '' });
   });
 
+  it('says nothing is spent yet instead of "About ₹0"', () => {
+    expect(describePace(budgetPace(0, 3000, clock), clock, money)).toEqual({ main: '₹230 / day safe', sub: 'Nothing spent yet' });
+  });
+
   it('an over budget on the last day still reads as over', () => {
     const last = monthClock(new Date(2026, 10, 30));
     expect(describePace(budgetPace(3000, 2800, last), last, money).main).toBe('₹200 over');

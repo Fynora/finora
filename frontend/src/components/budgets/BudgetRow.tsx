@@ -50,7 +50,7 @@ export function BudgetRow({
     </div>
   );
   const name = (
-    <span data-testid="budget-name" className="min-w-0 flex-1 truncate font-medium text-ink md:w-40 md:flex-none">
+    <span data-testid="budget-name" className="min-w-0 flex-1 truncate font-medium text-ink xl:w-40 xl:flex-none">
       {budget.categoryName}
     </span>
   );
@@ -77,7 +77,7 @@ export function BudgetRow({
     <div
       data-testid="budget-row"
       aria-busy={removing || undefined}
-      className={`flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border py-3.5 text-sm md:flex-nowrap ${removing ? 'opacity-60' : ''}`}
+      className={`flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border py-3.5 text-sm xl:flex-nowrap ${removing ? 'opacity-60' : ''}`}
     >
       {icon}
       {name}
@@ -85,9 +85,9 @@ export function BudgetRow({
         spentFrac={pace.spentFrac}
         monthFrac={clock.monthFrac}
         group={pace.group}
-        className="order-last w-full md:order-none md:w-auto md:flex-1"
+        className="order-last w-full xl:order-none xl:w-auto xl:flex-1"
       />
-      <span className="flex-shrink-0 text-right md:w-40">
+      <span className="flex-shrink-0 text-right xl:w-40">
         <span className="font-semibold text-ink">{money(budget.spentThisMonth)}</span>
         <span className="text-muted"> / </span>
         {onSaveLimit ? (
@@ -104,9 +104,9 @@ export function BudgetRow({
           <span className="text-muted">{money(budget.monthlyLimit)}</span>
         )}
       </span>
-      {/* Below md the bar and this status drop to their own full-width lines (both order-last, in
-          DOM order); from md up everything sits on one row as in the Figma frame. */}
-      <div className="order-last w-full min-w-0 md:order-none md:w-52">
+      {/* Below xl the bar and this status drop to their own full-width lines (both order-last, in
+          DOM order); from xl up everything sits on one row as in the Figma frame. */}
+      <div className="order-last w-full min-w-0 xl:order-none xl:w-52">
         <p className={`font-semibold ${pace.group === 'over' ? 'text-danger' : 'text-ink'}`}>{copy.main}</p>
         {copy.sub && <p className={`text-xs ${pace.group === 'heading-over' ? 'text-warning' : 'text-muted'}`}>{copy.sub}</p>}
       </div>

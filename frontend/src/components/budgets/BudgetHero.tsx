@@ -34,15 +34,18 @@ export function BudgetHero({
       : `${money(overall.safePerDay)} a day safe for ${clock.daysLeft} days.`;
   const summary = `${money(totalSpent)} spent of ${money(totalLimit)}. ${daily} At this pace ${money(overall.forecast)} by ${clock.monthEndLabel}.`;
 
-  const figure = 'font-display text-[28px] font-extrabold tracking-tight text-ink';
+  // The content column is the viewport minus the sidebar, so breakpoints sit higher than usual:
+  // ring beside the figures only from xl, three figure columns from md, full-size figures from xl.
+  const figureSize = 'text-2xl xl:text-[28px]';
+  const figure = `font-display ${figureSize} font-extrabold tracking-tight text-ink`;
   return (
     <FinoraCard padding="lg">
-      <div role="group" aria-label={summary} className="flex flex-col items-center gap-8 sm:flex-row">
+      <div role="group" aria-label={summary} className="flex flex-col items-center gap-6 xl:flex-row xl:gap-8">
         <BudgetRing spentFrac={overall.spentFrac} monthFrac={clock.monthFrac} group={overall.group}>
           <span aria-hidden="true" className="font-display text-[26px] font-extrabold text-ink">{spentPct}%</span>
           <span aria-hidden="true" className="text-xs text-muted">spent</span>
         </BudgetRing>
-        <div aria-hidden="true" className="grid w-full flex-1 grid-cols-1 gap-6 sm:grid-cols-3">
+        <div aria-hidden="true" className="grid w-full flex-1 grid-cols-1 gap-5 md:grid-cols-3 xl:gap-6">
           <Figure label={`Spent of ${money(totalLimit)}`} sub={`${monthPct}% of the month gone, ${spentPct}% of budget used`}>
             <span className={figure}>{money(totalSpent)}</span>
           </Figure>
@@ -61,7 +64,7 @@ export function BudgetHero({
             sub={forecastOver ? `${money(overall.forecastOverBy)} over your budgets` : `${money(totalLimit - overall.forecast)} under your budgets`}
             subClass={forecastOver ? 'text-danger' : 'text-muted'}
           >
-            <span className={`font-display text-[28px] font-extrabold tracking-tight ${forecastOver ? 'text-danger' : 'text-ink'}`}>
+            <span className={`font-display ${figureSize} font-extrabold tracking-tight ${forecastOver ? 'text-danger' : 'text-ink'}`}>
               {money(overall.forecast)}
             </span>
           </Figure>

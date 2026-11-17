@@ -1,140 +1,192 @@
-import { useQuery } from '@tanstack/react-query';
-import { Tag, Store } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
+import { Tag, Store, Users, IndianRupee, ListChecks, Receipt } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { RequirePermission } from '../components/ProtectedRoute';
 import { DataTable, type DataTableColumn } from '../components/DataTable';
+import { StatCard, type StatDelta } from '../components/StatCard';
 import { adminPlatformAnalyticsApi } from '../api/endpoints';
-import type { PlatformCategorySpendDto, PlatformMerchantSpendDto } from '../types';
-import { SPENDING_TRACKING_LABELS } from '../lib/activationLabels';
+import type { PlatformSpendRowDto, PlatformSpendSummaryDto } from '../types';
+import { changePercent, periodChoices, rupees, signed, spanLabel } from '../lib/platformPeriod';
 
-
-/** Each answer's share of everyone who has answered, to one decimal place; a dash before anyone has. */
-function shareOf(count: number, answered: number) {
-  return answered === 0 ? '—' : `${((count / answered) * 100).toFixed(1)}%`;
+/** Share of spend still to sort, whole percent; null when the money figures are withheld. */
+function toSortShare(s: PlatformSpendSummaryDto | null | undefined): number | null {
+  if (!s || s.totalSpend == null || s.toSortSpend == null || s.totalSpend <= 0) return null;
+  return Math.round((s.toSortSpend / s.totalSpend) * 100);
 }
 
-// Matches every other money formatter in both apps: the currency symbol before the digits but
-// after the sign, and 'en-IN' pinned explicitly. This used to omit the symbol entirely and pass
-// undefined as the locale, so an unlabelled spend figure sat beside an unlabelled transaction
-// count and grouped according to the visiting admin's own OS locale -- 12,34,567 for one admin
-// and 1,234,567 for another, looking at the same platform total.
-function formatCurrency(amount: number) {
-  return (amount < 0 ? '-₹' : '₹')
-    + Math.abs(amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function delta(change: number, unit: string, vs: string, upIsGood: boolean): StatDelta {
+  return {
+    direction: change > 0 ? 'up' : change < 0 ? 'down' : 'flat',
+    label: `${signed(change)}${unit} vs ${vs}`,
+    isGood: change > 0 ? upIsGood : !upIsGood,
+  };
+}
+
+function SpendTable({ title, nameHeader, icon: Icon, rows, loading, error, vs, emptyMessage }: {
+  title: string;
+  nameHeader: string;
+  icon: typeof Tag;
+  rows: PlatformSpendRowDto[] | undefined;
+  loading: boolean;
+  error: unknown;
+  vs: string | null;
+  emptyMessage: string;
+}) {
+  const columns: DataTableColumn<PlatformSpendRowDto>[] = [
+    {
+      header: nameHeader,
+      render: (r) => (
+        <div className="flex items-center gap-2.5">
+          <span className="w-7 h-7 rounded-lg bg-bg border border-border flex items-center justify-center flex-shrink-0">
+            <Icon size={13} className="text-muted" />
+          </span>
+          <span className="font-medium text-ink">{r.name}</span>
+        </div>
+      ),
+    },
+    { header: 'Customers', render: (r) => r.customers, cellClassName: 'text-ink' },
+    { header: 'Spend', render: (r) => rupees(r.totalSpend), cellClassName: 'text-muted' },
+    { header: 'Per customer', render: (r) => rupees(r.medianSpendPerCustomer), cellClassName: 'text-muted' },
+    { header: 'Transactions', render: (r) => r.transactionCount, cellClassName: 'text-muted' },
+  ];
+  if (vs) {
+    columns.push({
+      header: `Spend vs ${vs}`,
+      render: (r) => {
+        const change = changePercent(r.totalSpend, r.previousTotalSpend);
+        return change == null
+          ? <span title="Fewer than 3 customers spent here then, or none">—</span>
+          : `${signed(change)}%`;
+      },
+      cellClassName: 'text-muted',
+    });
+  }
+  return (
+    <section>
+      <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-3">
+        {title} <span className="normal-case font-normal">· by number of customers</span>
+      </h2>
+      <DataTable columns={columns} rows={rows} keyFor={(r) => r.name} loading={loading} error={error} emptyMessage={emptyMessage} />
+    </section>
+  );
 }
 
 /**
- * Platform-wide spend analytics -- top categories and top merchants by EXPENSE spend, summed
- * across every user's own private rows that share the same name (see
- * AdminPlatformAnalyticsService's class comment for why that name-based grouping is the right
- * answer here, not id-level grouping). AnalyticsController's self-service equivalents are always
- * scoped to CurrentUser, by design -- this has no per-user counterpart to link out to.
+ * Platform-wide spend for one period: who spends, on what, and how much is still to sort. Rows are
+ * ranked by how many customers spent under a name, and a name fewer than 3 customers spent under
+ * is not listed, so one customer's spending can't be read off the page (see
+ * AdminPlatformAnalyticsService). AnalyticsController's self-service equivalents are scoped to
+ * CurrentUser, by design -- this has no per-user counterpart to link out to.
  */
 function PlatformAnalyticsContent() {
-  const { data, isLoading, error: loadError } = useQuery({
-    queryKey: ['admin-platform-analytics'],
-    queryFn: () => adminPlatformAnalyticsApi.get(),
-  });
-  const tracking = useQuery({
-    queryKey: ['admin-spending-tracking'],
-    queryFn: () => adminPlatformAnalyticsApi.spendingTracking(),
-  });
-  const answered = tracking.data?.answered ?? 0;
-  const trackingColumns: DataTableColumn<{ method: string; count: number }>[] = [
-    {
-      header: 'Answer',
-      render: (m) => <span className="font-medium text-ink">{SPENDING_TRACKING_LABELS[m.method] ?? m.method}</span>,
-    },
-    { header: 'Users', render: (m) => m.count, cellClassName: 'text-muted' },
-    { header: 'Share of answers', render: (m) => shareOf(m.count, answered), cellClassName: 'text-muted' },
-  ];
+  const choices = useMemo(() => periodChoices(new Date()), []);
+  const [key, setKey] = useState(choices[0].key);
+  const choice = choices.find((c) => c.key === key) ?? choices[0];
 
-  const categoryColumns: DataTableColumn<PlatformCategorySpendDto>[] = [
-    {
-      header: 'Category',
-      render: (c) => (
-        <div className="flex items-center gap-2.5">
-          <span className="w-7 h-7 rounded-lg bg-bg border border-border flex items-center justify-center flex-shrink-0">
-            <Tag size={13} className="text-muted" />
-          </span>
-          <span className="font-medium text-ink">{c.categoryName}</span>
-        </div>
-      ),
-    },
-    { header: 'Total spend', render: (c) => formatCurrency(c.totalSpend), cellClassName: 'text-muted' },
-    { header: 'Transactions', render: (c) => c.transactionCount, cellClassName: 'text-muted' },
-  ];
+  const { data, isLoading, isFetching, error } = useQuery({
+    queryKey: ['admin-platform-analytics', choice.key],
+    queryFn: () => adminPlatformAnalyticsApi.get(choice.period),
+    placeholderData: keepPreviousData,
+  });
 
-  const merchantColumns: DataTableColumn<PlatformMerchantSpendDto>[] = [
-    {
-      header: 'Merchant',
-      render: (m) => (
-        <div className="flex items-center gap-2.5">
-          <span className="w-7 h-7 rounded-lg bg-bg border border-border flex items-center justify-center flex-shrink-0">
-            <Store size={13} className="text-muted" />
-          </span>
-          <span className="font-medium text-ink">{m.merchantName}</span>
-        </div>
-      ),
-    },
-    { header: 'Total spend', render: (m) => formatCurrency(m.totalSpend), cellClassName: 'text-muted' },
-    { header: 'Transactions', render: (m) => m.transactionCount, cellClassName: 'text-muted' },
-  ];
+  const vs = data?.previousFrom && data.previousTo ? spanLabel(data.previousFrom, data.previousTo) : null;
+  const summary = data?.summary;
+  const previous = data?.previousSummary;
+  const withheld = summary != null && summary.totalSpend == null;
+  const share = toSortShare(summary);
+  const previousShare = toSortShare(previous);
+  const minCustomers = data?.minCustomers ?? 3;
+  const loadingValue = '…';
 
   return (
     <div className="space-y-8">
-      <p className="text-sm text-muted max-w-xl">
-        Top 10 categories and merchants by EXPENSE spend, platform-wide -- excludes duplicates,
-        internal transfers, and refunded income, the same exclusion rules the self-service
-        Analytics views already apply per account.
-      </p>
-
-      <div>
-        <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-1">How users tracked spending before Fynora</h2>
-        <p className="text-sm text-muted mb-3">
-          Answers to the required setup question, across live user accounts.
-          {tracking.data && ` ${tracking.data.answered} answered, ${tracking.data.notAnswered} not yet asked or not yet answered.`}
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="text-xs text-muted flex flex-col gap-1">
+          Period
+          <select
+            value={choice.key}
+            onChange={(e) => setKey(e.target.value)}
+            className="border border-border rounded-lg px-2 py-1 text-sm text-ink bg-card"
+          >
+            {choices.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+          </select>
+        </label>
+        <p className="text-sm text-muted pb-1">
+          {vs ? `Compared with ${vs}.` : choice.period ? '' : 'All time has nothing to compare with.'}
+          {isFetching && !isLoading ? ' Updating…' : ''}
         </p>
-        <DataTable
-          columns={trackingColumns}
-          rows={tracking.data?.methods}
-          keyFor={(m) => m.method}
-          loading={tracking.isLoading}
-          error={tracking.error}
-          emptyMessage="No answers yet."
-        />
       </div>
 
-      <div>
-        <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-3">Top categories</h2>
-        <DataTable
-          columns={categoryColumns}
-          rows={data?.topCategories}
-          keyFor={(c) => c.categoryName}
-          loading={isLoading}
-          error={loadError}
-          emptyMessage="No categorized spend recorded on the platform yet."
-        />
+      <div className="space-y-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard
+            icon={Users}
+            label="Customers with spend"
+            value={isLoading ? loadingValue : summary?.customersWithSpend ?? '—'}
+            delta={summary && previous && vs
+              ? delta(summary.customersWithSpend - previous.customersWithSpend, '', vs, true) : undefined}
+          />
+          <StatCard
+            icon={IndianRupee}
+            label="Spend per customer"
+            value={isLoading ? loadingValue : summary?.medianSpendPerCustomer != null ? rupees(summary.medianSpendPerCustomer) : '—'}
+          />
+          <StatCard
+            icon={ListChecks}
+            label="Spend still to sort"
+            value={isLoading ? loadingValue : share != null ? `${share}%` : '—'}
+            delta={share != null && previousShare != null && vs ? delta(share - previousShare, ' pts', vs, false) : undefined}
+          />
+          <StatCard
+            icon={Receipt}
+            label="Expense transactions"
+            value={isLoading ? loadingValue : summary ? summary.transactionCount.toLocaleString('en-IN') : '—'}
+          />
+        </div>
+        <p className="text-sm text-muted max-w-3xl">
+          Spend per customer is the middle customer&apos;s total for the period. Still to sort is the share of
+          spend with no category or flagged for review, the same flag customers see as &quot;needs review&quot;.
+          Expenses only: duplicates, linked transfers, refunds and staff accounts are left out.
+          {withheld && ` Money figures are hidden because fewer than ${minCustomers} customers spent in this period.`}
+        </p>
       </div>
 
-      <div>
-        <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-3">Top merchants</h2>
-        <DataTable
-          columns={merchantColumns}
-          rows={data?.topMerchants}
-          keyFor={(m) => m.merchantName}
-          loading={isLoading}
-          error={loadError}
-          emptyMessage="No merchant spend recorded on the platform yet."
-        />
-      </div>
+      <SpendTable
+        title="Top categories"
+        nameHeader="Category"
+        icon={Tag}
+        rows={data?.topCategories}
+        loading={isLoading}
+        error={error}
+        vs={vs}
+        emptyMessage={`No category had spend from ${minCustomers} or more customers in this period.`}
+      />
+
+      <SpendTable
+        title="Top merchants"
+        nameHeader="Merchant"
+        icon={Store}
+        rows={data?.topMerchants}
+        loading={isLoading}
+        error={error}
+        vs={vs}
+        emptyMessage={`No merchant had spend from ${minCustomers} or more customers in this period.`}
+      />
+
+      <p className="text-xs text-muted">
+        A category or merchant fewer than {minCustomers} customers spent under is not listed, so no one customer&apos;s
+        spending can be read off this page. How users tracked spending before Fynora is now on{' '}
+        <Link to="/analytics/activation" className="underline hover:text-ink">Activation</Link>.
+      </p>
     </div>
   );
 }
 
 export default function PlatformAnalytics() {
   return (
-    <AdminLayout title="Platform Analytics" subtitle="Platform-wide spend analytics, aggregated across every user">
+    <AdminLayout title="Platform Analytics" subtitle="What customers spend on, by period">
       <RequirePermission permission="PLATFORM_ANALYTICS_VIEW">
         <PlatformAnalyticsContent />
       </RequirePermission>

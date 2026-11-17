@@ -25,10 +25,10 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Platform-wide spend analytics (AdminPlatformAnalyticsService) -- proves
- *  PLATFORM_ANALYTICS_VIEW gating (V30's new permission) and that two different users' own
- *  private categories sharing the same name get combined into one platform-wide total (the
- *  exact scenario the name-based re-grouping exists for -- see the service's class comment). */
+/** Platform-wide spend analytics (AdminPlatformAnalyticsService) -- proves PLATFORM_ANALYTICS_VIEW
+ *  gating (V30's new permission) and runs the real per-period SQL: different customers' own private
+ *  categories sharing a name are combined into one row (the scenario the name-based re-grouping
+ *  exists for -- see the service's class comment), with its customers, median and comparison. */
 class AdminPlatformAnalyticsControllerIT extends AbstractIntegrationTest {
 
     @Autowired private TestRestTemplate restTemplate;
@@ -71,15 +71,36 @@ class AdminPlatformAnalyticsControllerIT extends AbstractIntegrationTest {
         return accountRepository.save(a);
     }
 
-    private void expenseFor(User user, Account account, UUID categoryId, BigDecimal amount) {
+    private Transaction expense(User user, Account account, UUID categoryId, LocalDate date, String amount) {
         Transaction t = new Transaction();
         t.setUserId(user.getId());
         t.setAccountId(account.getId());
         t.setCategoryId(categoryId);
-        t.setTxnDate(LocalDate.now());
-        t.setAmount(amount);
+        t.setTxnDate(date);
+        t.setAmount(new BigDecimal(amount));
         t.setTxnType(Transaction.Type.EXPENSE);
-        transactionRepository.save(t);
+        return t;
+    }
+
+    private Category categoryFor(User user, String name) {
+        Category category = new Category();
+        category.setUserId(user.getId());
+        category.setName(name);
+        return categoryRepository.save(category);
+    }
+
+    private JsonNode get(User admin, String query) throws Exception {
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/admin/analytics/platform" + query, HttpMethod.GET, new HttpEntity<>(bearerFor(admin)), String.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        return mapper.readTree(response.getBody()).get("data");
+    }
+
+    private static JsonNode rowNamed(JsonNode rows, String name) {
+        for (JsonNode candidate : rows) {
+            if (candidate.get("name").asText().equals(name)) return candidate;
+        }
+        return null;
     }
 
     @Test
@@ -91,47 +112,93 @@ class AdminPlatformAnalyticsControllerIT extends AbstractIntegrationTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
     }
 
+    /**
+     * Runs the real SQL for one month. March 1990 is used so that no other IT class's rows (the
+     * suite shares one database, and they date theirs today) can land in the period and push this
+     * test's row out of the top 10. Covers: same-name private categories combined; customers and
+     * median per customer; a staff account, a duplicate and a transfer left out; a row from another
+     * month left out; the unsorted share (no category, or flagged for review); and the comparison
+     * with February.
+     */
     @Test
-    void topCategories_combinesTwoDifferentUsersCategoriesThatShareAName() throws Exception {
+    void oneMonthCombinesCustomersAndComparesWithTheMonthBefore() throws Exception {
         User admin = createUser("ADMIN");
-        User userOne = createUser("USER");
-        User userTwo = createUser("USER");
-        String uniqueName = "Test Category " + UUID.randomUUID();
+        String name = "Test Category " + UUID.randomUUID();
+        LocalDate march = LocalDate.of(1990, 3, 15);
+        LocalDate february = LocalDate.of(1990, 2, 10);
 
-        Category categoryOne = new Category();
-        categoryOne.setUserId(userOne.getId());
-        categoryOne.setName(uniqueName);
-        categoryRepository.save(categoryOne);
+        User one = createUser("USER");
+        User two = createUser("USER");
+        User three = createUser("USER");
+        Account accountOne = accountFor(one);
+        Account accountTwo = accountFor(two);
+        Account accountThree = accountFor(three);
+        Category catOne = categoryFor(one, name);
+        Category catTwo = categoryFor(two, name);
+        Category catThree = categoryFor(three, name);
 
-        Category categoryTwo = new Category();
-        categoryTwo.setUserId(userTwo.getId());
-        categoryTwo.setName(uniqueName);
-        categoryRepository.save(categoryTwo);
+        Transaction first = transactionRepository.save(expense(one, accountOne, catOne.getId(), march, "100.00"));
+        transactionRepository.save(expense(one, accountOne, catOne.getId(), march, "20.00"));
+        transactionRepository.save(expense(two, accountTwo, catTwo.getId(), march, "50.00"));
+        Transaction flagged = expense(three, accountThree, catThree.getId(), march, "30.00");
+        flagged.setNeedsCategoryReview(true);
+        transactionRepository.save(flagged);
+        transactionRepository.save(expense(three, accountThree, null, march, "5.00"));
 
-        // Bug fix: unlike AdminMerchantStatsControllerIT's platformMerchantCounts() (an unbounded
-        // list), topCategories() is capped to the top 10 by spend (TOP_LIMIT, mirroring
-        // AnalyticsService's own convention) -- against the same shared Postgres container every
-        // other IT class in this suite also writes to, a small test amount (30 + 70) risked
-        // getting pushed out of the top 10 by other tests' data, making this test flaky rather
-        // than reliably red/green. Large, easily-dominant amounts make that practically
-        // impossible while keeping the combined total (100,000,000.00) simple to assert on.
-        expenseFor(userOne, accountFor(userOne), categoryOne.getId(), new BigDecimal("30000000.00"));
-        expenseFor(userTwo, accountFor(userTwo), categoryTwo.getId(), new BigDecimal("70000000.00"));
+        // Left out: a duplicate, a linked transfer, another month, and a staff account's own spend.
+        Transaction duplicate = expense(two, accountTwo, catTwo.getId(), march, "9999.00");
+        duplicate.setIsDuplicateOf(first.getId());
+        transactionRepository.save(duplicate);
+        Transaction transfer = expense(two, accountTwo, catTwo.getId(), march, "8888.00");
+        transfer.setTransfer(true);
+        transactionRepository.save(transfer);
+        transactionRepository.save(expense(one, accountOne, catOne.getId(), LocalDate.of(1990, 4, 1), "7777.00"));
+        User staff = createUser("ADMIN");
+        transactionRepository.save(expense(staff, accountFor(staff), categoryFor(staff, name).getId(), march, "6666.00"));
 
-        ResponseEntity<String> response = restTemplate.exchange(
-                "/api/v1/admin/analytics/platform", HttpMethod.GET, new HttpEntity<>(bearerFor(admin)), String.class);
+        // February: the same three customers, so the comparison is shown.
+        transactionRepository.save(expense(one, accountOne, catOne.getId(), february, "10.00"));
+        transactionRepository.save(expense(two, accountTwo, catTwo.getId(), february, "10.00"));
+        transactionRepository.save(expense(three, accountThree, catThree.getId(), february, "10.00"));
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        JsonNode data = mapper.readTree(response.getBody()).get("data");
-        JsonNode row = null;
-        for (JsonNode candidate : data.get("topCategories")) {
-            if (candidate.get("categoryName").asText().equals(uniqueName)) {
-                row = candidate;
-                break;
-            }
+        JsonNode data = get(admin, "?from=1990-03&months=1");
+
+        assertThat(data.get("from").asText()).isEqualTo("1990-03-01");
+        assertThat(data.get("to").asText()).isEqualTo("1990-03-31");
+        assertThat(data.get("previousFrom").asText()).isEqualTo("1990-02-01");
+        assertThat(data.get("previousTo").asText()).isEqualTo("1990-02-28");
+        JsonNode row = rowNamed(data.get("topCategories"), name);
+        assertThat(row).as("platform category row for " + name).isNotNull();
+        assertThat(row.get("customers").asLong()).isEqualTo(3);
+        assertThat(row.get("totalSpend").decimalValue()).isEqualByComparingTo("200.00");
+        assertThat(row.get("transactionCount").asLong()).isEqualTo(4);
+        // Customer totals 120, 50, 30 -> middle is 50.
+        assertThat(row.get("medianSpendPerCustomer").decimalValue()).isEqualByComparingTo("50.00");
+        assertThat(row.get("previousTotalSpend").decimalValue()).isEqualByComparingTo("30.00");
+
+        JsonNode summary = data.get("summary");
+        assertThat(summary.get("customersWithSpend").asLong()).isEqualTo(3);
+        assertThat(summary.get("totalSpend").decimalValue()).isEqualByComparingTo("205.00");
+        assertThat(summary.get("toSortSpend").decimalValue()).isEqualByComparingTo("35.00");
+        assertThat(data.get("previousSummary").get("customersWithSpend").asLong()).isEqualTo(3);
+    }
+
+    @Test
+    void allTimeHasNoPeriodAndNoComparison() throws Exception {
+        JsonNode data = get(createUser("ADMIN"), "");
+
+        assertThat(data.get("from").isNull()).isTrue();
+        assertThat(data.get("previousSummary").isNull()).isTrue();
+        assertThat(data.get("minCustomers").asInt()).isEqualTo(3);
+    }
+
+    @Test
+    void aBadMonthOrMonthsIsABadRequest() {
+        User admin = createUser("ADMIN");
+        for (String query : new String[]{"?from=1990-03&months=0", "?from=1990-03&months=13", "?from=1990-13", "?from=March"}) {
+            ResponseEntity<String> response = restTemplate.exchange(
+                    "/api/v1/admin/analytics/platform" + query, HttpMethod.GET, new HttpEntity<>(bearerFor(admin)), String.class);
+            assertThat(response.getStatusCode()).as(query).isEqualTo(HttpStatus.BAD_REQUEST);
         }
-        assertThat(row).as("platform category row for " + uniqueName).isNotNull();
-        assertThat(row.get("totalSpend").asDouble()).isEqualTo(100000000.00);
-        assertThat(row.get("transactionCount").asLong()).isEqualTo(2L);
     }
 }

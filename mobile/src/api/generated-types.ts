@@ -15064,18 +15064,37 @@ export interface components {
             };
         };
         PlatformAnalyticsDto: {
-            topCategories?: components["schemas"]["PlatformCategorySpendDto"][];
-            topMerchants?: components["schemas"]["PlatformMerchantSpendDto"][];
+            /** Format: date */
+            from?: string;
+            /** Format: date */
+            to?: string;
+            /** Format: date */
+            previousFrom?: string;
+            /** Format: date */
+            previousTo?: string;
+            /** Format: int32 */
+            minCustomers?: number;
+            summary?: components["schemas"]["PlatformSpendSummaryDto"];
+            previousSummary?: components["schemas"]["PlatformSpendSummaryDto"];
+            topCategories?: components["schemas"]["PlatformSpendRowDto"][];
+            topMerchants?: components["schemas"]["PlatformSpendRowDto"][];
         };
-        PlatformCategorySpendDto: {
-            categoryName?: string;
+        PlatformSpendRowDto: {
+            name?: string;
+            /** Format: int64 */
+            customers?: number;
             totalSpend?: number;
+            medianSpendPerCustomer?: number;
             /** Format: int64 */
             transactionCount?: number;
+            previousTotalSpend?: number;
         };
-        PlatformMerchantSpendDto: {
-            merchantName?: string;
+        PlatformSpendSummaryDto: {
+            /** Format: int64 */
+            customersWithSpend?: number;
             totalSpend?: number;
+            medianSpendPerCustomer?: number;
+            toSortSpend?: number;
             /** Format: int64 */
             transactionCount?: number;
         };
@@ -25977,7 +25996,10 @@ export interface operations {
     };
     analytics: {
         parameters: {
-            query?: never;
+            query?: {
+                from?: string;
+                months?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;

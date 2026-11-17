@@ -3,6 +3,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { Info } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { RequirePermission } from '../components/ProtectedRoute';
+import { SpendingTrackingAnswers } from '../components/SpendingTrackingAnswers';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import {
   adminActivationApi, type ActivationLandingPathRow, type ActivationMomentName, type ActivationReached,
@@ -864,6 +865,8 @@ function ActivationContent() {
           <Section title="Answers, focus and tracking by step">
             <ByStep report={data} />
           </Section>
+
+          <SpendingTrackingAnswers />
 
           <Section title="Deletion reasons by month">
             <DeletionReasons reasons={data.deletionReasons} />

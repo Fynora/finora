@@ -1277,6 +1277,14 @@ public class ImportService {
             FreeLatestMonth.Figures figures = FreeLatestMonth.figures(stagedRows, month);
             request = request.withMonthFigures(figures.openingBalance(), figures.closingBalance(), month.from(),
                     month.to());
+            // The other months' rows are not part of this import at all -- every one of them was
+            // checked above (requireSameRows) and is unticked (requireLatestMonthOnly). Kept, they
+            // would be recorded as rows the customer left out of an October statement (provenance),
+            // and they would count as skipped, so ClosingBalanceGuard could never corroborate the
+            // month's own verified figures -- which then let OpeningBalanceCarryForward replace the
+            // month's opening with an earlier statement's closing (e.g. August's, September never
+            // imported). Only rows the customer unticked within the month remain "left out".
+            request = request.withRows(request.rows().stream().filter(r -> month.contains(r.date())).toList());
         } else {
             requireStatementWithinFreeLimit(userId, session.getId(), detectedAccount, stagedRows, false);
         }

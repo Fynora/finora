@@ -61,6 +61,7 @@ class LatestMonthImportIT extends AbstractIntegrationTest {
     @Autowired private ImportSessionService importSessionService;
     @Autowired private StatementImportRepository statementImports;
     @Autowired private StatementAnalysisSessionRepository analyses;
+    @Autowired private com.finora.repository.StatementImportExcludedRowRepository excludedRows;
     private final ObjectMapper mapper = new ObjectMapper();
 
     /** 20 Aug to 10 Nov, opening 10,000.00: October (2 Oct, 18 Oct) is the last full month. */
@@ -178,6 +179,86 @@ class LatestMonthImportIT extends AbstractIntegrationTest {
         assertThat(stored.getClosingBalance()).isEqualByComparingTo("11200.00");
         assertThat(stored.getStatementPeriodStart()).isEqualTo(LocalDate.of(2026, 10, 1));
         assertThat(stored.getStatementPeriodEnd()).isEqualTo(LocalDate.of(2026, 10, 31));
+    }
+
+    @Test
+    void theOtherMonthsAreNotRecordedAsRowsTheCustomerLeftOut_butAnOctoberRowTheyUntickedIs() throws Exception {
+        User user = customer("FREE");
+        UUID sessionId = UUID.fromString(stage(user, AUG_TO_NOV).get("sessionId").asText());
+
+        ResponseEntity<String> response = confirm(user, sessionId, Set.of(LocalDate.of(2026, 10, 18)), true);
+
+        assertThat(response.getStatusCode()).as(response.getBody()).isEqualTo(HttpStatus.OK);
+        JsonNode data = mapper.readTree(response.getBody()).get("data");
+        assertThat(data.get("imported").asInt()).isEqualTo(1);
+        assertThat(data.get("skipped").asInt()).as("only the October row the customer unticked").isEqualTo(1);
+        assertThat(excludedRows.findByStatementImportIdOrderByRowPositionAsc(
+                UUID.fromString(data.get("statementImportId").asText())))
+                .extracting(r -> r.getTxnDate()).containsExactly(LocalDate.of(2026, 10, 2));
+    }
+
+    /** One earlier statement for August only, closing at 9,900.00, into an account. */
+    private static final String AUGUST_ONLY = """
+            Date,Narration,Withdrawal Amt.,Deposit Amt.,Closing Balance
+            14/08/2026,UPI-ZORBIC TEAHOUSE-0000000006,0.00,,10000.00
+            20/08/2026,UPI-ZORBIC TEAHOUSE-0000000001,100.00,,9900.00
+            """;
+
+    @Test
+    void anEarlierStatementOnTheAccount_doesNotReplaceTheMonthsOwnOpeningBalance() throws Exception {
+        // August imported earlier, September never: August's closing (9,900.00) is not October's
+        // opening (10,400.00), and the month's own, verified figure must stand.
+        User user = customer("FREE");
+        UUID august = UUID.fromString(stage(user, AUGUST_ONLY).get("sessionId").asText());
+        // With the statement's own opening, closing and period stated, so August is on file as an
+        // earlier statement with a closing balance -- what OpeningBalanceCarryForward looks up.
+        ImportSession augustSession = sessions.findById(august).orElseThrow();
+        List<ConfirmedRow> augustRows = importSessionService.readStagedRows(augustSession).stream().map(row ->
+                new ConfirmedRow(row.date(), row.description(), row.amount(), row.type(), "Other", true,
+                        row.categorySource(), row.ruleId(), row.likelyDuplicate(), row.referenceNumber(),
+                        row.balanceAfter(), false)).toList();
+        HttpHeaders json = bearer(user);
+        json.setContentType(MediaType.APPLICATION_JSON);
+        ResponseEntity<String> first = restTemplate.exchange("/api/v1/import/csv/confirm", HttpMethod.POST,
+                new HttpEntity<>(new ConfirmRequest(august, augustRows, null,
+                        new NewAccountRequest("Latest month IT account", "SAVINGS", new java.math.BigDecimal("10000.00"),
+                                null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                                null, null),
+                        new java.math.BigDecimal("10000.00"), new java.math.BigDecimal("9900.00"), null,
+                        LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31), null, null, null, null), json), String.class);
+        assertThat(first.getStatusCode()).as(first.getBody()).isEqualTo(HttpStatus.OK);
+        assertThat(mapper.readTree(first.getBody()).get("data").get("statementClosingBalance").decimalValue())
+                .as("August on file with its closing").isEqualByComparingTo("9900.00");
+        UUID accountId = UUID.fromString(mapper.readTree(first.getBody()).get("data").get("account").get("id").asText());
+
+        UUID sessionId = UUID.fromString(stage(user, AUG_TO_NOV).get("sessionId").asText());
+        ResponseEntity<String> response = confirmInto(user, sessionId, OCTOBER, accountId);
+
+        assertThat(response.getStatusCode()).as(response.getBody()).isEqualTo(HttpStatus.OK);
+        JsonNode data = mapper.readTree(response.getBody()).get("data");
+        assertThat(data.get("statementOpeningBalance").decimalValue()).isEqualByComparingTo("10400.00");
+        assertThat(data.get("statementClosingBalance").decimalValue()).isEqualByComparingTo("11200.00");
+        // October's own figures corroborate, so its closing is the account's balance: what the
+        // statement says the account held at the end of October.
+        assertThat(data.get("account").get("balance").decimalValue()).isEqualByComparingTo("11200.00");
+    }
+
+    /** As {@link #confirm}, into an existing account, asking for the latest month only. */
+    private ResponseEntity<String> confirmInto(User user, UUID sessionId, Set<LocalDate> keep, UUID accountId) {
+        ImportSession session = sessions.findById(sessionId).orElseThrow();
+        DetectedAccountInfo detected = importSessionService.readDetectedAccount(session);
+        List<ConfirmedRow> rows = importSessionService.readStagedRows(session).stream().map(row ->
+                new ConfirmedRow(row.date(), row.description(), row.amount(), row.type(), "Other",
+                        keep.contains(row.date()), row.categorySource(), row.ruleId(), row.likelyDuplicate(),
+                        row.referenceNumber(), row.balanceAfter(), false)).toList();
+        ConfirmRequest request = new ConfirmRequest(sessionId, rows, accountId, null,
+                detected == null ? null : detected.openingBalance(), detected == null ? null : detected.closingBalance(),
+                null, detected == null ? null : detected.statementPeriodStart(),
+                detected == null ? null : detected.statementPeriodEnd(), null, null, null, null);
+        HttpHeaders headers = bearer(user);
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        return restTemplate.exchange("/api/v1/import/csv/confirm?latestMonthOnly=true",
+                HttpMethod.POST, new HttpEntity<>(request, headers), String.class);
     }
 
     @Test

@@ -621,7 +621,6 @@ export default function Import() {
       setPreviousImport(session.previousImport ?? null);
       setFreePlanLimit(session.freePlanLimit ?? null);
       setLimitOverridden(false);
-    setLatestMonthOnly(false);
       setLatestMonthOnly(false);
       hydrateReviewFrom(session.staging);
       setJobId(null);
@@ -666,7 +665,6 @@ export default function Import() {
       setPreviousImport(session.previousImport ?? null);
       setFreePlanLimit(session.freePlanLimit ?? null);
       setLimitOverridden(false);
-    setLatestMonthOnly(false);
       setLatestMonthOnly(false);
       hydrateReviewFrom(session.staging, accountsForMatch);
       setStep('review');
@@ -820,7 +818,6 @@ export default function Import() {
       setPreviousImport(res.previousImport ?? null);
       setFreePlanLimit(res.freePlanLimit ?? null);
       setLimitOverridden(false);
-    setLatestMonthOnly(false);
       setLatestMonthOnly(false);
       setFileFormat(isPdf ? 'PDF' : 'CSV');
       // The document opened, so the password (if any) has done its whole job -- neither it nor the

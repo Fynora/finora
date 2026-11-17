@@ -769,7 +769,6 @@ export function ImportScreen() {
       setFreePlanLimit(res.freePlanLimit ?? null);
       setLimitOverridden(false);
       setLatestMonthOnly(false);
-    setLatestMonthOnly(false);
       hydrateReviewFrom(res.staging);
       setStep('review');
     } catch (e) {
@@ -855,7 +854,6 @@ export function ImportScreen() {
       setFreePlanLimit(res.freePlanLimit ?? null);
       setLimitOverridden(false);
       setLatestMonthOnly(false);
-    setLatestMonthOnly(false);
       hydrateReviewFrom(res.staging);
       setJobId(null);
       setStep('review');
@@ -976,7 +974,6 @@ export function ImportScreen() {
       setFreePlanLimit(res.freePlanLimit ?? null);
       setLimitOverridden(false);
       setLatestMonthOnly(false);
-    setLatestMonthOnly(false);
       // The document opened, so the password has done its whole job -- drop it and the file.
       setPendingPdf(null);
       setPdfPassword('');
@@ -1268,7 +1265,11 @@ export function ImportScreen() {
       .getSession(id)
       .then((res) => {
         // A different statement may have been opened while this was in flight.
-        if (latestSessionId.current === id) setFreePlanLimit(res.freePlanLimit ?? null);
+        if (latestSessionId.current !== id) return;
+        setFreePlanLimit(res.freePlanLimit ?? null);
+        // Upgraded with "only the latest month" chosen: the limit is gone, so is its notice -- put
+        // back what was ticked rather than quietly importing one month with nothing saying so.
+        if (latestMonthOnly && !res.freePlanLimit?.latestMonthFrom) undoLatestMonthOnly();
       })
       .catch(() => {});
   };

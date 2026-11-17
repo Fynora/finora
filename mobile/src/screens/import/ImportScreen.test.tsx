@@ -1437,6 +1437,24 @@ describe('ImportScreen — Free plan one-month limit', () => {
       expect(importButtonDisabled()).toBe(true);
     });
 
+    it('after upgrading, returning to the tab puts every row back and imports them all', async () => {
+      api.import.stageCsv.mockReset().mockResolvedValue(stagingWithMonths(offer) as never);
+      api.import.getSession.mockReset().mockResolvedValue({
+        sessionId: 'session-1', staging: stagingWithMonths(null).staging, freePlanLimit: null,
+      } as never);
+      await reachReview();
+      fireEvent.press(screen.getByTestId('import-latest-month'));
+
+      await returnToTheTab();
+
+      expect(screen.queryByTestId('free-plan-limit-notice')).not.toBeOnTheScreen();
+      await act(async () => { fireEvent.press(screen.getByRole('button', { name: /^Import \d+ transaction/ })); });
+      await waitFor(() => expect(api.import.confirm).toHaveBeenCalled());
+      const [payload, opts] = api.import.confirm.mock.calls[0];
+      expect(opts).toBeUndefined();
+      expect(payload.rows.map((r: { include: boolean }) => r.include)).toEqual([true, true]);
+    });
+
     it('has no offer when the statement has no whole month', async () => {
       api.import.stageCsv.mockReset().mockResolvedValue(stagingWithMonths(freePlanLimit) as never);
       await reachReview();

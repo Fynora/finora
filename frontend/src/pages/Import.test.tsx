@@ -3019,6 +3019,33 @@ describe('Import — queued imports', () => {
     expect(importJobsApi.submit).not.toHaveBeenCalled();
   });
 
+  it('opens a queued statement covering two accounts in the section review', async () => {
+    vi.mocked(importJobsApi.progress).mockResolvedValue(queuedJob({
+      status: 'COMPLETED', rowsTotal: 2, rowsProcessed: 2, importSessionId: 'session-multi',
+    }));
+    vi.mocked(importApi.getSession).mockResolvedValue({
+      sessionId: 'session-multi',
+      multiAccount: true,
+      staging: null,
+      sections: [
+        { detectedAccount: { ...detectedAccount, suggestedName: 'Savings' }, totalParsed: 1, flaggedDuplicates: 0, unparseableRows: [],
+          rows: [{ ...ONE_STAGED_ROW, description: 'SAVINGS ROW' }] },
+        { detectedAccount: { ...detectedAccount, suggestedName: 'Card' }, totalParsed: 1, flaggedDuplicates: 0, unparseableRows: [],
+          rows: [{ ...ONE_STAGED_ROW, description: 'CARD ROW' }] },
+      ],
+    } as never);
+    const user = userEvent.setup();
+    renderImport();
+    await waitFor(() => expect(importJobsApi.availability).toHaveBeenCalled());
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+
+    expect(await screen.findByText('SAVINGS ROW', {}, { timeout: 4000 })).toBeInTheDocument();
+    expect(screen.getByText('CARD ROW')).toBeInTheDocument();
+    expect(screen.getByTestId('account-section-0')).toBeInTheDocument();
+    expect(screen.getByTestId('account-section-1')).toBeInTheDocument();
+  });
+
   it('approvedHoldSaysNothingSaved', async () => {
     vi.mocked(importJobsApi.progress).mockResolvedValue(queuedJob({
       status: 'COMPLETED', rowsTotal: 2, rowsProcessed: 2, importSessionId: 'session-9',
@@ -3357,6 +3384,32 @@ describe('Import — continuing an unfinished import', () => {
     // hasn't finished yet" passing for the wrong reason.
     await screen.findByTestId('statement-dropzone');
     expect(screen.queryByText('Continue previous import')).not.toBeInTheDocument();
+  });
+
+  it('asks for statements covering more than one account, and reopens one in the section review', async () => {
+    vi.mocked(importApi.listSessions).mockReset().mockResolvedValue([unfinishedSession({ fileName: 'composite.pdf' })]);
+    vi.mocked(importApi.getSession).mockReset().mockResolvedValue({
+      sessionId: 'sess-1',
+      multiAccount: true,
+      staging: null,
+      sections: [
+        { detectedAccount: { ...detectedAccount, suggestedName: 'Savings' }, totalParsed: 1, flaggedDuplicates: 0, unparseableRows: [],
+          rows: [{ ...ONE_STAGED_ROW, description: 'SAVINGS ROW' }] },
+        { detectedAccount: { ...detectedAccount, suggestedName: 'Card' }, totalParsed: 1, flaggedDuplicates: 0, unparseableRows: [],
+          rows: [{ ...ONE_STAGED_ROW, description: 'CARD ROW' }] },
+      ],
+    } as never);
+    const user = userEvent.setup();
+    renderImport();
+
+    await screen.findByText('composite.pdf');
+    await user.click(screen.getByRole('button', { name: /continue import/i }));
+
+    expect(await screen.findByText('SAVINGS ROW')).toBeInTheDocument();
+    expect(screen.getByText('CARD ROW')).toBeInTheDocument();
+    expect(screen.getByTestId('account-section-1')).toBeInTheDocument();
+    expect(screen.queryByText(/which account is this statement for/i)).not.toBeInTheDocument();
+    expect(importApi.stagePdf).not.toHaveBeenCalled();
   });
 
   it('resumes a session into the same review step the upload flow uses, with no re-upload', async () => {

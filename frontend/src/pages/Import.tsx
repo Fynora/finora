@@ -555,6 +555,24 @@ export default function Import() {
    * confirm payload came to differ between two paths (see lib/newAccountPayload.ts). One of these
    * per arrival route is one too many.
    */
+  /**
+   * A reopened session (from "Continue a previous import" or a finished queued upload) into the
+   * review: a statement covering more than one account into the section review, exactly as a
+   * fresh /pdf/stage of it opens; anything else into the single-account review, as before.
+   */
+  function openStagedReview(
+    session: { staging: StagingResult | null; multiAccount?: boolean; sections?: StagedAccountSection[] | null },
+    accountsForMatch: Account[] = existingAccounts,
+  ) {
+    if (session.multiAccount && session.sections) {
+      setFileFormat('PDF');
+      setMultiSections(session.sections.map((s) => initialSectionState(s, accountsForMatch)));
+      return;
+    }
+    setMultiSections(null);
+    hydrateReviewFrom(session.staging!, accountsForMatch);
+  }
+
   function hydrateReviewFrom(staging: StagingResult, accountsForMatch: Account[] = existingAccounts) {
     setRows(staging.rows);
     // A flagged row starts EXCLUDED but UNRESOLVED -- not silently unticked. The confirm button
@@ -620,7 +638,7 @@ export default function Import() {
       setPreviousImport(session.previousImport ?? null);
       setFreePlanLimit(session.freePlanLimit ?? null);
       setLimitOverridden(false);
-      hydrateReviewFrom(session.staging);
+      openStagedReview(session);
       setJobId(null);
       setStep('review');
     } catch (e: any) {
@@ -663,7 +681,7 @@ export default function Import() {
       setPreviousImport(session.previousImport ?? null);
       setFreePlanLimit(session.freePlanLimit ?? null);
       setLimitOverridden(false);
-      hydrateReviewFrom(session.staging, accountsForMatch);
+      openStagedReview(session, accountsForMatch);
       setStep('review');
     } catch (e: any) {
       // Bug fix, caught by review: isReviewable(job) on ImportDetail.tsx stays true forever once

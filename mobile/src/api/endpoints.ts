@@ -515,6 +515,8 @@ export interface ImportSessionSummary {
   rowCount: number;
   createdAt: string;
   expiresAt: string;
+  /** Covers more than one account: the phone lists it to finish on the web, which reviews it. */
+  multiAccount?: boolean;
 }
 
 export interface StagingResult {
@@ -677,7 +679,10 @@ export const importApi = {
     api.post<ImportSummary>('/import/csv/confirm', payload).then((r) => r.data),
   confirmMulti: (payload: MultiAccountConfirmPayload) =>
     api.post<{ perAccount: ImportSummary[] }>('/import/pdf/confirm-multi', payload).then((r) => r.data),
-  listSessions: () => api.get<ImportSessionSummary[]>('/import/sessions').then((r) => r.data),
+  // includeMultiAccount: a statement covering more than one account is listed too, so the customer
+  // sees it waiting to finish on the web rather than thinking it is lost.
+  listSessions: () =>
+    api.get<ImportSessionSummary[]>('/import/sessions', { params: { includeMultiAccount: true } }).then((r) => r.data),
   getSession: (id: string) =>
     api
       .get<{

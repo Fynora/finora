@@ -62,8 +62,9 @@ public class StatementAnalysisRecorder {
         this.objectMapper = objectMapper;
     }
 
-    /** A later fact about a staged statement (V326; CONFIRMED is V327). */
-    public enum StagedOutcome { FREE_LIMIT_SHOWN, FREE_LIMIT_REFUSED, CONFIRMED }
+    /** A later fact about a staged statement (V326; CONFIRMED is V327). Named for the first two, which
+     *  came first; kept so in-flight changes that use the name still compile. */
+    public enum UnconfirmedOutcome { FREE_LIMIT_SHOWN, FREE_LIMIT_REFUSED, CONFIRMED }
 
     /**
      * Stamps {@code outcome} on the read that staged {@code sessionId}, where it is still unset.
@@ -78,7 +79,7 @@ public class StatementAnalysisRecorder {
      * what this throws (a commit that fails surfaces at this method's boundary) and carry on.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void stamp(UUID sessionId, StagedOutcome outcome) {
+    public void stamp(UUID sessionId, UnconfirmedOutcome outcome) {
         if (sessionId == null) return;
         java.time.Instant now = java.time.Instant.now();
         switch (outcome) {

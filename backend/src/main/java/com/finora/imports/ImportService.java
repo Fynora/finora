@@ -660,7 +660,7 @@ public class ImportService {
         FreePlanLimitNotice notice = finding.notice();
         // V326: kept on the evidence row, because the refusal itself leaves no trace -- a 4xx is
         // deliberately not logged, and this transaction is about to roll back.
-        stampStagedOutcome(sessionId, StatementAnalysisRecorder.StagedOutcome.FREE_LIMIT_REFUSED);
+        stampUnconfirmedOutcome(sessionId, StatementAnalysisRecorder.UnconfirmedOutcome.FREE_LIMIT_REFUSED);
         throw new ApiException(ErrorCode.STATEMENT_PERIOD_TOO_LONG.defaultStatus(), ErrorCode.STATEMENT_PERIOD_TOO_LONG,
                 notice.message(),
                 Map.of("coveredFrom", notice.coveredFrom().toString(), "coveredTo", notice.coveredTo().toString(),
@@ -699,13 +699,13 @@ public class ImportService {
                                                    List<StagedAccountSection> sections) {
         FreePlanLimitNotice notice = freePlanLimitNotice(userId, staging, sections);
         if (notice != null) {
-            stampStagedOutcome(sessionId, StatementAnalysisRecorder.StagedOutcome.FREE_LIMIT_SHOWN);
+            stampUnconfirmedOutcome(sessionId, StatementAnalysisRecorder.UnconfirmedOutcome.FREE_LIMIT_SHOWN);
         }
         return notice;
     }
 
     /** A V326 stamp that can never fail the request it describes. */
-    private void stampStagedOutcome(UUID sessionId, StatementAnalysisRecorder.StagedOutcome outcome) {
+    private void stampUnconfirmedOutcome(UUID sessionId, StatementAnalysisRecorder.UnconfirmedOutcome outcome) {
         try {
             analysisRecorder.stamp(sessionId, outcome);
         } catch (RuntimeException e) {
@@ -1233,14 +1233,14 @@ public class ImportService {
      */
     private void stampConfirmedAfterCommit(UUID sessionId) {
         if (!org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
-            stampStagedOutcome(sessionId, StatementAnalysisRecorder.StagedOutcome.CONFIRMED);
+            stampUnconfirmedOutcome(sessionId, StatementAnalysisRecorder.UnconfirmedOutcome.CONFIRMED);
             return;
         }
         org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
                 new org.springframework.transaction.support.TransactionSynchronization() {
                     @Override
                     public void afterCommit() {
-                        stampStagedOutcome(sessionId, StatementAnalysisRecorder.StagedOutcome.CONFIRMED);
+                        stampUnconfirmedOutcome(sessionId, StatementAnalysisRecorder.UnconfirmedOutcome.CONFIRMED);
                     }
                 });
     }

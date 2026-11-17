@@ -98,8 +98,8 @@ function OutcomeRow({ week, label, recordedSince, total }: {
     <tr className={`border-b border-border last:border-0 ${total ? 'font-semibold text-ink' : ''} ${early ? 'text-muted' : ''}`}>
       <th scope="row" className="px-3 py-2 text-left font-medium whitespace-nowrap">
         {label}
-        {part === 'none' && <span className="block text-2xs font-normal">before recording began</span>}
-        {part === 'part' && <span className="block text-2xs font-normal text-muted">recording began this week</span>}
+        {part === 'none' && <span className="block text-xs font-normal">before recording began</span>}
+        {part === 'part' && <span className="block text-xs font-normal text-muted">recording began this week</span>}
       </th>
       <td className="px-3 py-2 text-right tabular-nums">{count(week.staged)}</td>
       {OUTCOME_COLUMNS.map(([key], i) => cell(key, i === 0))}

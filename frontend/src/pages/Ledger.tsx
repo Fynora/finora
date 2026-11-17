@@ -370,12 +370,6 @@ export default function Ledger() {
   const hasActiveFilters = !!(activeFilters.type || activeFilters.status || activeFilters.categoryId
     || activeFilters.international !== undefined
     || activeFilters.dateFrom || activeFilters.dateTo || activeFilters.keyword || activeFilters.payeeOf);
-  // Deliberately excludes categoryId, unlike hasActiveFilters above -- the KPI row's numbers
-  // (see statsFilters below) never factor in the category chip, so labelling them "filtered"
-  // when a chip is the ONLY active filter would be true of the label but false of the value.
-  const hasStatsFilters = !!(activeFilters.type || activeFilters.status
-    || activeFilters.international !== undefined
-    || activeFilters.dateFrom || activeFilters.dateTo || activeFilters.keyword || activeFilters.payeeOf);
 
   // Moving to the next page continues from the last row on screen rather than counting rows from
   // the top -- see lib/ledgerPaging for why and how. `filters.page` stays the page the user is on;
@@ -449,7 +443,9 @@ export default function Ledger() {
 
   // Powers the KPI row and the category chips below -- every OTHER active filter applies (search,
   // type, status, dates) but never `categoryId`, so a chip's own count always answers "how many
-  // rows would show if I clicked this," including for the currently-selected one. Capped at
+  // rows would show if I clicked this," including for the currently-selected one. The KPI cards
+  // narrow these rows to the selected category themselves (see the totals below), so they describe
+  // the rows the list shows. Capped at
   // STATS_PAGE_SIZE (see its own comment) rather than a dedicated aggregation endpoint, since none
   // exists on the backend today.
   const statsFilters: TransactionFilters = {
@@ -470,7 +466,6 @@ export default function Ledger() {
     queryFn: () => transactionsApi.search(statsFilters),
     placeholderData: keepPreviousData,
   });
-  const transactionCount = statsPage?.totalElements ?? 0;
 
   const { data: accounts } = useQuery({ queryKey: ['accounts'], queryFn: () => accountsApi.list() });
   const accountsById = useMemo(() => new Map((accounts ?? []).map((a) => [a.id, a])), [accounts]);
@@ -501,11 +496,14 @@ export default function Ledger() {
     for (const t of statsTxns) {
       const cur = totals.get(t.categoryId) ?? { id: t.categoryId, name: t.categoryName, count: 0, spend: 0 };
       cur.count += 1;
-      if (isSpending(t)) {
-        cur.spend += t.amount;
-        spend += t.amount;
-      }
+      if (isSpending(t)) cur.spend += t.amount;
       totals.set(t.categoryId, cur);
+
+      // Everything below is the KPI cards', and they describe the rows the list shows: with a
+      // category selected (a chip, or a link from Reports or Budgets), only that category's rows.
+      // The chips above keep counting every category.
+      if (filters.categoryId && t.categoryId !== filters.categoryId) continue;
+      if (isSpending(t)) spend += t.amount;
 
       // Real daily buckets from the same already-fetched window -- powers the KPI cards' small
       // trend sparklines below. Not a "vs last month" percentage (see the KPI row's own comment
@@ -525,7 +523,9 @@ export default function Ledger() {
       totals.set(filters.categoryId, { id: filters.categoryId, name: cat?.name ?? 'Selected category', count: 0, spend: 0 });
     }
     const chips = [...totals.values()].sort((a, b) => b.count - a.count);
-    const bySpend = [...totals.values()].sort((a, b) => b.spend - a.spend);
+    const bySpend = [...totals.values()]
+      .filter((c) => !filters.categoryId || c.id === filters.categoryId)
+      .sort((a, b) => b.spend - a.spend);
     const top = bySpend[0] ?? null;
     // Ascending by date (oldest -> newest, left -> right) over the last 14 distinct days actually
     // present in this window -- not a fixed calendar range, since the filtered window itself may
@@ -540,6 +540,17 @@ export default function Ledger() {
       dailyCount: orderedDates.map((d) => byDate.get(d)!.count),
     };
   }, [statsPage, filters.categoryId, categoriesById]);
+
+  // Transactions is the server's exact count. With no category selected that is the stats
+  // request's; with one, it is the list's own request (which carries the category), except while
+  // that request is still out and the list shows the previous answer -- then the selected chip's
+  // count over the stats rows stands in, rather than the previous list's total.
+  // The All chip keeps the every-category count, like the other chips.
+  const allCategoriesCount = statsPage?.totalElements ?? 0;
+  const selectedChipCount = filters.categoryId ? categoryChips.find((c) => c.id === filters.categoryId)?.count ?? 0 : 0;
+  const transactionCount = !filters.categoryId
+    ? allCategoriesCount
+    : page && !isPlaceholderData ? page.totalElements : selectedChipCount;
 
   // Deleting a transaction can shrink the total below the page currently being viewed (e.g. the
   // only row left on the last page) -- without this, that page would just render empty with no
@@ -622,14 +633,16 @@ export default function Ledger() {
       </div>
 
       {/* KPI row. Total Spent/Top Category are computed client-side over `statsFilters`'
-          bounded fetch (see its own comment); Transactions is the exact server-reported count for
-          the same window. This Month reuses the same budgetsApi aggregation Budgets.tsx already
+          bounded fetch (see its own comment), narrowed to the selected category if there is one;
+          Transactions is the exact server-reported count for the rows the list shows. This Month reuses the same budgetsApi aggregation Budgets.tsx already
           shows, since a budget is inherently a calendar-month concept independent of whatever
           date range is filtered here. Deliberately no "vs last month" deltas -- see PR description.
           Gated on BOTH queries' first-load state -- gating on statsLoading alone let This Month
           render `budgets ?? []` (i.e. ₹0 / 0% of budget) as if that were a real answer whenever
-          /budgets happened to resolve slower than /transactions. */}
-      {(statsLoading && !statsPage) || (budgetsLoading && !budgets) ? (
+          /budgets happened to resolve slower than /transactions. Also held while a linked
+          category waits for the categories, like the list: until then the cards would be the
+          whole range's totals, not the category's. */}
+      {(statsLoading && !statsPage) || (budgetsLoading && !budgets) || waitingForUrlCategory ? (
         <Skeleton.Region label="Loading transaction summary" className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[0, 1, 2, 3].map((i) => <Skeleton.Card key={i} />)}
         </Skeleton.Region>
@@ -637,7 +650,7 @@ export default function Ledger() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <KpiEntrance index={0} reduceMotion={prefersReducedMotion}>
             <KpiCard
-              label={hasStatsFilters ? 'Total Spent (filtered)' : 'Total Spent'}
+              label={hasActiveFilters ? 'Total Spent (filtered)' : 'Total Spent'}
               value={fmt(totalSpend)}
               icon={Wallet}
               iconBg="bg-accent-green-bg"
@@ -837,7 +850,7 @@ export default function Ledger() {
                 !filters.categoryId ? 'bg-primary text-on-primary border-primary' : 'bg-card text-ink border-border hover:bg-bg'
               }`}
             >
-              All <span className="opacity-70">{transactionCount}</span>
+              All <span className="opacity-70">{allCategoriesCount}</span>
             </motion.button>
             {categoryChips.map((c) => {
               const cat = categoriesById.get(c.id);

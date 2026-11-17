@@ -186,7 +186,8 @@ function StagedOutcomes({ period }: { period: Period }) {
         itself); expired (left unconfirmed for 48 hours); still open (including any held for the team’s check);
         not recorded (staged before recording began, or removed by the system: a re-read, a rejected hold, a
         stale copy replaced on re-upload). Free plan limit: the review opened with the one-month notice, a
-        confirm was refused for it, or it was shown and the statement imported anyway (an upgrade in between).
+        confirm was refused for it, or it was shown and the statement imported anyway (after an upgrade, or as just
+        its latest month).
         Reasons are the optional one-tap answer on the discard dialog; older apps never ask. Internal and admin
         accounts are left out.
       </p>

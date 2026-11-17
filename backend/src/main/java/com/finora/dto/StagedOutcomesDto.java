@@ -44,7 +44,8 @@ public final class StagedOutcomesDto {
      *                             replaced on re-upload)
      * @param freeLimitShown       the review opened with the Free plan's one-month notice
      * @param freeLimitRefused     a confirm was refused for that limit
-     * @param freeLimitThenImported shown the notice, and imported all the same (an upgrade in between)
+     * @param freeLimitThenImported shown the notice, and imported all the same: after an upgrade, or as
+     *                             just its latest month (the Free plan's "import only the latest month")
      * @param discardReasons       the customer's optional reasons, of those {@code discardedByCustomer}
      */
     @Schema(name = "StagedOutcomesWeek")

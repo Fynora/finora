@@ -1551,7 +1551,7 @@ export interface StagedOutcomesWeek {
   notRecorded: number;
   freeLimitShown: number;
   freeLimitRefused: number;
-  /** Shown the Free plan notice and imported all the same (an upgrade in between). */
+  /** Shown the Free plan notice and imported all the same: after an upgrade, or as just its latest month. */
   freeLimitThenImported: number;
   /** Of `discardedByCustomer`, by the optional reason tapped; they add up to it. */
   discardReasons: {

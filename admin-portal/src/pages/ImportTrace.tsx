@@ -357,7 +357,7 @@ function discardLabel(by: string | null, reason: string | null = null): string {
 
 /**
  * What the evidence row recorded about a staged statement, in the order it can happen. The Free-limit
- * events are listed even when the statement was imported later (an upgrade in between); a discard or
+ * events are listed even when the statement was imported later (an upgrade, or just its latest month); a discard or
  * an expiry can only end one that was not.
  */
 function stagedOutcomes(completion: ImportTrace['completion']): [string, string][] {

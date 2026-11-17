@@ -183,6 +183,16 @@ public class StatementAnalysisSession {
     @Column(name = "discarded_unconfirmed_at", insertable = false, updatable = false)
     private Instant discardedUnconfirmedAt;
 
+    /** Who deleted it, set with {@link #discardedUnconfirmedAt}: {@link #DISCARDED_BY_CUSTOMER} or
+     *  {@link #DISCARDED_BY_PHONE_MULTI_ACCOUNT}. See V326. */
+    @Column(name = "discarded_by", insertable = false, updatable = false)
+    private String discardedBy;
+
+    /** The customer chose to delete it. */
+    public static final String DISCARDED_BY_CUSTOMER = "CUSTOMER";
+    /** The phone app deleted it itself: it cannot import a statement covering more than one account. */
+    public static final String DISCARDED_BY_PHONE_MULTI_ACCOUNT = "PHONE_MULTI_ACCOUNT";
+
     /** When the review screen was first given the Free plan's one-month notice for this statement (V326). */
     @Column(name = "free_limit_shown_at", insertable = false, updatable = false)
     private Instant freeLimitShownAt;
@@ -339,6 +349,7 @@ public class StatementAnalysisSession {
     public Instant getCreatedAt() { return createdAt; }
     public Instant getExpiredUnconfirmedAt() { return expiredUnconfirmedAt; }
     public Instant getDiscardedUnconfirmedAt() { return discardedUnconfirmedAt; }
+    public String getDiscardedBy() { return discardedBy; }
     public Instant getFreeLimitShownAt() { return freeLimitShownAt; }
     public Instant getFreeLimitRefusedAt() { return freeLimitRefusedAt; }
 }

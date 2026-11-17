@@ -63,13 +63,16 @@ public class StatementAnalysisRecorder {
     }
 
     /** A later fact about a staged statement that was never imported (V326). */
-    public enum UnconfirmedOutcome { DISCARDED, FREE_LIMIT_SHOWN, FREE_LIMIT_REFUSED }
+    public enum UnconfirmedOutcome { FREE_LIMIT_SHOWN, FREE_LIMIT_REFUSED }
 
     /**
      * Stamps {@code outcome} on the read that staged {@code sessionId}, where it is still unset.
      *
+     * <p>(A discard is stamped by {@code ImportSessionService.deleteSession}, which also knows who
+     * discarded it.)
+     *
      * <p>Its own transaction, for the reason this class gives for every write: the caller's request
-     * (a discard, a review screen, a refused confirm) must not depend on a diagnostic write, and in
+     * (a review screen, a refused confirm) must not depend on a diagnostic write, and in
      * PostgreSQL a failed statement aborts the whole transaction it runs in. A refused confirm also
      * rolls its own transaction back, which would take a stamp made inside it along. Callers catch
      * what this throws (a commit that fails surfaces at this method's boundary) and carry on.
@@ -79,7 +82,6 @@ public class StatementAnalysisRecorder {
         if (sessionId == null) return;
         java.time.Instant now = java.time.Instant.now();
         switch (outcome) {
-            case DISCARDED -> repository.stampDiscardedUnconfirmed(sessionId, now);
             case FREE_LIMIT_SHOWN -> repository.stampFreeLimitShown(sessionId, now);
             case FREE_LIMIT_REFUSED -> repository.stampFreeLimitRefused(sessionId, now);
         }

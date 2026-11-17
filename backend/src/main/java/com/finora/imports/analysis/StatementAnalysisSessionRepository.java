@@ -59,13 +59,16 @@ public interface StatementAnalysisSessionRepository extends JpaRepository<Statem
     int stampExpiredUnconfirmed(@Param("sessionIds") java.util.Collection<UUID> sessionIds,
                                 @Param("now") Instant now);
 
-    /** V326: the customer deleted this staged session unconfirmed. Only where still null. */
+    /** V326: this staged session was deleted unconfirmed, and by whom
+     *  ({@link StatementAnalysisSession#DISCARDED_BY_CUSTOMER} or
+     *  {@link StatementAnalysisSession#DISCARDED_BY_PHONE_MULTI_ACCOUNT}). Only where still null. */
     @org.springframework.transaction.annotation.Transactional
     @Modifying
-    @Query(value = "UPDATE statement_analysis_sessions SET discarded_unconfirmed_at = :now "
+    @Query(value = "UPDATE statement_analysis_sessions SET discarded_unconfirmed_at = :now, discarded_by = :by "
             + "WHERE import_session_id = :sessionId AND discarded_unconfirmed_at IS NULL",
             nativeQuery = true)
-    int stampDiscardedUnconfirmed(@Param("sessionId") UUID sessionId, @Param("now") Instant now);
+    int stampDiscardedUnconfirmed(@Param("sessionId") UUID sessionId, @Param("now") Instant now,
+                                  @Param("by") String by);
 
     /** V326: the review screen was given the Free plan's one-month notice. First time only. */
     @org.springframework.transaction.annotation.Transactional

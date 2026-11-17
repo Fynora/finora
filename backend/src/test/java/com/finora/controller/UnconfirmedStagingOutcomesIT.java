@@ -49,7 +49,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @TestPropertySource(properties = {
         "app.rate-limit.import-stage.max=10000",
-        "app.import.queue.enabled=false"
+        "app.import.queue.enabled=false",
+        // A held statement keeps its file for the team's check, as in StagingTrustHoldIT.
+        "app.statement-storage.provider=filesystem",
+        "app.statement-storage.filesystem.root=${java.io.tmpdir}/finora-it-statement-storage"
 })
 class UnconfirmedStagingOutcomesIT extends AbstractIntegrationTest {
 
@@ -139,8 +142,39 @@ class UnconfirmedStagingOutcomesIT extends AbstractIntegrationTest {
     }
 
     private ResponseEntity<String> discard(User user, UUID sessionId) {
+        return discard(user, sessionId, null);
+    }
+
+    /** As the app named by {@code platform} sends it ({@code X-Client-Platform}); null sends none. */
+    private ResponseEntity<String> discard(User user, UUID sessionId, String platform) {
+        HttpHeaders headers = bearerFor(user);
+        if (platform != null) headers.set("X-Client-Platform", platform);
         return restTemplate.exchange("/api/v1/import/sessions/" + sessionId, HttpMethod.DELETE,
-                new HttpEntity<>(bearerFor(user)), String.class);
+                new HttpEntity<>(headers), String.class);
+    }
+
+    private JsonNode stage(User user, String path, byte[] content, String fileName, String platform) throws Exception {
+        HttpHeaders headers = bearerFor(user);
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+        if (platform != null) headers.set("X-Client-Platform", platform);
+        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+        body.add("file", new ByteArrayResource(content) {
+            @Override public String getFilename() { return fileName; }
+        });
+        ResponseEntity<String> response = restTemplate.exchange(path, HttpMethod.POST,
+                new HttpEntity<>(body, headers), String.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        return mapper.readTree(response.getBody()).get("data");
+    }
+
+    private void makeMultiAccount(UUID sessionId) {
+        ImportSession session = sessions.findById(sessionId).orElseThrow();
+        session.setSessionKind(ImportSession.KIND_MULTI_ACCOUNT);
+        sessions.save(session);
+    }
+
+    private static boolean absent(JsonNode node) {
+        return node == null || node.isNull();
     }
 
     private StatementAnalysisSession evidenceOf(UUID sessionId) {
@@ -173,6 +207,7 @@ class UnconfirmedStagingOutcomesIT extends AbstractIntegrationTest {
         assertThat(sessions.existsById(sessionId)).isFalse();
         StatementAnalysisSession after = evidenceOf(sessionId);
         assertThat(after.getDiscardedUnconfirmedAt()).isNotNull();
+        assertThat(after.getDiscardedBy()).isEqualTo("CUSTOMER");
         assertThat(after.getExpiredUnconfirmedAt()).isNull();
 
         // The admin trace answers the question without SQL.
@@ -183,6 +218,7 @@ class UnconfirmedStagingOutcomesIT extends AbstractIntegrationTest {
         assertThat(trace.getStatusCode()).isEqualTo(HttpStatus.OK);
         JsonNode completion = mapper.readTree(trace.getBody()).get("data").get("completion");
         assertThat(completion.get("discardedUnconfirmedAt").isNull()).isFalse();
+        assertThat(completion.get("discardedBy").asText()).isEqualTo("CUSTOMER");
         assertThat(completion.get("freeLimitShownAt").isNull()).isFalse();
         assertThat(completion.get("freeLimitRefusedAt").isNull()).isFalse();
         assertThat(completion.get("expiredUnconfirmedAt").isNull()).isTrue();
@@ -238,6 +274,112 @@ class UnconfirmedStagingOutcomesIT extends AbstractIntegrationTest {
         assertThat(discard(user, sessionId).getStatusCode()).isEqualTo(HttpStatus.OK);
 
         assertThat(evidenceOf(sessionId).getDiscardedUnconfirmedAt()).isNull();
+        assertThat(evidenceOf(sessionId).getDiscardedBy()).isNull();
+    }
+
+    // -- Who discarded it: the phone deletes a statement it cannot import by itself ------------------
+
+    @Test
+    void thePhoneDeletingAMultiAccountStatement_isNotRecordedAsTheCustomersChoice() throws Exception {
+        // The phone app cannot review a statement covering more than one account and deletes it as
+        // soon as it is staged (mobile ImportScreen). That is not a customer abandoning a statement.
+        for (String phone : List.of("MOBILE_ANDROID", "MOBILE_IOS")) {
+            User user = customer("FREE");
+            UUID sessionId = stageCsv(user, ONE_MONTH_CSV);
+            makeMultiAccount(sessionId);
+
+            assertThat(discard(user, sessionId, phone).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+            StatementAnalysisSession after = evidenceOf(sessionId);
+            assertThat(after.getDiscardedUnconfirmedAt()).as(phone).isNotNull();
+            assertThat(after.getDiscardedBy()).as(phone).isEqualTo("PHONE_MULTI_ACCOUNT");
+        }
+    }
+
+    @Test
+    void aMultiAccountStatementDiscardedOnTheWeb_isTheCustomersChoice() throws Exception {
+        // The web app reviews composite statements; deleting one there is the customer's decision.
+        // No header at all reads as web, as everywhere else (ClientIdentity).
+        for (String web : java.util.Arrays.asList("WEB", null)) {
+            User user = customer("FREE");
+            UUID sessionId = stageCsv(user, ONE_MONTH_CSV);
+            makeMultiAccount(sessionId);
+
+            assertThat(discard(user, sessionId, web).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+            assertThat(evidenceOf(sessionId).getDiscardedBy()).as(String.valueOf(web)).isEqualTo("CUSTOMER");
+        }
+    }
+
+    @Test
+    void aSingleAccountStatementDiscardedOnThePhone_isTheCustomersChoice() throws Exception {
+        User user = customer("FREE");
+        UUID sessionId = stageCsv(user, ONE_MONTH_CSV);
+
+        assertThat(discard(user, sessionId, "MOBILE_ANDROID").getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        assertThat(evidenceOf(sessionId).getDiscardedBy()).isEqualTo("CUSTOMER");
+    }
+
+    // -- "Shown" means the review screen opened with it -----------------------------------------------
+
+    /** Three months, and a statement period in 2030: the trust check holds it (as StagingTrustHoldIT). */
+    private static final String HELD_THREE_MONTH_CSV = """
+            Date,Description,Amount,Balance,Statement Period
+            01/01/2026,Opening balance,,1000.00,01/01/2030 to 31/03/2030
+            15/01/2026,Coffee shop,-150.00,850.00,
+            20/02/2026,Book shop,-80.00,770.00,
+            15/03/2026,Tea stall,-60.00,710.00,
+            """;
+
+    @Test
+    void aHeldStatement_carriesTheNotice_butIsNotRecordedAsShown() throws Exception {
+        // Both apps follow the held job instead of opening the review screen, so the notice in the
+        // response is never displayed. It is recorded when the review opens after an approval.
+        User user = customer("FREE");
+        JsonNode data = stage(user, "/api/v1/import/csv/stage",
+                HELD_THREE_MONTH_CSV.getBytes(StandardCharsets.UTF_8), "statement.csv", null);
+        assertThat(absent(data.get("heldForReviewJobId"))).as("the trust check held it").isFalse();
+        assertThat(absent(data.get("freePlanLimit"))).as("the notice was computed").isFalse();
+        UUID sessionId = UUID.fromString(data.get("sessionId").asText());
+
+        assertThat(evidenceOf(sessionId).getFreeLimitShownAt()).isNull();
+    }
+
+    private static byte[] multiAccountThreeMonthPdf() throws Exception {
+        var account = (java.util.function.BiFunction<String, String,
+                com.finora.imports.pdf.fixtures.SyntheticStatementDefinition.ExpectedEntity>) (id, masked) ->
+                new com.finora.imports.pdf.fixtures.SyntheticStatementDefinition.ExpectedEntity(
+                        id, "SAVINGS", com.finora.imports.pdf.fixtures.SyntheticStatementDefinition.Presence.DETECTED,
+                        masked, com.finora.imports.pdf.fixtures.SyntheticStatementDefinition.ZeroTransactions.FALSE,
+                        List.of(
+                                new com.finora.imports.pdf.fixtures.SyntheticStatementDefinition.Row(
+                                        LocalDate.of(2026, 1, 5), "Coffee shop", new BigDecimal("100.00"), false),
+                                new com.finora.imports.pdf.fixtures.SyntheticStatementDefinition.Row(
+                                        LocalDate.of(2026, 2, 10), "Book shop", new BigDecimal("80.00"), false),
+                                new com.finora.imports.pdf.fixtures.SyntheticStatementDefinition.Row(
+                                        LocalDate.of(2026, 3, 5), "Tea stall", new BigDecimal("60.00"), false)));
+        return com.finora.imports.pdf.fixtures.PdfFixtureBuilder.render(
+                new com.finora.imports.pdf.fixtures.SyntheticStatementDefinition("unconfirmed-outcomes-multi-001",
+                        List.of(account.apply("savings-one", "••••4321"), account.apply("savings-two", "••••8765")),
+                        List.of()));
+    }
+
+    @Test
+    void aMultiAccountStatementStagedOnThePhone_isNotRecordedAsShown_butOnTheWebItIs() throws Exception {
+        byte[] pdf = multiAccountThreeMonthPdf();
+
+        User phoneUser = customer("FREE");
+        JsonNode onPhone = stage(phoneUser, "/api/v1/import/pdf/stage", pdf, "statement.pdf", "MOBILE_IOS");
+        assertThat(onPhone.get("multiAccount").asBoolean()).as("a composite statement").isTrue();
+        assertThat(absent(onPhone.get("heldForReviewJobId"))).as("not held").isTrue();
+        assertThat(absent(onPhone.get("freePlanLimit"))).as("the notice was computed").isFalse();
+        assertThat(evidenceOf(UUID.fromString(onPhone.get("sessionId").asText())).getFreeLimitShownAt()).isNull();
+
+        User webUser = customer("FREE");
+        JsonNode onWeb = stage(webUser, "/api/v1/import/pdf/stage", pdf, "statement.pdf", "WEB");
+        assertThat(onWeb.get("multiAccount").asBoolean()).isTrue();
+        assertThat(evidenceOf(UUID.fromString(onWeb.get("sessionId").asText())).getFreeLimitShownAt()).isNotNull();
     }
 
     @Test

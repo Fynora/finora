@@ -160,6 +160,9 @@ public final class ImportTraceDto {
             // (V267, V326). Null when it did not happen or there is no evidence row (a queued job
             // that failed before staging). Times only; nothing from the statement.
             Instant discardedUnconfirmedAt,
+            // CUSTOMER, or PHONE_MULTI_ACCOUNT when the phone app deleted it itself because it
+            // cannot import a statement covering more than one account. Null when not discarded.
+            String discardedBy,
             Instant expiredUnconfirmedAt,
             Instant freeLimitShownAt,
             Instant freeLimitRefusedAt

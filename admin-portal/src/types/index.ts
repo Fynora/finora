@@ -1346,6 +1346,9 @@ interface ImportTraceCompletion {
   /** How a staged statement ended without being imported, from the upload's evidence row. Null
    *  when it did not happen or the upload has no evidence row. Times only. */
   discardedUnconfirmedAt: string | null;
+  /** CUSTOMER, or PHONE_MULTI_ACCOUNT when the phone app deleted it itself (it cannot import a
+   *  statement covering more than one account). Null when not discarded. */
+  discardedBy: 'CUSTOMER' | 'PHONE_MULTI_ACCOUNT' | null;
   expiredUnconfirmedAt: string | null;
   freeLimitShownAt: string | null;
   freeLimitRefusedAt: string | null;

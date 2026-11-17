@@ -13828,6 +13828,7 @@ export interface components {
             sessionConfirmedAt?: string;
             /** Format: date-time */
             discardedUnconfirmedAt?: string;
+            discardedBy?: string;
             /** Format: date-time */
             expiredUnconfirmedAt?: string;
             /** Format: date-time */

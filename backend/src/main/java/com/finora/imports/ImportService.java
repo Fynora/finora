@@ -674,10 +674,26 @@ public class ImportService {
      * warning and the refusal cannot disagree. Every section of a composite statement is judged; the
      * first that is too long is reported, as confirm would refuse on it.
      */
+    public FreePlanLimitNotice freePlanLimitNotice(UUID userId, StagingResponse staging,
+                                                   List<StagedAccountSection> sections) {
+        if (sections != null && !sections.isEmpty()) {
+            for (StagedAccountSection section : sections) {
+                FreeLimitFinding finding = freeLimitFinding(userId, section.detectedAccount(), section.rows(),
+                        sections.size() > 1);
+                if (finding != null) return finding.notice();
+            }
+            return null;
+        }
+        if (staging == null) return null;
+        FreeLimitFinding finding = freeLimitFinding(userId, staging.detectedAccount(), staging.rows(), false);
+        return finding == null ? null : finding.notice();
+    }
+
     /**
      * {@link #freePlanLimitNotice(UUID, StagingResponse, List)}, recording on the staged session's
      * evidence row that the notice was shown (V326), so an upload abandoned after it can be told
-     * apart from one abandoned for any other reason.
+     * apart from one abandoned for any other reason. {@code sessionId} null records nothing: the
+     * caller passes null when the notice will not be shown (see ImportController.noticeShownOn).
      */
     public FreePlanLimitNotice freePlanLimitNotice(UUID userId, UUID sessionId, StagingResponse staging,
                                                    List<StagedAccountSection> sections) {
@@ -695,21 +711,6 @@ public class ImportService {
         } catch (RuntimeException e) {
             log.warn("Could not record {} for import session {}", outcome, sessionId, e);
         }
-    }
-
-    public FreePlanLimitNotice freePlanLimitNotice(UUID userId, StagingResponse staging,
-                                                   List<StagedAccountSection> sections) {
-        if (sections != null && !sections.isEmpty()) {
-            for (StagedAccountSection section : sections) {
-                FreeLimitFinding finding = freeLimitFinding(userId, section.detectedAccount(), section.rows(),
-                        sections.size() > 1);
-                if (finding != null) return finding.notice();
-            }
-            return null;
-        }
-        if (staging == null) return null;
-        FreeLimitFinding finding = freeLimitFinding(userId, staging.detectedAccount(), staging.rows(), false);
-        return finding == null ? null : finding.notice();
     }
 
     private record FreeLimitFinding(FreeStatementPeriod.Excess excess, FreePlanLimitNotice notice) {}

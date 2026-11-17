@@ -93,7 +93,7 @@ function trace(over: Partial<Trace> = {}): Trace {
     learning: { events: 3, byStatus: { COMPLETED: 3 }, outstanding: [] },
     completion: {
       statementImportId: null, transactionsImported: null, transactionsSkipped: null, importedAt: null,
-      sessionConfirmedAt: null, discardedUnconfirmedAt: null, expiredUnconfirmedAt: null,
+      sessionConfirmedAt: null, discardedUnconfirmedAt: null, discardedBy: null, expiredUnconfirmedAt: null,
       freeLimitShownAt: null, freeLimitRefusedAt: null,
     },
     ...over,
@@ -174,18 +174,49 @@ describe('Import Trace — an absent block is an answer', () => {
     vi.mocked(adminImportTraceApi.byAnalysis).mockResolvedValue(trace({
       completion: {
         ...base.completion,
-        freeLimitShownAt: '2026-11-17T09:48:39Z',
-        freeLimitRefusedAt: '2026-11-17T09:50:02Z',
-        discardedUnconfirmedAt: '2026-11-17T09:51:10Z',
+        freeLimitShownAt: '2026-08-06T09:00:05Z',
+        freeLimitRefusedAt: '2026-08-06T09:02:00Z',
+        discardedUnconfirmedAt: '2026-08-06T09:03:00Z',
+        discardedBy: 'CUSTOMER',
       },
     }));
     await traceFor();
 
-    expect(await screen.findByText('Free plan limit shown')).toBeInTheDocument();
+    expect(await screen.findByText('Free plan limit notice shown')).toBeInTheDocument();
     expect(screen.getByText('Confirm refused by the Free plan limit')).toBeInTheDocument();
     expect(screen.getByText('Discarded by the customer')).toBeInTheDocument();
     expect(screen.queryByText('Expired unconfirmed')).not.toBeInTheDocument();
     expect(screen.getByText(/What happened to the staged statement/i)).toBeInTheDocument();
+  });
+
+  it('does not call the phone app removing a statement it cannot import the customer discarding it', async () => {
+    const base = trace();
+    vi.mocked(adminImportTraceApi.byAnalysis).mockResolvedValue(trace({
+      completion: { ...base.completion, discardedUnconfirmedAt: '2026-08-06T09:03:00Z', discardedBy: 'PHONE_MULTI_ACCOUNT' },
+    }));
+    await traceFor();
+
+    expect(await screen.findByText('Removed by the phone app: more than one account')).toBeInTheDocument();
+    expect(screen.queryByText('Discarded by the customer')).not.toBeInTheDocument();
+  });
+
+  it('keeps the Free plan limit events on a statement imported after an upgrade', async () => {
+    const base = trace();
+    vi.mocked(adminImportTraceApi.byAnalysis).mockResolvedValue(trace({
+      completion: {
+        ...base.completion,
+        statementImportId: 'si-1', transactionsImported: 128, transactionsSkipped: 0,
+        importedAt: '2026-08-06T09:10:00Z', sessionConfirmedAt: '2026-08-06T09:10:00Z',
+        freeLimitShownAt: '2026-08-06T09:00:05Z', freeLimitRefusedAt: '2026-08-06T09:02:00Z',
+      },
+    }));
+    await traceFor();
+
+    expect(await screen.findByText(/Before it was imported/i)).toBeInTheDocument();
+    expect(screen.getByText('Free plan limit notice shown')).toBeInTheDocument();
+    expect(screen.getByText('Confirm refused by the Free plan limit')).toBeInTheDocument();
+    expect(screen.getByText('si-1')).toBeInTheDocument();
+    expect(screen.queryByText(/Nothing was confirmed/i)).not.toBeInTheDocument();
   });
 
   it('distinguishes "no verification recorded" from "everything passed"', async () => {

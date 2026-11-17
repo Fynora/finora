@@ -84,7 +84,7 @@ public class ImportController {
                 importService.parseAndStageWithSession(userId, file)));
         // Outside the permit: a plan lookup, not parsing work. See FreePlanLimitNotice.
         return ResponseEntity.ok(ApiResponse.ok(
-                staged.withFreePlanLimit(importService.freePlanLimitNotice(userId, staged.staging(), null))));
+                staged.withFreePlanLimit(importService.freePlanLimitNotice(userId, staged.sessionId(), staged.staging(), null))));
     }
 
     // PDF Milestone 1 (com.finora.imports.pdf) -- digital/text-based bank statements only, no
@@ -123,7 +123,8 @@ public class ImportController {
                 importService.parseAndStagePdfWithSession(userId, file, password)));
         // Every section of a composite statement, as confirm-multi judges them. See FreePlanLimitNotice.
         return ResponseEntity.ok(ApiResponse.ok(staged.withFreePlanLimit(
-                importService.freePlanLimitNotice(userId, staged.staging(), staged.multiAccount() ? staged.sections() : null))));
+                importService.freePlanLimitNotice(userId, staged.sessionId(), staged.staging(),
+                        staged.multiAccount() ? staged.sections() : null))));
     }
 
     /**
@@ -216,7 +217,7 @@ public class ImportController {
         // open the review from here. Judged on the plan as it is now, so an upgrade clears it.
         return ApiResponse.ok(new StagingSessionResponse(session.getId(), staging,
                 importService.previousImportOf(currentUser.id(), session.getContentHash()))
-                .withFreePlanLimit(importService.freePlanLimitNotice(currentUser.id(), staging, null))
+                .withFreePlanLimit(importService.freePlanLimitNotice(currentUser.id(), session.getId(), staging, null))
                 .withApprovedAfterReview(importSessionService.wasApprovedAfterReview(session.getId())));
     }
 

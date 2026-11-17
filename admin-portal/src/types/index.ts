@@ -1343,6 +1343,12 @@ interface ImportTraceCompletion {
   transactionsSkipped: number | null;
   importedAt: string | null;
   sessionConfirmedAt: string | null;
+  /** How a staged statement ended without being imported, from the upload's evidence row. Null
+   *  when it did not happen or the upload has no evidence row. Times only. */
+  discardedUnconfirmedAt: string | null;
+  expiredUnconfirmedAt: string | null;
+  freeLimitShownAt: string | null;
+  freeLimitRefusedAt: string | null;
 }
 
 /** One of a customer's own recent failed imports, looked up by email -- the support half of
@@ -1362,7 +1368,9 @@ export interface ImportTrace {
   importJobId: string | null;
   importSessionId: string | null;
   correlationId: string | null;
-  analysis: StatementAnalysisDetailDto | null;
+  /** The evidence row itself, flat -- the backend sends StatementAnalysisReportService.AnalysisView,
+   *  not the detail wrapper Layout Studio's own endpoint returns. */
+  analysis: StatementAnalysisDto | null;
   job: ImportTraceJob | null;
   stages: ImportTraceStage[];
   /** Empty means no verification was recorded — which is not the same as every rule passing. */

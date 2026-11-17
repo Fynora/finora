@@ -59,6 +59,30 @@ public interface StatementAnalysisSessionRepository extends JpaRepository<Statem
     int stampExpiredUnconfirmed(@Param("sessionIds") java.util.Collection<UUID> sessionIds,
                                 @Param("now") Instant now);
 
+    /** V326: the customer deleted this staged session unconfirmed. Only where still null. */
+    @org.springframework.transaction.annotation.Transactional
+    @Modifying
+    @Query(value = "UPDATE statement_analysis_sessions SET discarded_unconfirmed_at = :now "
+            + "WHERE import_session_id = :sessionId AND discarded_unconfirmed_at IS NULL",
+            nativeQuery = true)
+    int stampDiscardedUnconfirmed(@Param("sessionId") UUID sessionId, @Param("now") Instant now);
+
+    /** V326: the review screen was given the Free plan's one-month notice. First time only. */
+    @org.springframework.transaction.annotation.Transactional
+    @Modifying
+    @Query(value = "UPDATE statement_analysis_sessions SET free_limit_shown_at = :now "
+            + "WHERE import_session_id = :sessionId AND free_limit_shown_at IS NULL",
+            nativeQuery = true)
+    int stampFreeLimitShown(@Param("sessionId") UUID sessionId, @Param("now") Instant now);
+
+    /** V326: a confirm was refused for the Free plan's one-month limit. First time only. */
+    @org.springframework.transaction.annotation.Transactional
+    @Modifying
+    @Query(value = "UPDATE statement_analysis_sessions SET free_limit_refused_at = :now "
+            + "WHERE import_session_id = :sessionId AND free_limit_refused_at IS NULL",
+            nativeQuery = true)
+    int stampFreeLimitRefused(@Param("sessionId") UUID sessionId, @Param("now") Instant now);
+
     /**
      * The reference counter, from a database sequence rather than a count of existing rows.
      *

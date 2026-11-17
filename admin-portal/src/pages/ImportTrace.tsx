@@ -148,7 +148,7 @@ function FindingRow({ finding }: { finding: ImportTraceFinding }) {
 
 function TraceView({ trace }: { trace: ImportTrace }) {
   const job = trace.job;
-  const analysis = trace.analysis?.analysis ?? null;
+  const analysis = trace.analysis ?? null;
 
   return (
     <>
@@ -306,9 +306,19 @@ function TraceView({ trace }: { trace: ImportTrace }) {
         icon={<CheckCircle2 size={16} className="text-primary" />}
         title="Completion"
         hint="Whether it landed, and what landed."
-        empty={trace.completion.statementImportId ? null
+        empty={trace.completion.statementImportId || unconfirmedOutcomes(trace.completion).length > 0 ? null
           : 'Nothing was confirmed. Staging successfully and importing are different events — confirming is still the user’s decision.'}
       >
+        {!trace.completion.statementImportId && unconfirmedOutcomes(trace.completion).length > 0 && (
+          <div>
+            <p className="text-xs text-muted mb-2">Nothing was confirmed. What happened to the staged statement:</p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {unconfirmedOutcomes(trace.completion).map(([label, at]) => (
+                <Field key={label} label={label} value={timestamp(at)} />
+              ))}
+            </div>
+          </div>
+        )}
         {trace.completion.statementImportId && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Field label="Statement import" value={trace.completion.statementImportId} mono />
@@ -320,6 +330,17 @@ function TraceView({ trace }: { trace: ImportTrace }) {
       </Panel>
     </>
   );
+}
+
+/** The recorded ways a staged statement ended unconfirmed, in the order they can happen. */
+function unconfirmedOutcomes(completion: ImportTrace['completion']): [string, string][] {
+  const outcomes: [string, string | null][] = [
+    ['Free plan limit shown', completion.freeLimitShownAt],
+    ['Confirm refused by the Free plan limit', completion.freeLimitRefusedAt],
+    ['Discarded by the customer', completion.discardedUnconfirmedAt],
+    ['Expired unconfirmed', completion.expiredUnconfirmedAt],
+  ];
+  return outcomes.filter((o): o is [string, string] => o[1] != null);
 }
 
 export default function ImportTracePage() {

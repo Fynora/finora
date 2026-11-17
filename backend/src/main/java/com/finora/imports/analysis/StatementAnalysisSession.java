@@ -178,6 +178,19 @@ public class StatementAnalysisSession {
     @Column(name = "expired_unconfirmed_at", insertable = false, updatable = false)
     private Instant expiredUnconfirmedAt;
 
+    /** When the customer deleted the staged session without confirming it (V326). Written like
+     *  {@link #expiredUnconfirmedAt}: one {@code UPDATE}, only where still null. */
+    @Column(name = "discarded_unconfirmed_at", insertable = false, updatable = false)
+    private Instant discardedUnconfirmedAt;
+
+    /** When the review screen was first given the Free plan's one-month notice for this statement (V326). */
+    @Column(name = "free_limit_shown_at", insertable = false, updatable = false)
+    private Instant freeLimitShownAt;
+
+    /** When a confirm of this statement was first refused for the Free plan's one-month limit (V326). */
+    @Column(name = "free_limit_refused_at", insertable = false, updatable = false)
+    private Instant freeLimitRefusedAt;
+
     protected StatementAnalysisSession() {
         // JPA
     }
@@ -325,4 +338,7 @@ public class StatementAnalysisSession {
     public String getStatementType() { return statementType; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getExpiredUnconfirmedAt() { return expiredUnconfirmedAt; }
+    public Instant getDiscardedUnconfirmedAt() { return discardedUnconfirmedAt; }
+    public Instant getFreeLimitShownAt() { return freeLimitShownAt; }
+    public Instant getFreeLimitRefusedAt() { return freeLimitRefusedAt; }
 }

@@ -62,6 +62,29 @@ public class StatementAnalysisRecorder {
         this.objectMapper = objectMapper;
     }
 
+    /** A later fact about a staged statement that was never imported (V326). */
+    public enum UnconfirmedOutcome { DISCARDED, FREE_LIMIT_SHOWN, FREE_LIMIT_REFUSED }
+
+    /**
+     * Stamps {@code outcome} on the read that staged {@code sessionId}, where it is still unset.
+     *
+     * <p>Its own transaction, for the reason this class gives for every write: the caller's request
+     * (a discard, a review screen, a refused confirm) must not depend on a diagnostic write, and in
+     * PostgreSQL a failed statement aborts the whole transaction it runs in. A refused confirm also
+     * rolls its own transaction back, which would take a stamp made inside it along. Callers catch
+     * what this throws (a commit that fails surfaces at this method's boundary) and carry on.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void stamp(UUID sessionId, UnconfirmedOutcome outcome) {
+        if (sessionId == null) return;
+        java.time.Instant now = java.time.Instant.now();
+        switch (outcome) {
+            case DISCARDED -> repository.stampDiscardedUnconfirmed(sessionId, now);
+            case FREE_LIMIT_SHOWN -> repository.stampFreeLimitShown(sessionId, now);
+            case FREE_LIMIT_REFUSED -> repository.stampFreeLimitRefused(sessionId, now);
+        }
+    }
+
     /** @return the reference of the recorded session, or null if recording failed. */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public String recordParsed(UUID userId, StatementAnalysisSession.Source source, String fileName,

@@ -52,26 +52,25 @@ function trace(over: Partial<Trace> = {}): Trace {
     importJobId: '0f8b1c2d-0000-0000-0000-000000000001',
     importSessionId: '0f8b1c2d-0000-0000-0000-000000000002',
     correlationId: 'worker-abc123',
+    // Flat, as the backend sends it (ImportTraceDto.Trace.analysis is an AnalysisView). This fixture
+    // used to wrap it in Layout Studio's detail shape, which is how the page reading
+    // trace.analysis.analysis -- and so showing "No analysis row" for every real upload -- passed.
     analysis: {
-      analysis: {
-        reference: 'SA-20260806-0145',
-        sourceFormat: 'PDF',
-        layoutFingerprint: 'fp-hdfc-7c1',
-        outcome: 'PARSED',
-        failureCode: null,
-        sectionCount: 1,
-        rowCount: 128,
-        unanchoredReasons: {},
-        unanchoredRowCount: 0,
-        durationMs: 2400,
-        byteSize: 90210,
-        createdAt: '2026-08-06T09:00:00Z',
-        identityChecked: true,
-        bankName: 'HDFC Bank',
-        statementType: 'SAVINGS',
-      },
-      timesLayoutSeen: 4,
-      timesLayoutFailed: 0,
+      reference: 'SA-20260806-0145',
+      sourceFormat: 'PDF',
+      layoutFingerprint: 'fp-hdfc-7c1',
+      outcome: 'PARSED',
+      failureCode: null,
+      sectionCount: 1,
+      rowCount: 128,
+      unanchoredReasons: {},
+      unanchoredRowCount: 0,
+      durationMs: 2400,
+      byteSize: 90210,
+      createdAt: '2026-08-06T09:00:00Z',
+      identityChecked: true,
+      bankName: 'HDFC Bank',
+      statementType: 'SAVINGS',
     },
     job: {
       status: 'COMPLETED',
@@ -92,7 +91,11 @@ function trace(over: Partial<Trace> = {}): Trace {
       { sectionIndex: 0, rule: 'BALANCE_CHAIN', outcome: 'VERIFIED', details: { checked: 128 }, recordedAt: '2026-08-06T09:00:03Z' },
     ],
     learning: { events: 3, byStatus: { COMPLETED: 3 }, outstanding: [] },
-    completion: { statementImportId: null, transactionsImported: null, transactionsSkipped: null, importedAt: null, sessionConfirmedAt: null },
+    completion: {
+      statementImportId: null, transactionsImported: null, transactionsSkipped: null, importedAt: null,
+      sessionConfirmedAt: null, discardedUnconfirmedAt: null, expiredUnconfirmedAt: null,
+      freeLimitShownAt: null, freeLimitRefusedAt: null,
+    },
     ...over,
   };
 }
@@ -157,6 +160,32 @@ describe('Import Trace — an absent block is an answer', () => {
 
     expect(await screen.findByText(/Nothing was confirmed/i)).toBeInTheDocument();
     expect(screen.getByText(/confirming is still the user’s decision/i)).toBeInTheDocument();
+  });
+
+  it('shows the evidence row when there is one, not "No analysis row"', async () => {
+    await traceFor();
+
+    expect(await screen.findByText('fp-hdfc-7c1')).toBeInTheDocument();
+    expect(screen.queryByText(/No analysis row/i)).not.toBeInTheDocument();
+  });
+
+  it('says what happened to a staged statement that was never imported', async () => {
+    const base = trace();
+    vi.mocked(adminImportTraceApi.byAnalysis).mockResolvedValue(trace({
+      completion: {
+        ...base.completion,
+        freeLimitShownAt: '2026-11-17T09:48:39Z',
+        freeLimitRefusedAt: '2026-11-17T09:50:02Z',
+        discardedUnconfirmedAt: '2026-11-17T09:51:10Z',
+      },
+    }));
+    await traceFor();
+
+    expect(await screen.findByText('Free plan limit shown')).toBeInTheDocument();
+    expect(screen.getByText('Confirm refused by the Free plan limit')).toBeInTheDocument();
+    expect(screen.getByText('Discarded by the customer')).toBeInTheDocument();
+    expect(screen.queryByText('Expired unconfirmed')).not.toBeInTheDocument();
+    expect(screen.getByText(/What happened to the staged statement/i)).toBeInTheDocument();
   });
 
   it('distinguishes "no verification recorded" from "everything passed"', async () => {

@@ -155,6 +155,13 @@ public final class ImportTraceDto {
             Integer transactionsImported,
             Integer transactionsSkipped,
             Instant importedAt,
-            Instant sessionConfirmedAt
+            Instant sessionConfirmedAt,
+            // How a staged statement ended without being imported, from the upload's evidence row
+            // (V267, V326). Null when it did not happen or there is no evidence row (a queued job
+            // that failed before staging). Times only; nothing from the statement.
+            Instant discardedUnconfirmedAt,
+            Instant expiredUnconfirmedAt,
+            Instant freeLimitShownAt,
+            Instant freeLimitRefusedAt
     ) {}
 }

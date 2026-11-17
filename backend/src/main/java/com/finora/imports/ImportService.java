@@ -658,6 +658,9 @@ public class ImportService {
                     sessionId, daysInclusive(period[0], period[1]), daysInclusive(excess.from(), excess.to()));
         }
         FreePlanLimitNotice notice = finding.notice();
+        // V326: kept on the evidence row, because the refusal itself leaves no trace -- a 4xx is
+        // deliberately not logged, and this transaction is about to roll back.
+        stampUnconfirmedOutcome(sessionId, StatementAnalysisRecorder.UnconfirmedOutcome.FREE_LIMIT_REFUSED);
         throw new ApiException(ErrorCode.STATEMENT_PERIOD_TOO_LONG.defaultStatus(), ErrorCode.STATEMENT_PERIOD_TOO_LONG,
                 notice.message(),
                 Map.of("coveredFrom", notice.coveredFrom().toString(), "coveredTo", notice.coveredTo().toString(),
@@ -671,6 +674,29 @@ public class ImportService {
      * warning and the refusal cannot disagree. Every section of a composite statement is judged; the
      * first that is too long is reported, as confirm would refuse on it.
      */
+    /**
+     * {@link #freePlanLimitNotice(UUID, StagingResponse, List)}, recording on the staged session's
+     * evidence row that the notice was shown (V326), so an upload abandoned after it can be told
+     * apart from one abandoned for any other reason.
+     */
+    public FreePlanLimitNotice freePlanLimitNotice(UUID userId, UUID sessionId, StagingResponse staging,
+                                                   List<StagedAccountSection> sections) {
+        FreePlanLimitNotice notice = freePlanLimitNotice(userId, staging, sections);
+        if (notice != null) {
+            stampUnconfirmedOutcome(sessionId, StatementAnalysisRecorder.UnconfirmedOutcome.FREE_LIMIT_SHOWN);
+        }
+        return notice;
+    }
+
+    /** A V326 stamp that can never fail the request it describes. */
+    private void stampUnconfirmedOutcome(UUID sessionId, StatementAnalysisRecorder.UnconfirmedOutcome outcome) {
+        try {
+            analysisRecorder.stamp(sessionId, outcome);
+        } catch (RuntimeException e) {
+            log.warn("Could not record {} for import session {}", outcome, sessionId, e);
+        }
+    }
+
     public FreePlanLimitNotice freePlanLimitNotice(UUID userId, StagingResponse staging,
                                                    List<StagedAccountSection> sections) {
         if (sections != null && !sections.isEmpty()) {

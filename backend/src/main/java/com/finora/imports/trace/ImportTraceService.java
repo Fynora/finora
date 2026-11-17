@@ -168,7 +168,7 @@ public class ImportTraceService {
                 stages,
                 verification,
                 learning(sessionId, statementImport),
-                completion(statementImport, sessionId));
+                completion(statementImport, sessionId, analysis));
     }
 
     /**
@@ -288,19 +288,26 @@ public class ImportTraceService {
                 java.util.Collections.unmodifiableMap(byStatus), List.copyOf(outstanding));
     }
 
-    private ImportTraceDto.Completion completion(StatementImport statementImport, UUID sessionId) {
+    private ImportTraceDto.Completion completion(StatementImport statementImport, UUID sessionId,
+                                                 StatementAnalysisSession analysis) {
         Instant confirmedAt = sessionId == null ? null
                 : importSessionRepository.findById(sessionId)
                         .map(ImportSession::getConfirmedAt)
                         .orElse(null);
+        Instant discarded = analysis == null ? null : analysis.getDiscardedUnconfirmedAt();
+        Instant expired = analysis == null ? null : analysis.getExpiredUnconfirmedAt();
+        Instant limitShown = analysis == null ? null : analysis.getFreeLimitShownAt();
+        Instant limitRefused = analysis == null ? null : analysis.getFreeLimitRefusedAt();
         if (statementImport == null) {
-            return new ImportTraceDto.Completion(null, null, null, null, confirmedAt);
+            return new ImportTraceDto.Completion(null, null, null, null, confirmedAt,
+                    discarded, expired, limitShown, limitRefused);
         }
         return new ImportTraceDto.Completion(
                 statementImport.getId(),
                 statementImport.getTransactionsImported(),
                 statementImport.getTransactionsSkipped(),
                 statementImport.getImportedAt(),
-                confirmedAt);
+                confirmedAt,
+                discarded, expired, limitShown, limitRefused);
     }
 }

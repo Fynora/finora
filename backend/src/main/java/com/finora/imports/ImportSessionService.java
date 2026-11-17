@@ -864,7 +864,27 @@ public class ImportSessionService {
         // A password the user let Fynora keep for this upload (statement refresh, step 4) goes with
         // it now, rather than waiting for the hourly sweep: nothing is left for it to open.
         statementPasswordRepository.deleteHeldByJobsOfSession(sessionId);
+        // V326: a statement the customer read and then threw away, recorded on its evidence row
+        // the way the expiry sweep records one left to lapse -- the session row is about to go,
+        // and with it everything else that said this upload was ever staged. getOwnedSession has
+        // already refused a confirmed or expired session, so this one was waiting to be confirmed.
+        // Only one the customer uploaded (source null), for the reason stampAbandoned gives, and in
+        // its own transaction so a failed stamp can never stop the discard.
+        if (session.getSource() == null) {
+            stampDiscarded(sessionId);
+        }
         importSessionRepository.delete(session);
+    }
+
+    private void stampDiscarded(UUID sessionId) {
+        try {
+            Instant now = Instant.now();
+            separateTransaction.executeWithoutResult(status ->
+                    analysisSessionRepository.stampDiscardedUnconfirmed(sessionId, now));
+        } catch (RuntimeException e) {
+            log.warn("Could not record that import session {} was discarded unconfirmed; discarding it anyway",
+                    sessionId, e);
+        }
     }
 
     public List<StagedRow> readStagedRows(ImportSession session) {

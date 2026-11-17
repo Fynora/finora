@@ -83,7 +83,14 @@ import java.util.Set;
  * change what a test observes. See that method for the failure it prevents.
  */
 @Isolated
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+// Loopback only, for both the application and the management server. A random port bound to the
+// wildcard address can coincide with another process already listening on 127.0.0.1 at that port
+// (macOS allows both binds), and "localhost" requests then reach that process instead of the app.
+// Seen on 2026-11-17: during a full verify, every request of two whole IT classes got a desktop
+// helper's plain "not found" 404, while the same classes passed when run alone. Bound to
+// 127.0.0.1, the OS picks a port that is free on loopback, so a test can only ever reach the app.
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = {"server.address=127.0.0.1", "management.server.address=127.0.0.1"})
 public abstract class AbstractIntegrationTest {
 
     // Actuator is served from a separate management context on its own port -- nothing under

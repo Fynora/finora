@@ -5,7 +5,7 @@ import { AdminLayout } from '../components/AdminLayout';
 import { RequirePermission } from '../components/ProtectedRoute';
 import { adminReadingQualityApi } from '../api/endpoints';
 import { withSep } from '../lib/withSep';
-import type { ReadingQualityBankRow, ReadingQualityWeek } from '../types';
+import type { ReadingQualityBankRow, ReadingQualityWeek, StagedOutcomesReport, StagedOutcomesWeek } from '../types';
 
 type Period = 4 | 12;
 
@@ -54,6 +54,144 @@ function Trend({ row }: { row: ReadingQualityBankRow }) {
       <Line type="monotone" dataKey="rate" stroke="rgb(var(--color-primary))" strokeWidth={2}
         dot={{ r: 1.5 }} connectNulls={false} isAnimationActive={false} />
     </LineChart>
+  );
+}
+
+/** The outcome columns, in the order a staged statement is counted under them. */
+const OUTCOME_COLUMNS: [keyof StagedOutcomesWeek, string][] = [
+  ['imported', 'Imported'],
+  ['discardedByCustomer', 'Discarded by customer'],
+  ['removedByPhone', 'Removed by phone app'],
+  ['expired', 'Expired'],
+  ['stillOpen', 'Still open'],
+  ['notRecorded', 'Not recorded'],
+];
+
+const LIMIT_COLUMNS: [keyof StagedOutcomesWeek, string][] = [
+  ['freeLimitShown', 'Limit shown'],
+  ['freeLimitRefused', 'Confirm refused'],
+  ['freeLimitThenImported', 'Shown, then imported'],
+];
+
+/**
+ * How much of a week was recorded: 'none' when it ended before recording began (its outcomes read
+ * "not recorded"), 'part' for the week recording began in, else 'all'. Dates are yyyy-mm-dd.
+ */
+export function recordedPart(weekStart: string | null, recordedSince: string | null): 'all' | 'part' | 'none' {
+  if (!weekStart || !recordedSince || weekStart >= recordedSince) return 'all';
+  const next = new Date(`${weekStart}T00:00:00Z`);
+  next.setUTCDate(next.getUTCDate() + 7);
+  return next.toISOString().slice(0, 10) <= recordedSince ? 'none' : 'part';
+}
+
+function OutcomeRow({ week, label, recordedSince, total }: {
+  week: StagedOutcomesWeek; label: string; recordedSince: string | null; total?: boolean;
+}) {
+  const part = total ? 'all' : recordedPart(week.weekStart, recordedSince);
+  const early = part === 'none';
+  const cell = (key: keyof StagedOutcomesWeek, first = false) => (
+    <td key={key} className={`px-3 py-2 text-right tabular-nums${first ? ' border-l border-border' : ''}`}>
+      {count(week[key] as number)}
+    </td>
+  );
+  return (
+    <tr className={`border-b border-border last:border-0 ${total ? 'font-semibold text-ink' : ''} ${early ? 'text-muted' : ''}`}>
+      <th scope="row" className="px-3 py-2 text-left font-medium whitespace-nowrap">
+        {label}
+        {part === 'none' && <span className="block text-xs font-normal">before recording began</span>}
+        {part === 'part' && <span className="block text-xs font-normal text-muted">recording began this week</span>}
+      </th>
+      <td className="px-3 py-2 text-right tabular-nums">{count(week.staged)}</td>
+      {OUTCOME_COLUMNS.map(([key], i) => cell(key, i === 0))}
+      {LIMIT_COLUMNS.map(([key], i) => cell(key, i === 0))}
+    </tr>
+  );
+}
+
+const DISCARD_REASON_LABELS: [keyof StagedOutcomesWeek['discardReasons'], string][] = [
+  ['wrongFile', 'Wrong file'],
+  ['tooManyMonths', 'Covers too many months'],
+  ['looksWrong', 'Something looks wrong'],
+  ['later', 'Will upload it later'],
+  ['other', 'Other'],
+  ['noReason', 'No reason given'],
+];
+
+/** The customers' own reasons for discarding, over the whole period. */
+function DiscardReasons({ total, weeks }: { total: StagedOutcomesWeek; weeks: number }) {
+  if (total.discardedByCustomer === 0) return null;
+  return (
+    <p className="text-sm text-ink" data-testid="discard-reasons">
+      <span className="text-muted">Why customers discarded, last {weeks} weeks: </span>
+      {DISCARD_REASON_LABELS.filter(([key]) => total.discardReasons[key] > 0)
+        .map(([key, label]) => `${label} ${count(total.discardReasons[key])}`)
+        .join(' · ')}
+    </p>
+  );
+}
+
+/** "Staged, but was it imported?": what became of customers' staged statements, week by week. */
+function StagedOutcomes({ period }: { period: Period }) {
+  const { data, isLoading, isError } = useQuery<StagedOutcomesReport>({
+    queryKey: ['reading-quality-staged-outcomes', period],
+    queryFn: () => adminReadingQualityApi.stagedOutcomes(period),
+  });
+
+  return (
+    <section aria-labelledby="staged-outcomes-heading" className="space-y-3">
+      <div>
+        <h2 id="staged-outcomes-heading" className="text-base font-semibold text-ink">Staged, but was it imported?</h2>
+        <p className="text-xs text-muted">
+          Statements that read cleanly for a customer, by the week they were staged, and what became of each.
+          {data?.recordedSince && <> Recorded from {weekLabel(data.recordedSince)}.</>}
+        </p>
+      </div>
+      {isLoading && !data ? (
+        <p className="text-muted text-sm">Loading…</p>
+      ) : isError && !data ? (
+        <p className="text-muted text-sm">Could not load what became of staged statements.</p>
+      ) : data ? (
+        <div className="bg-card border border-border rounded-xl2 overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-xs text-muted">
+                <th scope="col" rowSpan={2} className="px-3 py-2 text-left font-medium align-bottom border-b border-border">Week of</th>
+                <th scope="col" rowSpan={2} className="px-3 py-2 text-right font-medium align-bottom border-b border-border">Staged</th>
+                <th scope="colgroup" colSpan={OUTCOME_COLUMNS.length} className="px-3 pt-2 text-left font-medium border-l border-border">What became of it</th>
+                <th scope="colgroup" colSpan={LIMIT_COLUMNS.length} className="px-3 pt-2 text-left font-medium border-l border-border">Free plan one-month limit</th>
+              </tr>
+              <tr className="text-xs text-muted border-b border-border">
+                {OUTCOME_COLUMNS.map(([key, label], i) => (
+                  <th key={key} scope="col" className={`px-3 py-2 text-right font-medium${i === 0 ? ' border-l border-border' : ''}`}>{label}</th>
+                ))}
+                {LIMIT_COLUMNS.map(([key, label], i) => (
+                  <th key={key} scope="col" className={`px-3 py-2 text-right font-medium${i === 0 ? ' border-l border-border' : ''}`}>{label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {[...data.weekly].reverse().map((week) => (
+                <OutcomeRow key={week.weekStart} week={week} label={weekLabel(week.weekStart as string)}
+                  recordedSince={data.recordedSince} />
+              ))}
+              <OutcomeRow week={data.total} label={`Last ${data.weeks} weeks`} recordedSince={data.recordedSince} total />
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+      {data && <DiscardReasons total={data.total} weeks={data.weeks} />}
+      <p className="text-xs text-muted">
+        Each staged statement counts once, under the first that applies: imported; discarded by the customer;
+        removed by the phone app (it cannot import a statement covering more than one account, and deletes one
+        itself); expired (left unconfirmed for 48 hours); still open (including any held for the team’s check);
+        not recorded (staged before recording began, or removed by the system: a re-read, a rejected hold, a
+        stale copy replaced on re-upload). Free plan limit: the review opened with the one-month notice, a
+        confirm was refused for it, or it was shown and the statement imported anyway (after an upgrade, or as just
+        its latest month).
+        Reasons are the optional one-tap answer on the discard dialog; older apps never ask. Internal and admin
+        accounts are left out.
+      </p>
+    </section>
   );
 }
 
@@ -158,6 +296,8 @@ function ReadingQualityContent() {
         bank names were recorded are not counted, and counts drop slightly when customers delete their
         accounts.
       </p>
+
+      <StagedOutcomes period={period} />
     </div>
   );
 }

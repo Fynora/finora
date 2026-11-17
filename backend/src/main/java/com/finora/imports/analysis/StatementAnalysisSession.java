@@ -188,6 +188,11 @@ public class StatementAnalysisSession {
     @Column(name = "discarded_by", insertable = false, updatable = false)
     private String discardedBy;
 
+    /** Why the customer discarded it, when they chose one of the optional reasons
+     *  ({@link com.finora.imports.DiscardReason}); null otherwise. V327. */
+    @Column(name = "discard_reason", insertable = false, updatable = false)
+    private String discardReason;
+
     /** The customer chose to delete it. */
     public static final String DISCARDED_BY_CUSTOMER = "CUSTOMER";
     /** The phone app deleted it itself: it cannot import a statement covering more than one account. */
@@ -200,6 +205,10 @@ public class StatementAnalysisSession {
     /** When a confirm of this statement was first refused for the Free plan's one-month limit (V326). */
     @Column(name = "free_limit_refused_at", insertable = false, updatable = false)
     private Instant freeLimitRefusedAt;
+
+    /** When the statement was imported: written after the confirm committed (V327). */
+    @Column(name = "confirmed_at", insertable = false, updatable = false)
+    private Instant confirmedAt;
 
     protected StatementAnalysisSession() {
         // JPA
@@ -350,6 +359,8 @@ public class StatementAnalysisSession {
     public Instant getExpiredUnconfirmedAt() { return expiredUnconfirmedAt; }
     public Instant getDiscardedUnconfirmedAt() { return discardedUnconfirmedAt; }
     public String getDiscardedBy() { return discardedBy; }
+    public String getDiscardReason() { return discardReason; }
     public Instant getFreeLimitShownAt() { return freeLimitShownAt; }
     public Instant getFreeLimitRefusedAt() { return freeLimitRefusedAt; }
+    public Instant getConfirmedAt() { return confirmedAt; }
 }

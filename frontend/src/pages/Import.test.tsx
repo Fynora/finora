@@ -846,7 +846,7 @@ describe('Import — discarding the current review to force a fresh parse', () =
     expect(await screen.findByText('Discard this import and start over?')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Discard' }));
 
-    expect(importApi.discardSession).toHaveBeenCalledWith('sess-9');
+    expect(importApi.discardSession).toHaveBeenCalledWith('sess-9', null, true);
     expect(await screen.findByTestId('statement-dropzone')).toBeInTheDocument();
   });
 
@@ -910,7 +910,7 @@ describe('Import — discarding the current review to force a fresh parse', () =
     expect(await screen.findByText('Discard this import and start over?')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Discard' }));
 
-    expect(importApi.discardSession).toHaveBeenCalledWith('sess-multi-9');
+    expect(importApi.discardSession).toHaveBeenCalledWith('sess-multi-9', null, true);
     expect(await screen.findByTestId('statement-dropzone')).toBeInTheDocument();
   });
 });
@@ -3464,6 +3464,48 @@ describe('Import — continuing an unfinished import', () => {
     await waitFor(() => expect(importApi.listSessions).toHaveBeenCalledTimes(2));
   });
 
+  it('sends the optional reason picked in the discard dialog', async () => {
+    vi.mocked(importApi.listSessions).mockReset()
+      .mockResolvedValueOnce([unfinishedSession()])
+      .mockResolvedValueOnce([]);
+    vi.mocked(importApi.discardSession).mockReset().mockResolvedValue(undefined as never);
+    const user = userEvent.setup();
+    renderImport();
+
+    await screen.findByText('hdfc-july.pdf');
+    await user.click(screen.getByTitle('Discard Unfinished Import'));
+    await screen.findByText('Discard this unfinished import?');
+    expect(screen.getByText(/Why\?/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Covers too many months' }));
+    expect(screen.getByRole('button', { name: 'Covers too many months' })).toHaveAttribute('aria-pressed', 'true');
+    await user.click(screen.getByRole('button', { name: 'Discard' }));
+
+    expect(importApi.discardSession).toHaveBeenCalledWith('sess-1', 'TOO_MANY_MONTHS', true);
+  });
+
+  it('tapping the chosen reason again clears it, and a cancelled dialog forgets it', async () => {
+    vi.mocked(importApi.listSessions).mockReset().mockResolvedValue([unfinishedSession()]);
+    vi.mocked(importApi.discardSession).mockReset().mockResolvedValue(undefined as never);
+    const user = userEvent.setup();
+    renderImport();
+
+    await screen.findByText('hdfc-july.pdf');
+    await user.click(screen.getByTitle('Discard Unfinished Import'));
+    await screen.findByText('Discard this unfinished import?');
+    await user.click(screen.getByRole('button', { name: 'Wrong file' }));
+    await user.click(screen.getByRole('button', { name: 'Wrong file' }));
+    expect(screen.getByRole('button', { name: 'Wrong file' })).toHaveAttribute('aria-pressed', 'false');
+
+    await user.click(screen.getByRole('button', { name: 'I’ll upload it later' }));
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    await user.click(screen.getByTitle('Discard Unfinished Import'));
+    await screen.findByText('Discard this unfinished import?');
+    expect(screen.getByRole('button', { name: 'I’ll upload it later' })).toHaveAttribute('aria-pressed', 'false');
+    await user.click(screen.getByRole('button', { name: 'Discard' }));
+
+    expect(importApi.discardSession).toHaveBeenCalledWith('sess-1', null, true);
+  });
+
   it('discards a session after confirmation and removes it from the list', async () => {
     vi.mocked(importApi.listSessions).mockReset()
       .mockResolvedValueOnce([unfinishedSession()])
@@ -3479,7 +3521,7 @@ describe('Import — continuing an unfinished import', () => {
     expect(await screen.findByText('Discard this unfinished import?')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Discard' }));
 
-    expect(importApi.discardSession).toHaveBeenCalledWith('sess-1');
+    expect(importApi.discardSession).toHaveBeenCalledWith('sess-1', null, true);
     await waitFor(() => expect(screen.queryByText('hdfc-july.pdf')).not.toBeInTheDocument());
   });
 

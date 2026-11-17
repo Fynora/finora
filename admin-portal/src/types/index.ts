@@ -1349,6 +1349,8 @@ interface ImportTraceCompletion {
   /** CUSTOMER, or PHONE_MULTI_ACCOUNT when the phone app deleted it itself (it cannot import a
    *  statement covering more than one account). Null when not discarded. */
   discardedBy: 'CUSTOMER' | 'PHONE_MULTI_ACCOUNT' | null;
+  /** The customer's optional one-tap reason; null when none was given or it was not discarded. */
+  discardReason: 'WRONG_FILE' | 'TOO_MANY_MONTHS' | 'LOOKS_WRONG' | 'LATER' | 'OTHER' | null;
   expiredUnconfirmedAt: string | null;
   freeLimitShownAt: string | null;
   freeLimitRefusedAt: string | null;
@@ -1530,6 +1532,40 @@ export interface ReadingQualityReport {
   /** Most in need of work first, as the server sorted them. */
   banks: ReadingQualityBankRow[];
   bankNotKnown: { importHolds: number; trustHolds: number; fixes: number };
+}
+
+/** "Staged, but was it imported?" -- mirrors the backend's `StagedOutcomesDto`. Counts only. Each
+ *  staged statement is counted once, in the first outcome that applies (imported, discarded by the
+ *  customer, removed by the phone, expired, still open, else not recorded); they add up to `staged`. */
+export interface StagedOutcomesWeek {
+  /** A Monday, India time (yyyy-mm-dd); null on the period's total. */
+  weekStart: string | null;
+  staged: number;
+  imported: number;
+  discardedByCustomer: number;
+  /** The phone app deleted it: it cannot import a statement covering more than one account. */
+  removedByPhone: number;
+  expired: number;
+  stillOpen: number;
+  /** Staged before recording began, or removed by the system with nothing recorded. */
+  notRecorded: number;
+  freeLimitShown: number;
+  freeLimitRefused: number;
+  /** Shown the Free plan notice and imported all the same: after an upgrade, or as just its latest month. */
+  freeLimitThenImported: number;
+  /** Of `discardedByCustomer`, by the optional reason tapped; they add up to it. */
+  discardReasons: {
+    wrongFile: number; tooManyMonths: number; looksWrong: number; later: number; other: number; noReason: number;
+  };
+}
+
+export interface StagedOutcomesReport {
+  weeks: number;
+  /** The day recording began (India time), or null when the server cannot say. */
+  recordedSince: string | null;
+  /** Oldest first. */
+  weekly: StagedOutcomesWeek[];
+  total: StagedOutcomesWeek;
 }
 
 /** One open hold on the "Needs a decision" page -- mirrors the backend's `DecisionQueueRowDto`. No

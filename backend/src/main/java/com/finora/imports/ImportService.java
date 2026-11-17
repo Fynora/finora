@@ -1163,6 +1163,7 @@ public class ImportService {
 
         reconcileAcross(userId, persisted);
         carrySavedPassword(session.getId(), persisted.stream().map(p -> p.savedImport().getId()).toList());
+        stampConfirmedAfterCommit(session.getId());
 
         List<ConfirmResponse> responses = new ArrayList<>();
         for (PersistedSection section : persisted) {
@@ -1220,7 +1221,28 @@ public class ImportService {
                 : statementImportRepository.findById(response.statementImportId()).map(StatementImport::getAccountId).orElse(null);
         recordBankChoice(session.getLayoutFingerprint(), detectedAccount, request, response.accountsCreated(), createdInto);
         carrySavedPassword(session.getId(), List.of(response.statementImportId()));
+        stampConfirmedAfterCommit(session.getId());
         return response;
+    }
+
+    /**
+     * V327: records on the upload's evidence row that it was imported -- once this confirm has
+     * committed. Inside the confirm a failed write would abort its transaction (PostgreSQL), and a
+     * write of its own made now would stay even if the confirm then rolled back. After the commit it
+     * runs in a transaction of its own ({@code StatementAnalysisRecorder.stamp}) and can fail nothing.
+     */
+    private void stampConfirmedAfterCommit(UUID sessionId) {
+        if (!org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            stampUnconfirmedOutcome(sessionId, StatementAnalysisRecorder.UnconfirmedOutcome.CONFIRMED);
+            return;
+        }
+        org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                new org.springframework.transaction.support.TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        stampUnconfirmedOutcome(sessionId, StatementAnalysisRecorder.UnconfirmedOutcome.CONFIRMED);
+                    }
+                });
     }
 
     /**

@@ -338,22 +338,33 @@ function TraceView({ trace }: { trace: ImportTrace }) {
 
 /** Who deleted a staged statement, in words. The phone app deletes one it cannot import by itself,
  *  which is not the customer abandoning it. */
-function discardLabel(by: string | null): string {
-  if (by === 'CUSTOMER') return 'Discarded by the customer';
+const DISCARD_REASON_WORDS: Record<string, string> = {
+  WRONG_FILE: 'wrong file',
+  TOO_MANY_MONTHS: 'covers too many months',
+  LOOKS_WRONG: 'something looks wrong',
+  LATER: 'will upload it later',
+  OTHER: 'other',
+};
+
+function discardLabel(by: string | null, reason: string | null = null): string {
+  if (by === 'CUSTOMER') {
+    const why = reason ? DISCARD_REASON_WORDS[reason] : undefined;
+    return why ? `Discarded by the customer (${why})` : 'Discarded by the customer';
+  }
   if (by === 'PHONE_MULTI_ACCOUNT') return 'Removed by the phone app: more than one account';
   return 'Discarded';
 }
 
 /**
  * What the evidence row recorded about a staged statement, in the order it can happen. The Free-limit
- * events are listed even when the statement was imported later (an upgrade in between); a discard or
+ * events are listed even when the statement was imported later (an upgrade, or just its latest month); a discard or
  * an expiry can only end one that was not.
  */
 function stagedOutcomes(completion: ImportTrace['completion']): [string, string][] {
   const outcomes: [string, string | null][] = [
     ['Free plan limit notice shown', completion.freeLimitShownAt],
     ['Confirm refused by the Free plan limit', completion.freeLimitRefusedAt],
-    [discardLabel(completion.discardedBy), completion.discardedUnconfirmedAt],
+    [discardLabel(completion.discardedBy, completion.discardReason), completion.discardedUnconfirmedAt],
     ['Expired unconfirmed', completion.expiredUnconfirmedAt],
   ];
   return outcomes.filter((o): o is [string, string] => o[1] != null);

@@ -2,6 +2,7 @@ import { api, rawApi, type ApiEnvelope } from './client';
 import { markActivity } from '../lib/idleSignOut';
 import type { SignupAttribution } from '../lib/signupAttribution';
 import { downloadBlob } from '../lib/download';
+import type { DiscardReason } from '../lib/discardReasons';
 import type { ConvertedStatement } from '../pages/converter/statementSheets';
 import type { components } from './generated-types';
 
@@ -669,7 +670,13 @@ export const importApi = {
         approvedAfterReview?: boolean;
       }>(`/import/sessions/${id}`)
       .then((r) => r.data),
-  discardSession: (id: string) => api.delete(`/import/sessions/${id}`),
+  // `reason`: the customer's optional one-tap reason from the discard dialog; omitted when skipped.
+  // confirmedByCustomer: true only from a discard dialog the customer answered -- never from the
+  // app deleting a statement by itself.
+  discardSession: (id: string, reason?: DiscardReason | null, confirmedByCustomer = false) =>
+    api.delete(`/import/sessions/${id}`, {
+      params: { ...(reason ? { reason } : {}), ...(confirmedByCustomer ? { confirmedByCustomer: true } : {}) },
+    }),
   // "Your recent failed imports" -- Premium Import Reliability v1, §2.1. A document that never got
   // far enough to become an ImportSession (no header found, zero transactions, a scanned PDF)
   // previously left no trace its owner could see again; this is that trace, read back.

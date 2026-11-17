@@ -93,7 +93,8 @@ function trace(over: Partial<Trace> = {}): Trace {
     learning: { events: 3, byStatus: { COMPLETED: 3 }, outstanding: [] },
     completion: {
       statementImportId: null, transactionsImported: null, transactionsSkipped: null, importedAt: null,
-      sessionConfirmedAt: null, discardedUnconfirmedAt: null, discardedBy: null, expiredUnconfirmedAt: null,
+      sessionConfirmedAt: null, discardedUnconfirmedAt: null, discardedBy: null, discardReason: null,
+      expiredUnconfirmedAt: null,
       freeLimitShownAt: null, freeLimitRefusedAt: null,
     },
     ...over,
@@ -187,6 +188,17 @@ describe('Import Trace — an absent block is an answer', () => {
     expect(screen.getByText('Discarded by the customer')).toBeInTheDocument();
     expect(screen.queryByText('Expired unconfirmed')).not.toBeInTheDocument();
     expect(screen.getByText(/What happened to the staged statement/i)).toBeInTheDocument();
+  });
+
+  it('names the reason the customer gave for discarding it', async () => {
+    const base = trace();
+    vi.mocked(adminImportTraceApi.byAnalysis).mockResolvedValue(trace({
+      completion: { ...base.completion, discardedUnconfirmedAt: '2026-08-06T09:03:00Z', discardedBy: 'CUSTOMER',
+        discardReason: 'TOO_MANY_MONTHS' },
+    }));
+    await traceFor();
+
+    expect(await screen.findByText('Discarded by the customer (covers too many months)')).toBeInTheDocument();
   });
 
   it('does not call the phone app removing a statement it cannot import the customer discarding it', async () => {

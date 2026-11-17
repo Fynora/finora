@@ -10968,6 +10968,30 @@
                             "type": "string",
                             "format": "uuid"
                         }
+                    },
+                    {
+                        "name": "reason",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "WRONG_FILE",
+                                "TOO_MANY_MONTHS",
+                                "LOOKS_WRONG",
+                                "LATER",
+                                "OTHER"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "confirmedByCustomer",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "boolean",
+                            "default": false
+                        }
                     }
                 ],
                 "responses": {
@@ -13511,6 +13535,38 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiResponseReadingQualityReport"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/imports/reading-quality/staged-outcomes": {
+            "get": {
+                "tags": [
+                    "admin-reading-quality-controller"
+                ],
+                "operationId": "stagedOutcomes",
+                "parameters": [
+                    {
+                        "name": "weeks",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int32",
+                            "default": 12
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseStagedOutcomesReport"
                                 }
                             }
                         }
@@ -33932,6 +33988,9 @@
                     "discardedBy": {
                         "type": "string"
                     },
+                    "discardReason": {
+                        "type": "string"
+                    },
                     "expiredUnconfirmedAt": {
                         "type": "string",
                         "format": "date-time"
@@ -34429,6 +34488,137 @@
                     "fixes": {
                         "type": "integer",
                         "format": "int64"
+                    }
+                }
+            },
+            "ApiResponseStagedOutcomesReport": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/StagedOutcomesReport"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "StagedOutcomesDiscardReasons": {
+                "type": "object",
+                "properties": {
+                    "wrongFile": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "tooManyMonths": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "looksWrong": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "later": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "other": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "noReason": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
+            "StagedOutcomesReport": {
+                "type": "object",
+                "properties": {
+                    "weeks": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "recordedSince": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "weekly": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/StagedOutcomesWeek"
+                        }
+                    },
+                    "total": {
+                        "$ref": "#/components/schemas/StagedOutcomesWeek"
+                    }
+                }
+            },
+            "StagedOutcomesWeek": {
+                "type": "object",
+                "properties": {
+                    "weekStart": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "staged": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "imported": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "discardedByCustomer": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "removedByPhone": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "expired": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "stillOpen": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "notRecorded": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "freeLimitShown": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "freeLimitRefused": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "freeLimitThenImported": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "discardReasons": {
+                        "$ref": "#/components/schemas/StagedOutcomesDiscardReasons"
                     }
                 }
             },

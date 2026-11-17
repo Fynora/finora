@@ -147,10 +147,15 @@ class UnconfirmedStagingOutcomesIT extends AbstractIntegrationTest {
 
     /** As the app named by {@code platform} sends it ({@code X-Client-Platform}); null sends none. */
     private ResponseEntity<String> discard(User user, UUID sessionId, String platform) {
+        return discard(user, sessionId, platform, null);
+    }
+
+    /** With the dialog's optional one-tap reason ({@code ?reason=}); null sends none. */
+    private ResponseEntity<String> discard(User user, UUID sessionId, String platform, String reason) {
         HttpHeaders headers = bearerFor(user);
         if (platform != null) headers.set("X-Client-Platform", platform);
-        return restTemplate.exchange("/api/v1/import/sessions/" + sessionId, HttpMethod.DELETE,
-                new HttpEntity<>(headers), String.class);
+        return restTemplate.exchange("/api/v1/import/sessions/" + sessionId + (reason == null ? "" : "?reason=" + reason),
+                HttpMethod.DELETE, new HttpEntity<>(headers), String.class);
     }
 
     private JsonNode stage(User user, String path, byte[] content, String fileName, String platform) throws Exception {
@@ -380,6 +385,75 @@ class UnconfirmedStagingOutcomesIT extends AbstractIntegrationTest {
         JsonNode onWeb = stage(webUser, "/api/v1/import/pdf/stage", pdf, "statement.pdf", "WEB");
         assertThat(onWeb.get("multiAccount").asBoolean()).isTrue();
         assertThat(evidenceOf(UUID.fromString(onWeb.get("sessionId").asText())).getFreeLimitShownAt()).isNotNull();
+    }
+
+    // -- The customer's optional reason ------------------------------------------------------------
+
+    @Test
+    void theCustomersReason_isKeptWithTheDiscard_andShownInTheTrace() throws Exception {
+        User user = customer("FREE");
+        UUID sessionId = stageCsv(user, ONE_MONTH_CSV);
+
+        assertThat(discard(user, sessionId, "WEB", "TOO_MANY_MONTHS").getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        StatementAnalysisSession after = evidenceOf(sessionId);
+        assertThat(after.getDiscardedBy()).isEqualTo("CUSTOMER");
+        assertThat(after.getDiscardReason()).isEqualTo("TOO_MANY_MONTHS");
+
+        User admin = user(null, "ADMIN", User.SCOPE_ADMIN);
+        JsonNode completion = mapper.readTree(restTemplate.exchange(
+                "/api/v1/admin/imports/traces/by-analysis/" + after.getReference(), HttpMethod.GET,
+                new HttpEntity<>(bearerFor(admin)), String.class).getBody()).get("data").get("completion");
+        assertThat(completion.get("discardReason").asText()).isEqualTo("TOO_MANY_MONTHS");
+    }
+
+    @Test
+    void noReason_isNormal() throws Exception {
+        User user = customer("FREE");
+        UUID sessionId = stageCsv(user, ONE_MONTH_CSV);
+
+        assertThat(discard(user, sessionId, "MOBILE_IOS").getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        assertThat(evidenceOf(sessionId).getDiscardedBy()).isEqualTo("CUSTOMER");
+        assertThat(evidenceOf(sessionId).getDiscardReason()).isNull();
+    }
+
+    @Test
+    void thePhoneRemovingAStatementItCannotImport_carriesNoReason() throws Exception {
+        User user = customer("FREE");
+        UUID sessionId = stageCsv(user, ONE_MONTH_CSV);
+        makeMultiAccount(sessionId);
+
+        assertThat(discard(user, sessionId, "MOBILE_ANDROID", "WRONG_FILE").getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        assertThat(evidenceOf(sessionId).getDiscardedBy()).isEqualTo("PHONE_MULTI_ACCOUNT");
+        assertThat(evidenceOf(sessionId).getDiscardReason()).isNull();
+    }
+
+    @Test
+    void aPhoneDiscardTheCustomerConfirmed_isTheirs_evenForAStatementCoveringMoreThanOneAccount() throws Exception {
+        // Phone builds from this change on ask first (the discard sheet), and never delete one by
+        // themselves; only an older build's silent deletion is the phone's.
+        User user = customer("FREE");
+        UUID sessionId = stageCsv(user, ONE_MONTH_CSV);
+        makeMultiAccount(sessionId);
+
+        assertThat(discard(user, sessionId, "MOBILE_IOS", "LOOKS_WRONG&confirmedByCustomer=true").getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+
+        assertThat(evidenceOf(sessionId).getDiscardedBy()).isEqualTo("CUSTOMER");
+        assertThat(evidenceOf(sessionId).getDiscardReason()).isEqualTo("LOOKS_WRONG");
+    }
+
+    @Test
+    void aReasonThatIsNotOneOfTheChoices_isRefused_andNothingIsDiscarded() throws Exception {
+        User user = customer("FREE");
+        UUID sessionId = stageCsv(user, ONE_MONTH_CSV);
+
+        assertThat(discard(user, sessionId, "WEB", "SOMETHING_ELSE").getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        assertThat(sessions.existsById(sessionId)).isTrue();
+        assertThat(evidenceOf(sessionId).getDiscardedUnconfirmedAt()).isNull();
     }
 
     @Test

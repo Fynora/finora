@@ -2563,7 +2563,6 @@ describe('ImportScreen — async import job (Phase 4)', () => {
   });
 
   it('discarding an unfinished import gives one success once confirmed, and one error when refused', async () => {
-    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
     api.import.listSessions.mockResolvedValue([
       { id: 'sess-old', fileName: 'old.csv', rowCount: 3, createdAt: '2026-09-01T00:00:00Z', expiresAt: '2099-01-01T00:00:00Z' },
     ] as never);
@@ -2571,16 +2570,37 @@ describe('ImportScreen — async import job (Phase 4)', () => {
 
     fireEvent.press(await screen.findByLabelText('Discard import of old.csv'));
     expectHaptics({});
-    await act(async () => { alertSpy.mock.calls[0][2]!.find((b) => b.text === 'Discard')!.onPress!(); });
-    await waitFor(() => expect(api.import.discardSession).toHaveBeenCalledWith('sess-old'));
+    expect(await screen.findByText('Discard this import?')).toBeTruthy();
+    await act(async () => { fireEvent.press(screen.getByTestId('discard-import-confirm')); });
+    await waitFor(() => expect(api.import.discardSession).toHaveBeenCalledWith('sess-old', null, true));
     await waitFor(() => expectHaptics({ success: 1 }));
 
     api.import.discardSession.mockRejectedValueOnce(new Error('down'));
     fireEvent.press(screen.getByLabelText('Discard import of old.csv'));
-    await act(async () => { alertSpy.mock.calls[1][2]!.find((b) => b.text === 'Discard')!.onPress!(); });
+    await act(async () => { fireEvent.press(await screen.findByTestId('discard-import-confirm')); });
     expect(await screen.findByText('Could not discard that import.')).toBeTruthy();
     expectHaptics({ success: 1, error: 1 });
-    alertSpy.mockRestore();
+  });
+
+  it('sends the optional reason tapped on the discard sheet, and Cancel discards nothing', async () => {
+    api.import.listSessions.mockResolvedValue([
+      { id: 'sess-old', fileName: 'old.csv', rowCount: 3, createdAt: '2026-09-01T00:00:00Z', expiresAt: '2099-01-01T00:00:00Z' },
+    ] as never);
+    render(treeAsyncAvailable());
+
+    fireEvent.press(await screen.findByLabelText('Discard import of old.csv'));
+    fireEvent.press(await screen.findByText('Cancel'));
+    await waitFor(() => expect(screen.queryByText('Discard this import?')).toBeNull());
+    expect(api.import.discardSession).not.toHaveBeenCalled();
+
+    fireEvent.press(screen.getByLabelText('Discard import of old.csv'));
+    fireEvent.press(await screen.findByTestId('discard-reason-WRONG_FILE'));
+    fireEvent.press(screen.getByTestId('discard-reason-WRONG_FILE')); // tapped again: cleared
+    fireEvent.press(screen.getByTestId('discard-reason-LATER'));
+    expect(screen.getByTestId('discard-reason-LATER').props.accessibilityState).toEqual({ selected: true });
+    await act(async () => { fireEvent.press(screen.getByTestId('discard-import-confirm')); });
+
+    await waitFor(() => expect(api.import.discardSession).toHaveBeenCalledWith('sess-old', 'LATER', true));
   });
 });
 

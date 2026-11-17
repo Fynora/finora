@@ -116,6 +116,7 @@ public final class AdminReadAuditPolicy {
             entry(A + "/imports/analyses/summary", Rule.none()),
             entry(A + "/imports/analyses/failures/summary", Rule.none()),
             entry(A + "/imports/reading-quality", Rule.none()),     // bank names and counts only
+            entry(A + "/imports/reading-quality/staged-outcomes", Rule.none()), // counts only
             entry(A + "/imports/layout-registry", Rule.none()),
             entry(A + "/imports/layout-registry/bank-choices", Rule.none()),
             entry(A + "/imports/layout-registry/bank-origins", Rule.none()),

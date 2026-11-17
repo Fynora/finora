@@ -13250,6 +13250,48 @@
                 }
             }
         },
+        "/api/v1/admin/learning/events": {
+            "get": {
+                "tags": [
+                    "admin-learning-stats-controller"
+                ],
+                "operationId": "events",
+                "parameters": [
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int32",
+                            "default": 0
+                        }
+                    },
+                    {
+                        "name": "size",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int32",
+                            "default": 25
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponsePagedResponseLearningEventRow"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/learning-queue": {
             "get": {
                 "tags": [
@@ -33639,6 +33681,55 @@
                     }
                 }
             },
+            "LearningCategoryChange": {
+                "type": "object",
+                "properties": {
+                    "fromCategory": {
+                        "type": "string"
+                    },
+                    "toCategory": {
+                        "type": "string"
+                    },
+                    "count": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
+            "LearningCategorySourceCount": {
+                "type": "object",
+                "properties": {
+                    "source": {
+                        "type": "string"
+                    },
+                    "transactions": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
+            "LearningCorrectedMerchant": {
+                "type": "object",
+                "properties": {
+                    "merchant": {
+                        "type": "string"
+                    },
+                    "corrections": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "users": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "usualFrom": {
+                        "type": "string"
+                    },
+                    "usualTo": {
+                        "type": "string"
+                    }
+                }
+            },
             "LearningPlatformStatsDto": {
                 "type": "object",
                 "properties": {
@@ -33658,11 +33749,171 @@
                         "type": "integer",
                         "format": "int64"
                     },
+                    "undoneCount": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "usersWithLearning": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "medianPairsPerUser": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "last30Days": {
+                        "$ref": "#/components/schemas/LearningWindow"
+                    },
+                    "previous30Days": {
+                        "$ref": "#/components/schemas/LearningWindow"
+                    },
                     "trend": {
                         "type": "array",
                         "items": {
-                            "$ref": "#/components/schemas/LearningGrowthPoint"
+                            "$ref": "#/components/schemas/LearningTrendPoint"
                         }
+                    },
+                    "categorySources": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/LearningCategorySourceCount"
+                        }
+                    },
+                    "topCorrectedMerchants": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/LearningCorrectedMerchant"
+                        }
+                    },
+                    "topCategoryChanges": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/LearningCategoryChange"
+                        }
+                    }
+                }
+            },
+            "LearningTrendPoint": {
+                "type": "object",
+                "properties": {
+                    "month": {
+                        "type": "string"
+                    },
+                    "learned": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "corrected": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "undone": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "reset": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
+            "LearningWindow": {
+                "type": "object",
+                "properties": {
+                    "learned": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "corrected": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
+            "ApiResponsePagedResponseLearningEventRow": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/PagedResponseLearningEventRow"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "LearningEventRow": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "createdAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "userId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "userEmail": {
+                        "type": "string"
+                    },
+                    "action": {
+                        "type": "string"
+                    },
+                    "merchant": {
+                        "type": "string"
+                    },
+                    "fromCategory": {
+                        "type": "string"
+                    },
+                    "toCategory": {
+                        "type": "string"
+                    }
+                }
+            },
+            "PagedResponseLearningEventRow": {
+                "type": "object",
+                "properties": {
+                    "content": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/LearningEventRow"
+                        }
+                    },
+                    "page": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "size": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "totalElements": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "totalPages": {
+                        "type": "integer",
+                        "format": "int32"
                     }
                 }
             },

@@ -13,7 +13,7 @@ import type {
   FeedbackRow, FeedbackQuery, FeedbackBreakdown,
   CreateAccountRequest, CreateBankRequest, CreateMerchantTemplateRequest, CreateRelationshipRequest,
   CreateRuleRequest, CreateTrustedSenderRequest, CreateUserRequest, FeatureFlagDto, GmailMerchantParserStatDto, LearningGrowthPoint, LearningPlatformStatsDto, LearningSummaryDto, SignupSourceCountDto,
-  LearningTimelineEntry,
+  LearningTimelineEntry, LearningEventRow,
   IntegrationsOverviewDto,
   MeAccessDto, MerchantDto, MerchantMergeRequest, MerchantStatDto, MerchantTemplateDto,
   MerchantUpdateRequest, OperationalDashboardDto, SampleAnalysis, PagedResponse, PermissionDto, PlatformAnalyticsDto, SpendingTrackingBreakdown,
@@ -784,6 +784,8 @@ export const adminUserAnalyticsApi = {
 
 export const adminLearningApi = {
   platformStats: () => api.get<LearningPlatformStatsDto>('/admin/learning/stats').then((r) => r.data),
+  events: (params: { page: number; size: number }) =>
+    api.get<PagedResponse<LearningEventRow>>('/admin/learning/events', { params }).then((r) => r.data),
 };
 
 /** Admin, read-only Learning Engine visibility for a specific user -- AdminUserLearningController

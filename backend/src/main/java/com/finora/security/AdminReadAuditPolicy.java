@@ -85,6 +85,7 @@ public final class AdminReadAuditPolicy {
             entry(A + "/held-statements", Rule.manyUsers()),             // user id, bank, notes
             entry(A + "/held-statements/without-review-record", Rule.manyUsers()), // file name
             entry(A + "/learning-queue", Rule.manyUsers()),              // email, merchant, file name
+            entry(A + "/learning/events", Rule.manyUsers()),             // email, merchant, categories
             entry(A + "/merchant-review", Rule.manyUsers()),             // email, merchant name
             entry(A + "/notifications", Rule.manyUsers()),               // user id, title
             entry(A + "/referrals", Rule.manyUsers()),                   // both people's email and name

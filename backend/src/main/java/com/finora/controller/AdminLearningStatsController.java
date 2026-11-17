@@ -1,11 +1,14 @@
 package com.finora.controller;
 
+import com.finora.dto.AdminDtos.LearningEventRow;
 import com.finora.dto.AdminDtos.LearningPlatformStatsDto;
 import com.finora.dto.ApiResponse;
+import com.finora.dto.PagedResponse;
 import com.finora.service.AdminLearningStatsService;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /** Platform-wide Learning Engine stats for the admin console (frontend-admin/). Reuses
@@ -28,5 +31,14 @@ public class AdminLearningStatsController {
     @GetMapping("/stats")
     public ApiResponse<LearningPlatformStatsDto> stats() {
         return ApiResponse.ok(adminLearningStatsService.platformStats());
+    }
+
+    /** The newest learning events across customer accounts, with each customer's email -- an
+     *  admin read of many customers' data, recorded by AdminReadAuditPolicy. */
+    @GetMapping("/events")
+    public ApiResponse<PagedResponse<LearningEventRow>> events(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "25") int size) {
+        return ApiResponse.ok(adminLearningStatsService.recentEvents(page, size));
     }
 }

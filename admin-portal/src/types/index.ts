@@ -874,12 +874,68 @@ export interface LearningGrowthPoint {
   correctedCount: number;
 }
 
+/** Mirrors AdminDtos.LearningPlatformStatsDto: customer accounts only (internal and admin
+ *  accounts are left out). See AdminLearningStatsService for what each figure counts. */
 export interface LearningPlatformStatsDto {
   learnedMerchantPairs: number;
   totalConfirmations: number;
   correctedCount: number;
   resetCount: number;
-  trend: LearningGrowthPoint[];
+  undoneCount: number;
+  usersWithLearning: number;
+  medianPairsPerUser: number;
+  last30Days: LearningWindow;
+  previous30Days: LearningWindow;
+  trend: LearningTrendPoint[];
+  categorySources: LearningCategorySourceCount[];
+  topCorrectedMerchants: LearningCorrectedMerchant[];
+  topCategoryChanges: LearningCategoryChange[];
+}
+
+/** LEARNED and CORRECTED events in one 30-day window. */
+export interface LearningWindow {
+  learned: number;
+  corrected: number;
+}
+
+export interface LearningTrendPoint {
+  month: string;
+  learned: number;
+  corrected: number;
+  undone: number;
+  reset: number;
+}
+
+/** source is a Transaction.DecisionSource name. */
+export interface LearningCategorySourceCount {
+  source: string;
+  transactions: number;
+}
+
+export interface LearningCorrectedMerchant {
+  merchant: string;
+  corrections: number;
+  users: number;
+  usualFrom: string | null;
+  usualTo: string | null;
+}
+
+export interface LearningCategoryChange {
+  fromCategory: string;
+  toCategory: string;
+  count: number;
+}
+
+/** One row of GET /admin/learning/events. */
+export interface LearningEventRow {
+  id: string;
+  createdAt: string;
+  userId: string;
+  userEmail: string;
+  action: 'LEARNED' | 'CORRECTED' | 'UNDONE' | 'MERGED' | 'RESET';
+  merchant: string;
+  fromCategory: string | null;
+  toCategory: string | null;
 }
 
 // --- Reconciliation Monitor (AdminReconciliationStatsController / AdminUserWorkspaceController) ---

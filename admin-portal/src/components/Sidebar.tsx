@@ -31,42 +31,16 @@ function holdsAny(permissions: readonly (string | null)[], required: string | nu
   return Array.isArray(required) ? required.some((p) => permissions.includes(p)) : permissions.includes(required as string | null);
 }
 
+// Grouped by the job each page is for (Sid, 2026-11-17; design:
+// docs/superpowers/specs/2026-11-17-admin-sidebar-groups-design.md). It replaced Core / Intelligence /
+// Governance / Operations / System, where System alone held 17 unrelated pages. A collapsed group is
+// remembered by its label, so a label saved under the old names simply no longer matches: every
+// group starts open once after this change.
 const GROUPS = [
   {
-    label: 'Core',
+    label: 'Customers',
     links: [
       { to: '/users', label: 'Users', icon: Users, end: false, permission: 'USER_VIEW' },
-      { to: '/banks', label: 'Banks', icon: Landmark, end: false, permission: 'BANK_MANAGE' },
-      { to: '/merchants', label: 'Merchant Intelligence', icon: Store, end: false, permission: 'MERCHANT_MANAGE' },
-      { to: '/merchant-templates', label: 'Merchant Templates', icon: FileCode, end: false, permission: 'MERCHANT_MANAGE' },
-      { to: '/trusted-senders', label: 'Trusted Senders', icon: MailCheck, end: false, permission: 'SYSTEM_SETTINGS' },
-    ],
-  },
-  {
-    label: 'Intelligence',
-    links: [
-      { to: '/rules', label: 'Global Rules', icon: ListFilter, end: false, permission: 'RULE_MANAGE' },
-      { to: '/learning', label: 'Learning Engine', icon: Sparkles, end: false, permission: 'MERCHANT_MANAGE' },
-      { to: '/merchant-review', label: 'Merchant Review', icon: BadgeCheck, end: false, permission: 'MERCHANT_REVIEW' },
-      { to: '/learning-queue', label: 'Learning Queue', icon: ListRestart, end: false, permission: 'LEARNING_QUEUE_MANAGE' },
-      { to: '/reconciliation', label: 'Reconciliation Monitor', icon: GitMerge, end: false, permission: 'RECONCILIATION_VIEW' },
-      { to: '/reconciliation-explorer', label: 'Reconciliation Explorer', icon: Waypoints, end: false, permission: 'RECONCILIATION_VIEW' },
-      { to: '/insights-explorer', label: 'Insight Explorer', icon: Lightbulb, end: false, permission: 'INSIGHTS_EXPLORER_VIEW' },
-      // end: true, or it would light up alongside Activation, whose path it is a prefix of.
-      { to: '/analytics', label: 'Platform Analytics', icon: BarChart3, end: true, permission: 'PLATFORM_ANALYTICS_VIEW' },
-      { to: '/analytics/activation', label: 'Activation', icon: Footprints, end: false, permission: 'PLATFORM_ANALYTICS_VIEW' },
-    ],
-  },
-  {
-    label: 'Governance',
-    links: [
-      { to: '/roles', label: 'Roles & Permissions', icon: ShieldCheck, end: false, permission: 'ROLE_MANAGE' },
-      { to: '/audit', label: 'Audit Log', icon: ScrollText, end: false, permission: 'AUDIT_VIEW' },
-    ],
-  },
-  {
-    label: 'Operations',
-    links: [
       { to: '/subscriptions', label: 'Subscriptions', icon: CreditCard, end: false, permission: 'SUBSCRIPTION_MANAGEMENT_VIEW' },
       { to: '/billing-offers', label: 'Billing Offers', icon: BadgePercent, end: false, permission: 'SUBSCRIPTION_MANAGEMENT_VIEW' },
       { to: '/referrals', label: 'Referrals', icon: Gift, end: false, permission: 'REFERRAL_MANAGEMENT_VIEW' },
@@ -75,26 +49,67 @@ const GROUPS = [
     ],
   },
   {
-    label: 'System',
+    label: 'Statements and imports',
     links: [
-      { to: '/notifications', label: 'Notifications', icon: Bell, end: false, permission: 'NOTIFICATION_MANAGE' },
-      { to: '/push-campaigns', label: 'Push Campaigns', icon: Megaphone, end: false, permission: 'PUSH_CAMPAIGN_MANAGE' },
-      { to: '/app-icon', label: 'Festival App Icon', icon: Smartphone, end: false, permission: 'SYSTEM_SETTINGS' },
-      { to: '/health', label: 'System Health', icon: HeartPulse, end: false, permission: 'PLATFORM_DIAGNOSTICS_VIEW' },
-      { to: '/background-jobs', label: 'Background jobs', icon: ServerCrash, end: false, permission: 'PLATFORM_DIAGNOSTICS_VIEW' },
-      { to: '/integrations', label: 'Integrations', icon: Plug, end: false, permission: 'PLATFORM_DIAGNOSTICS_VIEW' },
-      { to: '/diagnostics', label: 'Platform Diagnostics', icon: Stethoscope, end: false, permission: 'PLATFORM_DIAGNOSTICS_VIEW' },
-      // Either permission: a layout curator without diagnostics access still reaches the review
-      // queue and profiles on this page (V243).
-      { to: '/layout-intelligence', label: 'Layout Intelligence', icon: Fingerprint, end: false, permission: ['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE'] },
-      { to: '/layout-studio', label: 'Layout Studio', icon: FileSearch, end: false, permission: 'PLATFORM_DIAGNOSTICS_VIEW' },
       { to: '/held-imports', label: 'Held Imports', icon: Clock, end: false, permission: 'IMPORT_TRIAGE_MANAGE' },
       { to: '/held-statements', label: 'Held Statements', icon: ShieldAlert, end: false, permission: 'TRUST_REVIEW_MANAGE' },
-      { to: '/trust-review-metrics', label: 'Trust Review Metrics', icon: BarChart3, end: false, permission: 'PLATFORM_DIAGNOSTICS_VIEW' },
       { to: '/import-health', label: 'Import Health', icon: Activity, end: false, permission: 'PLATFORM_DIAGNOSTICS_VIEW' },
       { to: '/reading-quality', label: 'Reading quality by bank', icon: Gauge, end: false, permission: 'PLATFORM_DIAGNOSTICS_VIEW' },
       { to: '/import-trace', label: 'Import Trace', icon: Route, end: false, permission: 'PLATFORM_DIAGNOSTICS_VIEW' },
       { to: '/import-row-trace', label: 'Import Row Trace', icon: ListOrdered, end: false, permission: 'PLATFORM_DIAGNOSTICS_VIEW' },
+      // Either permission: a layout curator without diagnostics access still reaches the review
+      // queue and profiles on this page (V243).
+      { to: '/layout-intelligence', label: 'Layout Intelligence', icon: Fingerprint, end: false, permission: ['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE'] },
+      { to: '/layout-studio', label: 'Layout Studio', icon: FileSearch, end: false, permission: 'PLATFORM_DIAGNOSTICS_VIEW' },
+      { to: '/trust-review-metrics', label: 'Trust Review Metrics', icon: BarChart3, end: false, permission: 'PLATFORM_DIAGNOSTICS_VIEW' },
+      { to: '/banks', label: 'Banks', icon: Landmark, end: false, permission: 'BANK_MANAGE' },
+    ],
+  },
+  {
+    label: 'Merchants and categories',
+    links: [
+      { to: '/merchants', label: 'Merchant Intelligence', icon: Store, end: false, permission: 'MERCHANT_MANAGE' },
+      { to: '/merchant-templates', label: 'Merchant Templates', icon: FileCode, end: false, permission: 'MERCHANT_MANAGE' },
+      { to: '/merchant-review', label: 'Merchant Review', icon: BadgeCheck, end: false, permission: 'MERCHANT_REVIEW' },
+      { to: '/rules', label: 'Global Rules', icon: ListFilter, end: false, permission: 'RULE_MANAGE' },
+      { to: '/learning', label: 'Learning Engine', icon: Sparkles, end: false, permission: 'MERCHANT_MANAGE' },
+      { to: '/learning-queue', label: 'Learning Queue', icon: ListRestart, end: false, permission: 'LEARNING_QUEUE_MANAGE' },
+      { to: '/trusted-senders', label: 'Trusted Senders', icon: MailCheck, end: false, permission: 'SYSTEM_SETTINGS' },
+    ],
+  },
+  {
+    label: 'Numbers',
+    links: [
+      // end: true, or it would light up alongside Activation, whose path it is a prefix of.
+      { to: '/analytics', label: 'Platform Analytics', icon: BarChart3, end: true, permission: 'PLATFORM_ANALYTICS_VIEW' },
+      { to: '/analytics/activation', label: 'Activation', icon: Footprints, end: false, permission: 'PLATFORM_ANALYTICS_VIEW' },
+      { to: '/insights-explorer', label: 'Insight Explorer', icon: Lightbulb, end: false, permission: 'INSIGHTS_EXPLORER_VIEW' },
+      { to: '/reconciliation', label: 'Reconciliation Monitor', icon: GitMerge, end: false, permission: 'RECONCILIATION_VIEW' },
+      { to: '/reconciliation-explorer', label: 'Reconciliation Explorer', icon: Waypoints, end: false, permission: 'RECONCILIATION_VIEW' },
+    ],
+  },
+  {
+    label: 'Messages to customers',
+    links: [
+      { to: '/notifications', label: 'Notifications', icon: Bell, end: false, permission: 'NOTIFICATION_MANAGE' },
+      { to: '/push-campaigns', label: 'Push Campaigns', icon: Megaphone, end: false, permission: 'PUSH_CAMPAIGN_MANAGE' },
+      { to: '/app-icon', label: 'Festival App Icon', icon: Smartphone, end: false, permission: 'SYSTEM_SETTINGS' },
+    ],
+  },
+  {
+    label: 'Server health',
+    links: [
+      { to: '/health', label: 'System Health', icon: HeartPulse, end: false, permission: 'PLATFORM_DIAGNOSTICS_VIEW' },
+      { to: '/background-jobs', label: 'Background jobs', icon: ServerCrash, end: false, permission: 'PLATFORM_DIAGNOSTICS_VIEW' },
+      { to: '/integrations', label: 'Integrations', icon: Plug, end: false, permission: 'PLATFORM_DIAGNOSTICS_VIEW' },
+      { to: '/diagnostics', label: 'Platform Diagnostics', icon: Stethoscope, end: false, permission: 'PLATFORM_DIAGNOSTICS_VIEW' },
+    ],
+  },
+  {
+    label: 'Admin and settings',
+    links: [
+      { to: '/roles', label: 'Roles & Permissions', icon: ShieldCheck, end: false, permission: 'ROLE_MANAGE' },
+      { to: '/audit', label: 'Audit Log', icon: ScrollText, end: false, permission: 'AUDIT_VIEW' },
       { to: '/settings', label: 'Settings', icon: Settings, end: false, permission: 'SYSTEM_SETTINGS' },
     ],
   },
@@ -107,10 +122,15 @@ const GROUPS = [
 // localStorage falls back to "everything expanded", not a crash.
 const COLLAPSED_GROUPS_STORAGE_KEY = 'finora-admin-sidebar-collapsed-groups';
 
+const GROUP_LABELS: ReadonlySet<string> = new Set(GROUPS.map((group) => group.label));
+
+/** Only labels that still name a group: ones saved under the old names (Core, System...) are
+ *  dropped, so they leave the browser the next time the list is saved. */
 function loadCollapsedGroups(): Set<string> {
   try {
     const raw = localStorage.getItem(COLLAPSED_GROUPS_STORAGE_KEY);
-    return raw ? new Set(JSON.parse(raw)) : new Set();
+    const saved: unknown = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(saved) ? saved.filter((label): label is string => GROUP_LABELS.has(label)) : []);
   } catch {
     return new Set();
   }
@@ -159,7 +179,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   // Nav items whose permission (if any) the account actually holds -- a support-scoped admin
   // (AUDIT_VIEW only, say) sees just Dashboard + Audit Log, not every section that exists. A
   // group with zero visible links renders no header at all, so an account with a narrow
-  // permission set doesn't see empty "Operations"/"System" section labels above nothing.
+  // permission set doesn't see empty "Numbers"/"Server health" section labels above nothing.
   const visibleGroups = GROUPS
     .map((group) => ({ ...group, links: group.links.filter((l) => holdsAny(permissions, l.permission)) }))
     .filter((group) => group.links.length > 0);
@@ -237,7 +257,10 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
                 type="button"
                 onClick={() => toggleGroup(group.label)}
                 aria-expanded={isOpen}
-                className="w-full flex items-center justify-between px-3 mb-1.5 text-[11px] font-semibold text-gray-400 uppercase tracking-widest hover:text-gray-300"
+                // tracking-wide, not -widest: at -widest "Merchants and categories" wrapped onto two
+                // lines in this 256px sidebar (measured 2026-11-17); at -wide every label fits on one
+                // line with at least 10px before the chevron, and gap-2 keeps the two apart if one ever wraps.
+                className="w-full flex items-center justify-between gap-2 px-3 mb-1.5 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide hover:text-gray-300"
               >
                 {group.label}
                 {isOpen

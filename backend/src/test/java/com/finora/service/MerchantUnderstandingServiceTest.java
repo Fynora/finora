@@ -141,4 +141,15 @@ class MerchantUnderstandingServiceTest {
         verify(aiAuditLogRepository).save(argThat(log -> log.getError() != null));
         verify(understandingRepository, never()).upsert(any(), any(), any(), any(), any());
     }
+
+    @Test
+    void understandWithStatus_saysTheCallFailed_onlyWhenItDid() {
+        when(understandingRepository.findByCounterpartyKeyAndDirection(any(), any())).thenReturn(Optional.empty());
+        when(llmClient.complete(any())).thenThrow(new RuntimeException("upstream error"));
+
+        var failed = service.understandWithStatus(userId, "vpa:headsupfortails", Transaction.Type.EXPENSE, "UPI/HUFT/...");
+
+        assertThat(failed.understanding()).isEmpty();
+        assertThat(failed.callFailed()).isTrue();
+    }
 }

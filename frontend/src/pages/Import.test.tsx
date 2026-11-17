@@ -1828,6 +1828,30 @@ describe('Import — duplicate review gates the import', () => {
 
   const confirmButton = () => screen.getByRole('button', { name: /confirm import/i });
 
+  it('notes under the categories how many AI sorted after the import', async () => {
+    vi.mocked(importApi.confirm).mockResolvedValue({
+      imported: 6, skipped: 0, duplicatesDetected: 0, transfersIdentified: 0, newMerchantsLearned: 0,
+      accountsCreated: [], productsCreated: {}, categoriesAssigned: { Other: 6 }, warnings: [], account: null,
+      totalCredits: 0, totalDebits: 21000, statementOpeningBalance: null, statementClosingBalance: null,
+      statementPeriodStart: null, statementPeriodEnd: null, importDurationMs: 12, source: 'PDF',
+      statementImportId: 'stmt-1',
+    } as never);
+    vi.mocked(aiSortApi.offer).mockResolvedValueOnce({ show: true, mode: 'SORT', payments: 6, amount: 21000, payees: 6 });
+    vi.mocked(aiSortApi.start).mockResolvedValueOnce(
+      { id: 'run-1', status: 'DONE', paymentsTotal: 6, paymentsDone: 6, paymentsSorted: 6, paymentsLeft: 0 });
+    stageRows([stagedRow('SWIGGY ORDER 4471', false)]);
+    const user = userEvent.setup();
+    renderImport();
+
+    await pickAndUploadPdf(user);
+    await user.click(await screen.findByRole('button', { name: /confirm import/i }));
+    expect(await screen.findByText('Categories assigned')).toBeInTheDocument();
+    expect(screen.queryByTestId('ai-sorted-since')).not.toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: 'Sort with AI' }));
+
+    expect(await screen.findByTestId('ai-sorted-since')).toHaveTextContent('AI has since sorted 6 of these. Check them in Quick sort.');
+  });
+
   it('leaves the import blocked while a duplicate is undecided', async () => {
     stageRows([stagedRow('SWIGGY ORDER 4471', true)]);
     const user = userEvent.setup();

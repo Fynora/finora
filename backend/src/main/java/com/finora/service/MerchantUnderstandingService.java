@@ -72,15 +72,32 @@ public class MerchantUnderstandingService {
      */
     public Optional<String> understand(UUID userId, String counterpartyKey, Transaction.Type direction,
                                         String description) {
+        return understandWithStatus(userId, counterpartyKey, direction, description).understanding();
+    }
+
+    /**
+     * {@link #understand}'s answer, and whether the model call itself failed (unreachable, an error
+     * reply) -- as against the model having nothing to say. AI sorting after an import tells the two
+     * apart: a failure stops the run so the customer can try again, "no answer" does not.
+     */
+    public record Understanding(Optional<String> understanding, boolean callFailed) {
+        static Understanding of(Optional<String> understanding) {
+            return new Understanding(understanding, false);
+        }
+    }
+
+    /** As {@link #understand}, saying whether the model call failed. */
+    public Understanding understandWithStatus(UUID userId, String counterpartyKey, Transaction.Type direction,
+                                              String description) {
         boolean cacheable = CounterpartyIdentity.identifiesOnePayee(counterpartyKey);
         if (cacheable) {
             var cached = understandingRepository.findByCounterpartyKeyAndDirection(counterpartyKey, direction);
             if (cached.isPresent()) {
-                return Optional.of(cached.get().getUnderstanding());
+                return Understanding.of(Optional.of(cached.get().getUnderstanding()));
             }
         }
         if (!availabilityGuard.categorizationAvailableFor(userId)) {
-            return Optional.empty();
+            return Understanding.of(Optional.empty());
         }
 
         // The narration leaves Finora here, so its structural identifiers (UPI ids, account and
@@ -88,7 +105,7 @@ public class MerchantUnderstandingService {
         // stay. Names are masked before this (CategorizationService.narrationForModel) and again
         // here, so a caller that skipped it still sends none; both steps are idempotent.
         if (description == null || description.length() > CategorizationService.MAX_MODEL_NARRATION_LENGTH) {
-            return Optional.empty();
+            return Understanding.of(Optional.empty());
         }
         String forModel = FynOcrRedactor.redactNarration(
                 com.finora.util.PersonToPersonTransferDetector.maskPersonNames(description));
@@ -101,7 +118,7 @@ public class MerchantUnderstandingService {
         } catch (RuntimeException e) {
             writeAuditLog(userId, null, 0, 0, BigDecimal.ZERO,
                     (int) (System.currentTimeMillis() - startedAt), e.getMessage());
-            return Optional.empty();
+            return new Understanding(Optional.empty(), true);
         }
 
         int latencyMs = (int) (System.currentTimeMillis() - startedAt);
@@ -117,17 +134,17 @@ public class MerchantUnderstandingService {
         writeAuditLog(userId, completion.model(), completion.tokensIn(), completion.tokensOut(), cost, latencyMs, costError);
 
         if (!completion.requestsToolUse()) {
-            return Optional.empty();
+            return Understanding.of(Optional.empty());
         }
         Object raw = completion.toolUses().get(0).input().get("understanding");
         if (!(raw instanceof String understanding) || understanding.isBlank()) {
-            return Optional.empty();
+            return Understanding.of(Optional.empty());
         }
 
         if (cacheable) {
             understandingRepository.upsert(counterpartyKey, direction.name(), understanding, completion.model(), Instant.now());
         }
-        return Optional.of(understanding);
+        return Understanding.of(Optional.of(understanding));
     }
 
     private void writeAuditLog(UUID userId, String model, int tokensIn, int tokensOut,

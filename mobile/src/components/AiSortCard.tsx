@@ -66,6 +66,8 @@ export function AiSortCard({ statementImportIds, onOpenQuickSort }: {
     setError(null);
     try {
       const started = await aiSortApi.start(idsKey.split(','), choice);
+      // AI is on now: Settings' AI switch reads it from 'user-settings' (AiFeaturesSection).
+      if (choice === 'TURN_ON_AND_SORT') void queryClient.invalidateQueries({ queryKey: ['user-settings'] });
       if (choice === 'NO_THANKS' || !started) setGone(true);
       else setRun(started);
     } catch {
@@ -91,6 +93,12 @@ export function AiSortCard({ statementImportIds, onOpenQuickSort }: {
           ) : (
             <RunResult run={run} onOpenQuickSort={onOpenQuickSort} />
           )}
+          {run.status === 'STOPPED' ? (
+            <>
+              {error ? <Text style={[typography.caption, { color: c.dangerInk }]}>{error}</Text> : null}
+              <Button label="Try again" variant="secondary" onPress={() => void choose('SORT')} disabled={busy} />
+            </>
+          ) : null}
         </View>
       ) : (
         <>
@@ -124,7 +132,14 @@ function RunResult({ run, onOpenQuickSort }: { run: AiSortRun; onOpenQuickSort: 
     return <Text style={[typography.bodyS, text]}>AI was turned off — the rest stay in Quick sort</Text>;
   }
   if (run.status === 'STOPPED') {
-    return <Text style={[typography.bodyS, text]}>Sorted {sorted} — the rest stay in Quick sort</Text>;
+    // The AI could not be reached, or the run was cut off: it can be tried again.
+    return (
+      <Text style={[typography.bodyS, text]}>
+        {sorted > 0
+          ? `Sorted ${sorted}, then sorting stopped — the rest stay in Quick sort`
+          : 'Sorting stopped before AI could sort these — they stay in Quick sort'}
+      </Text>
+    );
   }
   if (sorted === 0) {
     return <Text style={[typography.bodyS, text]}>AI couldn&apos;t sort these — they stay in Quick sort</Text>;

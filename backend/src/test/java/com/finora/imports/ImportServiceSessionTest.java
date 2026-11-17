@@ -76,7 +76,7 @@ class ImportServiceSessionTest {
         StatementValidator statementValidator = new StatementValidator(com.finora.imports.product.ProductDiscovery.standard());
         PreviewGenerator previewGenerator = new PreviewGenerator(csvParser, transactionNormalizer, statementValidator, new com.finora.imports.ImportVerifier(new com.finora.imports.BalanceChainValidator(), new com.finora.imports.StatementTotalsValidator(), new com.finora.imports.SummaryTotalsValidator(), new com.finora.imports.ColumnAmbiguityValidator(), new com.finora.imports.RowAccountingValidator(), new com.finora.imports.CreditCardStatementTotalsValidator(), new com.finora.imports.CreditCardFlowReconciliationValidator(), new com.finora.imports.DescriptionCorruptionValidator()), com.finora.imports.TestRuleEngines.empty());
         ImportRuleLearningService ruleLearningService = new ImportRuleLearningService(mock(com.finora.service.SharedCorpusService.class),
-                mock(com.finora.repository.SharedMerchantCategoryAiSuggestionRepository.class));
+                mock(com.finora.service.UserMerchantCategoryResolutionService.class));
 
         pdfPreviewGenerator = mock(com.finora.imports.pdf.PdfPreviewGenerator.class);
         var productIdentityResolver = new com.finora.imports.product.ProductIdentityResolver(accountRepository, mock(com.finora.service.AuditService.class));

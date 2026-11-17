@@ -190,9 +190,26 @@ public class UserMerchantCategoryResolutionService {
      */
     public Optional<SavedCategory> resolve(UUID userId, String counterpartyKey, Transaction.Type direction,
                                             String description) {
+        return attempt(userId, counterpartyKey, direction, description).answer();
+    }
+
+    /**
+     * {@link #resolve}'s answer, and whether a model call failed on the way (as against the model
+     * having no answer). AI sorting after an import stops on failures so the customer can try again.
+     */
+    public record Attempt(Optional<SavedCategory> answer, boolean callFailed) {
+        static Attempt answered(Optional<SavedCategory> answer) {
+            return new Attempt(answer, false);
+        }
+        static final Attempt NONE = new Attempt(Optional.empty(), false);
+        static final Attempt FAILED = new Attempt(Optional.empty(), true);
+    }
+
+    /** As {@link #resolve}, saying whether a model call failed. */
+    public Attempt attempt(UUID userId, String counterpartyKey, Transaction.Type direction, String description) {
         Optional<SavedCategory> cached = resolveReadOnly(userId, counterpartyKey, direction);
         if (cached.isPresent()) {
-            return cached;
+            return Attempt.answered(cached);
         }
 
         // Both model calls below send the narration to a third party, so they get only what
@@ -204,7 +221,7 @@ public class UserMerchantCategoryResolutionService {
         // joint account the user imports.
         Optional<String> prepared = CategorizationService.narrationForModel(description);
         if (prepared.isEmpty()) {
-            return Optional.empty();
+            return Attempt.NONE;
         }
         // The narration goes with names as a plain "[name]": the understanding call's answer is
         // cached for every user, and a numbered token in it would mean someone else's name to the
@@ -212,14 +229,19 @@ public class UserMerchantCategoryResolutionService {
         FynNameShield shield = nameShields.forUser(userId);
         String forModel = shield.shieldNarration(prepared.get()).replaceAll("\\[name-\\d+]", PersonToPersonTransferDetector.NAME_MASK);
         if (!PersonToPersonTransferDetector.hasRecognisableWords(forModel)) {
-            return Optional.empty();
+            return Attempt.NONE;
         }
-        Optional<String> understanding = understandingService.understand(userId, counterpartyKey, direction, forModel);
+        MerchantUnderstandingService.Understanding understood =
+                understandingService.understandWithStatus(userId, counterpartyKey, direction, forModel);
+        if (understood.callFailed()) {
+            return Attempt.FAILED;
+        }
+        Optional<String> understanding = understood.understanding();
         if (understanding.isEmpty()) {
-            return Optional.empty();
+            return Attempt.NONE;
         }
         if (!availabilityGuard.categorizationAvailableFor(userId)) {
-            return Optional.empty();
+            return Attempt.NONE;
         }
 
         // Sorted by name (spec §4) before the cap: with an unsorted source order, a user with
@@ -244,7 +266,7 @@ public class UserMerchantCategoryResolutionService {
         } catch (RuntimeException e) {
             writeAuditLog(userId, null, 0, 0, BigDecimal.ZERO,
                     (int) (System.currentTimeMillis() - startedAt), e.getMessage());
-            return Optional.empty();
+            return Attempt.FAILED;
         }
 
         int latencyMs = (int) (System.currentTimeMillis() - startedAt);
@@ -260,12 +282,12 @@ public class UserMerchantCategoryResolutionService {
         writeAuditLog(userId, completion.model(), completion.tokensIn(), completion.tokensOut(), cost, latencyMs, costError);
 
         if (!completion.requestsToolUse()) {
-            return Optional.empty();
+            return Attempt.NONE;
         }
         Map<String, Object> input = completion.toolUses().get(0).input();
         Object rawCategory = input.get("category");
         if (!(rawCategory instanceof String shieldedName) || shieldedName.isBlank()) {
-            return Optional.empty();
+            return Attempt.NONE;
         }
         String categoryName = shield.unshield(shieldedName);
         // The model was shown placeholders -- "[name]" and "[redacted-id]" in the narration, and
@@ -273,7 +295,7 @@ public class UserMerchantCategoryResolutionService {
         // be created as a category literally named "[name]", so it is no pick at all; in a reason,
         // shown to the user beside the new category, one reads as "someone".
         if (LEFTOVER_PLACEHOLDER.matcher(categoryName).find()) {
-            return Optional.empty();
+            return Attempt.NONE;
         }
         String reason = input.get("reason") instanceof String r && !r.isBlank()
                 ? LEFTOVER_PLACEHOLDER.matcher(shield.unshield(r)).replaceAll("someone") : null;
@@ -282,7 +304,7 @@ public class UserMerchantCategoryResolutionService {
         if (CounterpartyIdentity.identifiesOnePayee(counterpartyKey)) {
             resolutionRepository.insertIfAbsent(userId, counterpartyKey, direction.name(), resolved.getId(), Instant.now());
         }
-        return Optional.of(SavedCategory.fromModel(resolved.getName()));
+        return Attempt.answered(Optional.of(SavedCategory.fromModel(resolved.getName())));
     }
 
     /** Human override (spec §8), called from Task 7's wiring whenever a user manually sets or

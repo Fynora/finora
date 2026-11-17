@@ -20,8 +20,8 @@ function aRun(over: Partial<AiSortRun> = {}): AiSortRun {
   return { id: 'run-1', status: 'RUNNING', paymentsTotal: 12, paymentsDone: 4, paymentsSorted: 3, paymentsLeft: 0, ...over };
 }
 
-function renderCard(onOpenQuickSort = jest.fn(), ids = ['imp-1', 'imp-2']) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+function renderCard(onOpenQuickSort = jest.fn(), ids = ['imp-1', 'imp-2'],
+  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })) {
   render(
     <QueryClientProvider client={queryClient}>
       <AiSortCard statementImportIds={ids} onOpenQuickSort={onOpenQuickSort} />
@@ -115,7 +115,8 @@ describe('AiSortCard', () => {
   it.each([
     [{ status: 'STOPPED_LIMIT', paymentsSorted: 9 }, "Sorted 9; AI has reached today's limit — the rest stay in Quick sort"],
     [{ status: 'STOPPED_AI_OFF', paymentsSorted: 2 }, 'AI was turned off — the rest stay in Quick sort'],
-    [{ status: 'STOPPED', paymentsSorted: 5 }, 'Sorted 5 — the rest stay in Quick sort'],
+    [{ status: 'STOPPED', paymentsSorted: 5 }, 'Sorted 5, then sorting stopped — the rest stay in Quick sort'],
+    [{ status: 'STOPPED', paymentsSorted: 0 }, 'Sorting stopped before AI could sort these — they stay in Quick sort'],
     [{ status: 'DONE', paymentsSorted: 0, paymentsLeft: 12 }, "AI couldn't sort these — they stay in Quick sort"],
   ] as const)('says how a run ended (%o)', async (over, text) => {
     api.start.mockResolvedValue(aRun(over as Partial<AiSortRun>));
@@ -124,6 +125,54 @@ describe('AiSortCard', () => {
     fireEvent.press(await screen.findByRole('button', { name: 'Sort with AI' }));
 
     expect(await screen.findByText(text)).toBeOnTheScreen();
+  });
+
+  it('offers to try a stopped run again, and only a stopped one', async () => {
+    api.start.mockResolvedValueOnce(aRun({ status: 'STOPPED', paymentsSorted: 0, paymentsLeft: 12 }))
+      .mockResolvedValueOnce(aRun({ status: 'DONE', paymentsDone: 12, paymentsSorted: 12 }));
+    renderCard();
+
+    fireEvent.press(await screen.findByRole('button', { name: 'Sort with AI' }));
+    fireEvent.press(await screen.findByRole('button', { name: 'Try again' }));
+
+    expect(await screen.findByText('Sorted 12 — check them in Quick sort')).toBeOnTheScreen();
+    expect(api.start).toHaveBeenLastCalledWith(['imp-1', 'imp-2'], 'SORT');
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeOnTheScreen();
+  });
+
+  it('offers no retry when the daily limit stopped it', async () => {
+    api.start.mockResolvedValue(aRun({ status: 'STOPPED_LIMIT', paymentsSorted: 9 }));
+    renderCard();
+
+    fireEvent.press(await screen.findByRole('button', { name: 'Sort with AI' }));
+
+    expect(await screen.findByText("Sorted 9; AI has reached today's limit — the rest stay in Quick sort")).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeOnTheScreen();
+  });
+
+  it('turning AI on refreshes the Settings AI switch', async () => {
+    api.offer.mockResolvedValue(sortOffer({ mode: 'ASK' }));
+    api.start.mockResolvedValue(aRun({ status: 'DONE', paymentsDone: 12, paymentsSorted: 12 }));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(['user-settings'], { aiProcessingConsent: false });
+    renderCard(jest.fn(), ['imp-1'], client);
+
+    fireEvent.press(await screen.findByRole('button', { name: 'Turn on AI and sort' }));
+
+    await waitFor(() => expect(client.getQueryState(['user-settings'])?.isInvalidated).toBe(true));
+  });
+
+  it('No thanks leaves the Settings AI switch as it was', async () => {
+    api.offer.mockResolvedValue(sortOffer({ mode: 'ASK' }));
+    api.start.mockResolvedValue(null as never);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(['user-settings'], { aiProcessingConsent: false });
+    renderCard(jest.fn(), ['imp-1'], client);
+
+    fireEvent.press(await screen.findByRole('button', { name: 'No thanks' }));
+
+    await waitFor(() => expect(screen.queryByTestId('ai-sort-card')).not.toBeOnTheScreen());
+    expect(client.getQueryState(['user-settings'])?.isInvalidated).toBe(false);
   });
 
   it('keeps the button and says so when starting fails', async () => {

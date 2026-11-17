@@ -61,14 +61,12 @@ class ImportServiceAskOnceTest {
 
     private com.finora.service.MerchantLearningEventPublisher learningEventPublisher;
     private com.finora.service.SharedCorpusService sharedCorpusService;
-    private com.finora.repository.SharedMerchantCategoryAiSuggestionRepository aiSuggestionRepository;
     private com.finora.service.UserMerchantCategoryResolutionService resolutionService;
 
     @BeforeEach
     void setUp() {
         learningEventPublisher = mock(com.finora.service.MerchantLearningEventPublisher.class);
         sharedCorpusService = mock(com.finora.service.SharedCorpusService.class);
-        aiSuggestionRepository = mock(com.finora.repository.SharedMerchantCategoryAiSuggestionRepository.class);
         resolutionService = mock(com.finora.service.UserMerchantCategoryResolutionService.class);
         accountRepository = mock(AccountRepository.class);
         accountService = mock(AccountService.class);
@@ -88,7 +86,7 @@ class ImportServiceAskOnceTest {
         TransactionNormalizer transactionNormalizer = new TransactionNormalizer(categorizationService, duplicateDetector, com.finora.imports.TestRuleEngines.empty());
         StatementValidator statementValidator = new StatementValidator(com.finora.imports.product.ProductDiscovery.standard());
         PreviewGenerator previewGenerator = new PreviewGenerator(csvParser, transactionNormalizer, statementValidator, new com.finora.imports.ImportVerifier(new com.finora.imports.BalanceChainValidator(), new com.finora.imports.StatementTotalsValidator(), new com.finora.imports.SummaryTotalsValidator(), new com.finora.imports.ColumnAmbiguityValidator(), new com.finora.imports.RowAccountingValidator(), new com.finora.imports.CreditCardStatementTotalsValidator(), new com.finora.imports.CreditCardFlowReconciliationValidator(), new com.finora.imports.DescriptionCorruptionValidator()), com.finora.imports.TestRuleEngines.empty());
-        ImportRuleLearningService ruleLearningService = new ImportRuleLearningService(sharedCorpusService, aiSuggestionRepository);
+        ImportRuleLearningService ruleLearningService = new ImportRuleLearningService(sharedCorpusService, resolutionService);
 
         // Wired the same way Spring would assemble it — see the v56 modularization pass, which
         // split the old monolithic CsvImportService into these focused collaborators. Only the
@@ -368,24 +366,89 @@ class ImportServiceAskOnceTest {
         verify(sharedCorpusService, never()).recordObservation(any(), any(), any(), any(), any());
     }
 
+    /** The model's saved answer for the test payee, as staging read it: this user's, not chosen by them. */
+    private void modelAnswered(String category, boolean chosenByUser) {
+        when(resolutionService.resolveReadOnly(userId, "vpa:zeptosample", Transaction.Type.EXPENSE))
+                .thenReturn(java.util.Optional.of(
+                        new com.finora.service.UserMerchantCategoryResolutionService.SavedCategory(category, chosenByUser)));
+    }
+
+    private void categoryExists(String name) {
+        Category c = new Category();
+        c.setUserId(userId);
+        c.setName(name);
+        when(categorizationService.resolveOrCreateCategory(eq(userId), eq(name))).thenReturn(c);
+    }
+
+    private ConfirmedRow aiRow(String category) {
+        return new ConfirmedRow(LocalDate.of(2026, 7, 10), "UPI/ZEPTO/ZEPTOSAMPLE@YBL/0000000000@PTAXIS",
+                BigDecimal.valueOf(486), "EXPENSE", category, true,
+                com.finora.service.CategorizationService.AI_FALLBACK_SOURCE, null, false, null, null);
+    }
+
+    private Transaction savedRow() {
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Transaction>> captor = ArgumentCaptor.forClass(List.class);
+        verify(transactionRepository).saveAll(captor.capture());
+        return captor.getValue().get(0);
+    }
+
     @Test
     void confirm_aiFallbackAnswerLeftAsItWas_recordsNoObservation() throws Exception {
         // An AI answer accepted without a change is the model speaking, not the user.
-        com.finora.entity.SharedMerchantCategoryAiSuggestion cached =
-                new com.finora.entity.SharedMerchantCategoryAiSuggestion();
-        cached.setCounterpartyKey("vpa:zeptosample");
-        cached.setDirection(Transaction.Type.EXPENSE);
-        cached.setCategory("Dining");
-        cached.setModel("claude-haiku-4-5-20251001");
-        when(aiSuggestionRepository.findByCounterpartyKeyAndDirection("vpa:zeptosample", Transaction.Type.EXPENSE))
-                .thenReturn(java.util.Optional.of(cached));
-        var row = new ConfirmedRow(LocalDate.of(2026, 7, 10), "UPI/ZEPTO/ZEPTOSAMPLE@YBL/0000000000@PTAXIS",
-                BigDecimal.valueOf(486), "EXPENSE", "Dining", true,
-                com.finora.service.CategorizationService.AI_FALLBACK_SOURCE, null, false, null, null);
+        modelAnswered("Dining", false);
 
-        importService.confirm(userId, dummyFile(), requestWith(row));
+        importService.confirm(userId, dummyFile(), requestWith(aiRow("Dining")));
 
         verify(sharedCorpusService, never()).recordObservation(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void confirm_aiAnswerLeftAsItWas_staysAQuestion_andTeachesNothing() throws Exception {
+        // AI sort break-test, 2026-11-16: the check read a table nothing writes, so the model's
+        // answer on a later import was filed with no review flag and learned as the user's choice.
+        modelAnswered("Dining", false);
+
+        importService.confirm(userId, dummyFile(), requestWith(aiRow("Dining")));
+
+        assertThat(savedRow().isNeedsCategoryReview()).isTrue();
+        verify(learningEventPublisher, never()).enqueue(any(), any(), any(), any(), any());
+        // Nor is the model's answer saved over as the customer's own (pin = chosen_by_user).
+        verify(resolutionService, never()).pin(any(), any(), any(), any());
+    }
+
+    @Test
+    void confirm_aiAnswerLeftAsItWas_matchesWhateverTheCase() throws Exception {
+        modelAnswered("Dining", false);
+        categoryExists("dining");
+
+        importService.confirm(userId, dummyFile(), requestWith(aiRow("dining")));
+
+        assertThat(savedRow().isNeedsCategoryReview()).isTrue();
+        verify(learningEventPublisher, never()).enqueue(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void confirm_aiAnswerTheUserChangedOnReview_isTheirDecision_andIsLearned() throws Exception {
+        modelAnswered("Dining", false);
+        categoryExists("Groceries");
+
+        importService.confirm(userId, dummyFile(), requestWith(aiRow("Groceries")));
+
+        assertThat(savedRow().isNeedsCategoryReview()).isFalse();
+        verify(learningEventPublisher).enqueue(eq(userId), any(), any(), any(), any());
+    }
+
+    @Test
+    void confirm_aiSourcedRow_whoseSavedAnswerIsNowTheUsersOwn_isTheirDecision() throws Exception {
+        // The user answered the payee themselves between staging and confirm: the saved answer is
+        // theirs now, so the row carries their choice, not the model's.
+        modelAnswered("Dining", true);
+
+        importService.confirm(userId, dummyFile(), requestWith(aiRow("Dining")));
+
+        assertThat(savedRow().isNeedsCategoryReview()).isFalse();
+        verify(learningEventPublisher).enqueue(eq(userId), any(), any(), any(), any());
     }
 
     @Test

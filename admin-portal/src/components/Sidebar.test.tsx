@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
@@ -208,13 +208,13 @@ describe('Sidebar — collapsible groups', () => {
 
     expect(screen.getByText('Banks')).toBeInTheDocument();
     expect(screen.getByText('Global Rules')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /core/i })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: /statements and imports/i })).toHaveAttribute('aria-expanded', 'true');
   });
 
   it('collapses a group on click, hiding its links, and expands it again on a second click', async () => {
     renderSidebar(['BANK_MANAGE']);
     const user = userEvent.setup();
-    const toggle = screen.getByRole('button', { name: /core/i });
+    const toggle = screen.getByRole('button', { name: /statements and imports/i });
 
     await user.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
@@ -228,26 +228,26 @@ describe('Sidebar — collapsible groups', () => {
   it('persists a collapsed group across remounts, same as reopening the admin portal in a new tab', async () => {
     const { unmount } = renderSidebar(['BANK_MANAGE']);
     const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: /core/i }));
+    await user.click(screen.getByRole('button', { name: /statements and imports/i }));
     expect(screen.queryByText('Banks')).not.toBeInTheDocument();
     unmount();
 
     renderSidebar(['BANK_MANAGE']);
 
     expect(screen.queryByText('Banks')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /core/i })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: /statements and imports/i })).toHaveAttribute('aria-expanded', 'false');
   });
 
   // The whole reason this can't just be a permanent render-time override: without a real state
   // transition, the toggle button for the active group would silently do nothing when clicked
   // (see Sidebar.tsx's own comment on this above the effect that opens it).
   it('auto-opens a group that was left collapsed if the current route lives inside it, and the toggle still works normally afterward', async () => {
-    localStorage.setItem(COLLAPSED_GROUPS_STORAGE_KEY, JSON.stringify(['Core']));
+    localStorage.setItem(COLLAPSED_GROUPS_STORAGE_KEY, JSON.stringify(['Statements and imports']));
     renderSidebar(['BANK_MANAGE'], '/banks');
     const user = userEvent.setup();
 
     expect(screen.getByText('Banks')).toBeInTheDocument();
-    const toggle = screen.getByRole('button', { name: /core/i });
+    const toggle = screen.getByRole('button', { name: /statements and imports/i });
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
 
     await user.click(toggle);
@@ -256,10 +256,71 @@ describe('Sidebar — collapsible groups', () => {
   });
 
   it('auto-opens for a prefixed route too, without also opening an unrelated group whose path happens to share a prefix', () => {
-    localStorage.setItem(COLLAPSED_GROUPS_STORAGE_KEY, JSON.stringify(['Intelligence']));
+    localStorage.setItem(COLLAPSED_GROUPS_STORAGE_KEY, JSON.stringify(['Numbers']));
     renderSidebar(['RECONCILIATION_VIEW'], '/reconciliation/txn-123');
 
     expect(screen.getByText('Reconciliation Monitor')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /intelligence/i })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: /^numbers/i })).toHaveAttribute('aria-expanded', 'true');
+  });
+  // Labels saved under the old group names (Core, System...) match nothing now; they are dropped
+  // the next time the list is saved instead of lingering in the browser for good.
+  it('drops collapsed-group labels that no longer name a group', async () => {
+    localStorage.setItem(COLLAPSED_GROUPS_STORAGE_KEY, JSON.stringify(['System', 'Core']));
+    renderSidebar(['USER_VIEW']);
+    const user = userEvent.setup();
+
+    expect(screen.getByRole('button', { name: /customers/i })).toHaveAttribute('aria-expanded', 'true');
+    await user.click(screen.getByRole('button', { name: /customers/i }));
+
+    expect(JSON.parse(localStorage.getItem(COLLAPSED_GROUPS_STORAGE_KEY) ?? '[]')).toEqual(['Customers']);
+  });
+});
+
+describe('Sidebar — grouped by job', () => {
+  beforeEach(() => {
+    vi.mocked(useAdminAuth).mockReset();
+    localStorage.clear();
+  });
+
+  const EVERY_PERMISSION = [
+    'USER_VIEW', 'BANK_MANAGE', 'MERCHANT_MANAGE', 'SYSTEM_SETTINGS', 'RULE_MANAGE', 'MERCHANT_REVIEW',
+    'LEARNING_QUEUE_MANAGE', 'RECONCILIATION_VIEW', 'INSIGHTS_EXPLORER_VIEW', 'PLATFORM_ANALYTICS_VIEW',
+    'ROLE_MANAGE', 'AUDIT_VIEW', 'SUBSCRIPTION_MANAGEMENT_VIEW', 'REFERRAL_MANAGEMENT_VIEW', 'SUPPORT_MANAGE',
+    'NOTIFICATION_MANAGE', 'PUSH_CAMPAIGN_MANAGE', 'PLATFORM_DIAGNOSTICS_VIEW', 'IMPORT_TRIAGE_MANAGE',
+    'TRUST_REVIEW_MANAGE', 'LAYOUT_REGISTRY_MANAGE',
+  ];
+
+  // The grouping Sid approved on 2026-11-17: each page under the job it is for. A literal list, so a
+  // page added, moved or dropped without updating this fails here.
+  const APPROVED: [string, string[]][] = [
+    ['Customers', ['Users', 'Subscriptions', 'Billing Offers', 'Referrals', 'Support Tickets', 'Feedback']],
+    ['Statements and imports', ['Held Imports', 'Held Statements', 'Import Health', 'Reading quality by bank',
+      'Import Trace', 'Import Row Trace', 'Layout Intelligence', 'Layout Studio', 'Trust Review Metrics', 'Banks']],
+    ['Merchants and categories', ['Merchant Intelligence', 'Merchant Templates', 'Merchant Review', 'Global Rules',
+      'Learning Engine', 'Learning Queue', 'Trusted Senders']],
+    ['Numbers', ['Platform Analytics', 'Activation', 'Insight Explorer', 'Reconciliation Monitor',
+      'Reconciliation Explorer']],
+    ['Messages to customers', ['Notifications', 'Push Campaigns', 'Festival App Icon']],
+    ['Server health', ['System Health', 'Background jobs', 'Integrations', 'Platform Diagnostics']],
+    ['Admin and settings', ['Roles & Permissions', 'Audit Log', 'Settings']],
+  ];
+
+  it('shows every page under the job it is for, in the approved order', () => {
+    renderSidebar(EVERY_PERMISSION);
+
+    const groups = screen.getAllByRole('button', { expanded: true });
+    expect(groups.map((b) => b.textContent)).toEqual(APPROVED.map(([label]) => label));
+    groups.forEach((button, i) => {
+      const links = within(button.parentElement as HTMLElement).getAllByRole('link');
+      expect(links.map((a) => a.textContent)).toEqual(APPROVED[i][1]);
+    });
+  });
+
+  it('keeps Dashboard and Needs a decision above every group', () => {
+    renderSidebar(EVERY_PERMISSION);
+
+    const links = screen.getAllByRole('link').map((a) => a.textContent);
+    expect(links.slice(0, 2)).toEqual(['Dashboard', 'Needs a decision']);
+    expect(links).toHaveLength(2 + APPROVED.flatMap(([, pages]) => pages).length);
   });
 });

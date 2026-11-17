@@ -1298,7 +1298,7 @@ public class ImportService {
                 : statementImportRepository.findById(response.statementImportId()).map(StatementImport::getAccountId).orElse(null);
         recordBankChoice(session.getLayoutFingerprint(), detectedAccount, request, response.accountsCreated(), createdInto);
         carrySavedPassword(session.getId(), List.of(response.statementImportId()));
-        stampConfirmedAfterCommit(session.getId());
+        stampConfirmedAfterCommit(session.getId(), latestMonthOnly);
         return response;
     }
 
@@ -1309,15 +1309,26 @@ public class ImportService {
      * runs in a transaction of its own ({@code StatementAnalysisRecorder.stamp}) and can fail nothing.
      */
     private void stampConfirmedAfterCommit(UUID sessionId) {
-        if (!org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+        stampConfirmedAfterCommit(sessionId, false);
+    }
+
+    /** @param latestMonthOnly also records it was imported as just its latest month (V328). */
+    private void stampConfirmedAfterCommit(UUID sessionId, boolean latestMonthOnly) {
+        Runnable stamp = () -> {
             stampUnconfirmedOutcome(sessionId, StatementAnalysisRecorder.UnconfirmedOutcome.CONFIRMED);
+            if (latestMonthOnly) {
+                stampUnconfirmedOutcome(sessionId, StatementAnalysisRecorder.UnconfirmedOutcome.LATEST_MONTH_IMPORTED);
+            }
+        };
+        if (!org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            stamp.run();
             return;
         }
         org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
                 new org.springframework.transaction.support.TransactionSynchronization() {
                     @Override
                     public void afterCommit() {
-                        stampUnconfirmedOutcome(sessionId, StatementAnalysisRecorder.UnconfirmedOutcome.CONFIRMED);
+                        stamp.run();
                     }
                 });
     }

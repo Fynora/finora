@@ -168,6 +168,8 @@ public final class ImportTraceDto {
             String discardReason,
             Instant expiredUnconfirmedAt,
             Instant freeLimitShownAt,
-            Instant freeLimitRefusedAt
+            Instant freeLimitRefusedAt,
+            // Imported as just its latest month -- the Free plan offer (V328). Null otherwise.
+            Instant latestMonthImportedAt
     ) {}
 }

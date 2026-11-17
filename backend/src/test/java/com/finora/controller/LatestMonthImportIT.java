@@ -179,6 +179,26 @@ class LatestMonthImportIT extends AbstractIntegrationTest {
         assertThat(stored.getClosingBalance()).isEqualByComparingTo("11200.00");
         assertThat(stored.getStatementPeriodStart()).isEqualTo(LocalDate.of(2026, 10, 1));
         assertThat(stored.getStatementPeriodEnd()).isEqualTo(LocalDate.of(2026, 10, 31));
+
+        // Recorded once it committed, so the weekly view can count the offer's use (V328).
+        var evidence = analyses.findByImportSessionIdOrderByCreatedAtDesc(sessionId).get(0);
+        assertThat(evidence.getConfirmedAt()).isNotNull();
+        assertThat(evidence.getLatestMonthImportedAt()).isNotNull();
+    }
+
+    @Test
+    void anOrdinaryImport_isNotRecordedAsLatestMonthOnly() throws Exception {
+        User user = customer("PLUS");
+        UUID sessionId = UUID.fromString(stage(user, AUG_TO_NOV).get("sessionId").asText());
+        Set<LocalDate> all = importSessionService.readStagedRows(sessions.findById(sessionId).orElseThrow()).stream()
+                .map(r -> r.date()).collect(java.util.stream.Collectors.toSet());
+
+        ResponseEntity<String> response = confirm(user, sessionId, all, false);
+
+        assertThat(response.getStatusCode()).as(response.getBody()).isEqualTo(HttpStatus.OK);
+        var evidence = analyses.findByImportSessionIdOrderByCreatedAtDesc(sessionId).get(0);
+        assertThat(evidence.getConfirmedAt()).isNotNull();
+        assertThat(evidence.getLatestMonthImportedAt()).isNull();
     }
 
     @Test
@@ -274,6 +294,8 @@ class LatestMonthImportIT extends AbstractIntegrationTest {
         assertThat(mapper.readTree(response.getBody()).get("errorCode").asText()).isEqualTo("ENTITLEMENT_003");
         assertThat(statementImports.findAll().stream().noneMatch(s -> user.getId().equals(s.getUserId()))).isTrue();
         assertThat(analyses.findByImportSessionIdOrderByCreatedAtDesc(sessionId).get(0).getFreeLimitRefusedAt()).isNotNull();
+        assertThat(analyses.findByImportSessionIdOrderByCreatedAtDesc(sessionId).get(0).getLatestMonthImportedAt())
+                .as("a refused confirm records no import").isNull();
         // Still staged: the customer can untick it and try again.
         assertThat(sessions.findById(sessionId).orElseThrow().getStatus()).isEqualTo(ImportSession.STATUS_STAGED);
     }

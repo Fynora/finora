@@ -13861,6 +13861,8 @@ export interface components {
             freeLimitShownAt?: string;
             /** Format: date-time */
             freeLimitRefusedAt?: string;
+            /** Format: date-time */
+            latestMonthImportedAt?: string;
         };
         Finding: {
             /** Format: int32 */
@@ -14124,6 +14126,8 @@ export interface components {
             /** Format: int64 */
             freeLimitThenImported?: number;
             discardReasons?: components["schemas"]["StagedOutcomesDiscardReasons"];
+            /** Format: int64 */
+            latestMonthOnly?: number;
         };
         ApiResponseListLayoutSummary: {
             success?: boolean;

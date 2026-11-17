@@ -144,12 +144,18 @@ class StagedOutcomesReportIT extends AbstractIntegrationTest {
 
     /** The confirm payload the apps send: every staged row, into a new savings account. */
     private ResponseEntity<String> confirm(User user, UUID sessionId) {
+        return confirm(user, sessionId, null);
+    }
+
+    /** As above; with {@code latestMonth} set, only rows in it are kept and the latest month is asked for. */
+    private ResponseEntity<String> confirm(User user, UUID sessionId, java.time.YearMonth latestMonth) {
         ImportSession session = sessions.findById(sessionId).orElseThrow();
         com.finora.dto.ImportDto.DetectedAccountInfo detected = importSessionService.readDetectedAccount(session);
         List<ConfirmedRow> rows = importSessionService.readStagedRows(session).stream().map(row ->
                 new ConfirmedRow(row.date(), row.description(), row.amount(), row.type(),
                         row.suggestedCategory() == null ? "Other" : row.suggestedCategory(),
-                        true, row.categorySource(), row.ruleId(), row.likelyDuplicate(),
+                        latestMonth == null || java.time.YearMonth.from(row.date()).equals(latestMonth),
+                        row.categorySource(), row.ruleId(), row.likelyDuplicate(),
                         row.referenceNumber(), row.balanceAfter(), false, row.categoryConfidence(),
                         row.rowPosition(), row.international(), row.foreignCurrency(), row.foreignAmount()))
                 .toList();
@@ -162,8 +168,8 @@ class StagedOutcomesReportIT extends AbstractIntegrationTest {
                 null, null, null, null);
         HttpHeaders headers = bearerFor(user);
         headers.setContentType(MediaType.APPLICATION_JSON);
-        return restTemplate.exchange("/api/v1/import/csv/confirm", HttpMethod.POST,
-                new HttpEntity<>(request, headers), String.class);
+        return restTemplate.exchange("/api/v1/import/csv/confirm" + (latestMonth == null ? "" : "?latestMonthOnly=true"),
+                HttpMethod.POST, new HttpEntity<>(request, headers), String.class);
     }
 
     private void discard(User user, UUID sessionId, String platform) {
@@ -198,7 +204,7 @@ class StagedOutcomesReportIT extends AbstractIntegrationTest {
 
     private static final List<String> FIELDS = List.of("staged", "imported", "discardedByCustomer",
             "removedByPhone", "expired", "stillOpen", "notRecorded", "freeLimitShown", "freeLimitRefused",
-            "freeLimitThenImported");
+            "freeLimitThenImported", "latestMonthOnly");
 
     /** after - before, per field, as "field=n" for the non-zero ones. */
     private static List<String> change(JsonNode before, JsonNode after) {
@@ -361,6 +367,20 @@ class StagedOutcomesReportIT extends AbstractIntegrationTest {
                 .toList();
         assertThat(moved).containsExactlyInAnyOrder(
                 "wrongFile=1", "tooManyMonths=1", "looksWrong=1", "later=1", "other=2", "noReason=1");
+    }
+
+    @Test
+    void importingJustTheLatestMonth_isCountedAsSuch() throws Exception {
+        JsonNode before = thisWeek();
+
+        // 5 Jan to 5 Mar on Free: February (one row, 20 Feb) is the latest whole month.
+        User user = customer("FREE");
+        UUID sessionId = stage(user, THREE_MONTH_CSV);
+        ResponseEntity<String> response = confirm(user, sessionId, java.time.YearMonth.of(2026, 2));
+        assertThat(response.getStatusCode()).as(response.getBody()).isEqualTo(HttpStatus.OK);
+
+        assertThat(change(before, thisWeek())).containsExactlyInAnyOrder(
+                "staged=1", "imported=1", "freeLimitShown=1", "freeLimitThenImported=1", "latestMonthOnly=1");
     }
 
     @Test

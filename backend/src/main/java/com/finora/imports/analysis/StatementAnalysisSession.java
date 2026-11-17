@@ -210,6 +210,10 @@ public class StatementAnalysisSession {
     @Column(name = "confirmed_at", insertable = false, updatable = false)
     private Instant confirmedAt;
 
+    /** When it was imported as just its latest month -- the Free plan offer (V328). */
+    @Column(name = "latest_month_imported_at", insertable = false, updatable = false)
+    private Instant latestMonthImportedAt;
+
     protected StatementAnalysisSession() {
         // JPA
     }
@@ -363,4 +367,5 @@ public class StatementAnalysisSession {
     public Instant getFreeLimitShownAt() { return freeLimitShownAt; }
     public Instant getFreeLimitRefusedAt() { return freeLimitRefusedAt; }
     public Instant getConfirmedAt() { return confirmedAt; }
+    public Instant getLatestMonthImportedAt() { return latestMonthImportedAt; }
 }

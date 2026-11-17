@@ -233,7 +233,7 @@ describe('Staged, but was it imported?', () => {
   function week(weekStart: string | null, overrides: Partial<StagedOutcomesWeek> = {}): StagedOutcomesWeek {
     return {
       weekStart, staged: 0, imported: 0, discardedByCustomer: 0, removedByPhone: 0, expired: 0, stillOpen: 0,
-      notRecorded: 0, freeLimitShown: 0, freeLimitRefused: 0, freeLimitThenImported: 0,
+      notRecorded: 0, freeLimitShown: 0, freeLimitRefused: 0, freeLimitThenImported: 0, latestMonthOnly: 0,
       discardReasons: { wrongFile: 0, tooManyMonths: 0, looksWrong: 0, later: 0, other: 0, noReason: 0 },
       ...overrides,
     };
@@ -246,7 +246,7 @@ describe('Staged, but was it imported?', () => {
       weekly: [
         week('2026-11-09', { staged: 7, notRecorded: 7 }),
         week('2026-11-16', { staged: 12, imported: 6, discardedByCustomer: 2, removedByPhone: 1, expired: 1,
-          stillOpen: 1, notRecorded: 1, freeLimitShown: 3, freeLimitRefused: 1, freeLimitThenImported: 1 }),
+          stillOpen: 1, notRecorded: 1, freeLimitShown: 3, freeLimitRefused: 1, freeLimitThenImported: 1, latestMonthOnly: 1 }),
       ],
       total: week(null, { staged: 19, imported: 6, discardedByCustomer: 2, removedByPhone: 1, expired: 1,
         stillOpen: 1, notRecorded: 8, freeLimitShown: 3, freeLimitRefused: 1, freeLimitThenImported: 1,
@@ -274,7 +274,7 @@ describe('Staged, but was it imported?', () => {
     expect(within(rows[0]).getByRole('rowheader')).toHaveTextContent('16 Nov');
     expect(within(rows[0]).getByRole('rowheader')).toHaveTextContent('recording began this week');
     expect(within(rows[0]).getAllByRole('cell').map((c) => c.textContent))
-      .toEqual(['12', '6', '2', '1', '1', '1', '1', '3', '1', '1']);
+      .toEqual(['12', '6', '2', '1', '1', '1', '1', '3', '1', '1', '1']);
     expect(within(rows[1]).getByRole('rowheader')).toHaveTextContent('9 Nov');
     expect(within(rows[1]).getByRole('rowheader')).toHaveTextContent('before recording began');
     expect(within(rows[2]).getByRole('rowheader')).toHaveTextContent('Last 12 weeks');

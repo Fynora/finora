@@ -71,6 +71,7 @@ const LIMIT_COLUMNS: [keyof StagedOutcomesWeek, string][] = [
   ['freeLimitShown', 'Limit shown'],
   ['freeLimitRefused', 'Confirm refused'],
   ['freeLimitThenImported', 'Shown, then imported'],
+  ['latestMonthOnly', 'Latest month only'],
 ];
 
 /**
@@ -187,7 +188,7 @@ function StagedOutcomes({ period }: { period: Period }) {
         not recorded (staged before recording began, or removed by the system: a re-read, a rejected hold, a
         stale copy replaced on re-upload). Free plan limit: the review opened with the one-month notice, a
         confirm was refused for it, or it was shown and the statement imported anyway (after an upgrade, or as just
-        its latest month).
+        its latest month); latest month only counts the imports that took just the statement’s latest whole month.
         Reasons are the optional one-tap answer on the discard dialog; older apps never ask. Internal and admin
         accounts are left out.
       </p>

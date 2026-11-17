@@ -34048,6 +34048,10 @@
                     "freeLimitRefusedAt": {
                         "type": "string",
                         "format": "date-time"
+                    },
+                    "latestMonthImportedAt": {
+                        "type": "string",
+                        "format": "date-time"
                     }
                 }
             },
@@ -34665,6 +34669,10 @@
                     },
                     "discardReasons": {
                         "$ref": "#/components/schemas/StagedOutcomesDiscardReasons"
+                    },
+                    "latestMonthOnly": {
+                        "type": "integer",
+                        "format": "int64"
                     }
                 }
             },

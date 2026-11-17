@@ -1429,6 +1429,94 @@ describe('ImportScreen — Free plan one-month limit', () => {
     expect(screen.queryByText("I've already upgraded")).not.toBeOnTheScreen();
   });
 
+  describe('Import only the latest month', () => {
+    const offer = { ...freePlanLimit, latestMonthFrom: '2026-10-01', latestMonthTo: '2026-10-31', latestMonthRows: 1 };
+
+    function stagingWithMonths(limit: unknown) {
+      const base = stagingWith(limit);
+      return {
+        ...base,
+        staging: {
+          ...base.staging,
+          rows: [
+            { ...stagedRow('SEPTEMBER ROW'), date: '2026-09-12' },
+            { ...stagedRow('OCTOBER ROW'), date: '2026-10-08' },
+          ],
+          totalParsed: 2,
+        },
+      };
+    }
+
+    beforeEach(() => {
+      api.import.confirm.mockReset().mockResolvedValue({
+        imported: 1, skipped: 1, duplicatesDetected: 0, transfersIdentified: 0, newMerchantsLearned: 0,
+        accountsCreated: [], productsCreated: {}, categoriesAssigned: {}, warnings: [], account: null,
+        totalCredits: 0, totalDebits: 10, statementOpeningBalance: null, statementClosingBalance: null,
+        statementPeriodStart: '2026-10-01', statementPeriodEnd: '2026-10-31', importDurationMs: 5, source: 'CSV',
+      } as never);
+    });
+
+    it('offers the month, says why, and imports just its rows with the month asked for', async () => {
+      api.import.stageCsv.mockReset().mockResolvedValue(stagingWithMonths(offer) as never);
+      await reachReview();
+
+      expect(screen.getByTestId('free-plan-limit-notice')).toHaveTextContent(
+        /The Free plan imports one month per statement\. Import just October 2026 now/);
+      fireEvent.press(screen.getByTestId('import-latest-month'));
+
+      const chosen = screen.getByTestId('free-plan-limit-notice');
+      expect(chosen).toHaveTextContent(/Importing only October 2026: 1 transaction\./);
+      expect(chosen).toHaveTextContent(/so the other months in this file are left out\. With\s+Plus, you can import the whole statement in one go\./);
+      expect(within(chosen).getByText('See plans')).toBeTruthy();
+      expect(importButtonDisabled()).toBeFalsy();
+
+      await act(async () => { fireEvent.press(screen.getByRole('button', { name: /^Import \d+ transaction/ })); });
+
+      await waitFor(() => expect(api.import.confirm).toHaveBeenCalled());
+      const [payload, opts] = api.import.confirm.mock.calls[0];
+      expect(opts).toEqual({ latestMonthOnly: true });
+      expect(payload.rows.map((r: { description: string; include: boolean }) => [r.description, r.include]))
+        .toEqual([['SEPTEMBER ROW', false], ['OCTOBER ROW', true]]);
+    });
+
+    it('Undo puts back what was ticked, and the limit holds the button again', async () => {
+      api.import.stageCsv.mockReset().mockResolvedValue(stagingWithMonths(offer) as never);
+      await reachReview();
+      fireEvent.press(screen.getByTestId('import-latest-month'));
+
+      fireEvent.press(screen.getByText('Undo'));
+
+      expect(screen.getByTestId('import-latest-month')).toBeTruthy();
+      expect(importButtonDisabled()).toBe(true);
+    });
+
+    it('after upgrading, returning to the tab puts every row back and imports them all', async () => {
+      api.import.stageCsv.mockReset().mockResolvedValue(stagingWithMonths(offer) as never);
+      api.import.getSession.mockReset().mockResolvedValue({
+        sessionId: 'session-1', staging: stagingWithMonths(null).staging, freePlanLimit: null,
+      } as never);
+      await reachReview();
+      fireEvent.press(screen.getByTestId('import-latest-month'));
+
+      await returnToTheTab();
+
+      expect(screen.queryByTestId('free-plan-limit-notice')).not.toBeOnTheScreen();
+      await act(async () => { fireEvent.press(screen.getByRole('button', { name: /^Import \d+ transaction/ })); });
+      await waitFor(() => expect(api.import.confirm).toHaveBeenCalled());
+      const [payload, opts] = api.import.confirm.mock.calls[0];
+      expect(opts).toBeUndefined();
+      expect(payload.rows.map((r: { include: boolean }) => r.include)).toEqual([true, true]);
+    });
+
+    it('has no offer when the statement has no whole month', async () => {
+      api.import.stageCsv.mockReset().mockResolvedValue(stagingWithMonths(freePlanLimit) as never);
+      await reachReview();
+
+      expect(screen.queryByTestId('import-latest-month')).toBeNull();
+      expect(screen.getByTestId('free-plan-limit-notice')).toHaveTextContent(/You can't import this statement on the Free plan\./);
+    });
+  });
+
   it('shows nothing and holds nothing when the statement fits', async () => {
     api.import.stageCsv.mockReset().mockResolvedValue(stagingWith(null) as never);
 

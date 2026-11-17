@@ -339,7 +339,12 @@ export default function Import() {
   // the way past it for someone who has just upgraded elsewhere -- the backend stays the judge.
   const [freePlanLimit, setFreePlanLimit] = useState<FreePlanLimitNotice | null>(null);
   const [limitOverridden, setLimitOverridden] = useState(false);
-  const limitBlocksImport = freePlanLimit !== null && !limitOverridden;
+  // "Import only the latest month" (Sid, 2026-11-17): the Free customer chose to import just the
+  // notice's month. Rows outside it are unticked; the server checks the same and uses the month's
+  // own balances. `includedBeforeLatestMonth` is what Undo puts back.
+  const [latestMonthOnly, setLatestMonthOnly] = useState(false);
+  const [includedBeforeLatestMonth, setIncludedBeforeLatestMonth] = useState<boolean[] | null>(null);
+  const limitBlocksImport = freePlanLimit !== null && !limitOverridden && !latestMonthOnly;
   const [accountChoice, setAccountChoice] = useState<AccountChoice>('new');
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [newName, setNewName] = useState('');
@@ -638,6 +643,7 @@ export default function Import() {
       setPreviousImport(session.previousImport ?? null);
       setFreePlanLimit(session.freePlanLimit ?? null);
       setLimitOverridden(false);
+      setLatestMonthOnly(false);
       openStagedReview(session);
       setJobId(null);
       setStep('review');
@@ -681,6 +687,7 @@ export default function Import() {
       setPreviousImport(session.previousImport ?? null);
       setFreePlanLimit(session.freePlanLimit ?? null);
       setLimitOverridden(false);
+      setLatestMonthOnly(false);
       openStagedReview(session, accountsForMatch);
       setStep('review');
     } catch (e: any) {
@@ -833,6 +840,7 @@ export default function Import() {
       setPreviousImport(res.previousImport ?? null);
       setFreePlanLimit(res.freePlanLimit ?? null);
       setLimitOverridden(false);
+      setLatestMonthOnly(false);
       setFileFormat(isPdf ? 'PDF' : 'CSV');
       // The document opened, so the password (if any) has done its whole job -- neither it nor the
       // file is needed again, confirm/reimport work from the server-side session. Not cleared here
@@ -932,8 +940,32 @@ export default function Import() {
   const decideAllDuplicates = (decision: DuplicateDecision) =>
     setReview((r) => decideAllUnresolved(rows, r, decision));
 
-  const toggleRowIncluded = (index: number, include: boolean) =>
+  const inLatestMonth = (date: string | null | undefined) =>
+    !!date && !!freePlanLimit?.latestMonthFrom && !!freePlanLimit?.latestMonthTo
+    && date >= freePlanLimit.latestMonthFrom && date <= freePlanLimit.latestMonthTo;
+
+  const toggleRowIncluded = (index: number, include: boolean) => {
+    // Ticking a row from another month leaves "only the latest month": the Free limit applies again.
+    if (latestMonthOnly && include && !inLatestMonth(rows[index]?.date)) setLatestMonthOnly(false);
     setReview((r) => setIncluded(r, index, include));
+  };
+
+  /** A first-time confirm; asks for "only the latest month" only when the customer chose it. */
+  function confirmFirstImport(payload: Parameters<typeof importApi.confirm>[0]) {
+    return latestMonthOnly ? importApi.confirm(payload, { latestMonthOnly: true }) : importApi.confirm(payload);
+  }
+
+  function chooseLatestMonthOnly() {
+    setIncludedBeforeLatestMonth(review.included);
+    setReview((r) => ({ ...r, included: r.included.map((v, i) => v && inLatestMonth(rows[i]?.date)) }));
+    setLatestMonthOnly(true);
+  }
+
+  function undoLatestMonthOnly() {
+    if (includedBeforeLatestMonth) setReview((r) => ({ ...r, included: includedBeforeLatestMonth }));
+    setIncludedBeforeLatestMonth(null);
+    setLatestMonthOnly(false);
+  }
 
   // docs/proposals/account-ownership-intelligence-proposal.md §3.1 point 1: the extracted name is
   // untrusted input, not ground truth -- this is why a mismatch only ever opens a non-blocking
@@ -1024,7 +1056,7 @@ export default function Import() {
             // atomically server-side, so it cannot be confirmed twice.
             idempotencyKey: (confirmAttemptKey.current ??= newIdempotencyKey()),
           })
-        : await importApi.confirm({
+        : await confirmFirstImport({
             sessionId: sessionId!,
             rows: rowPayload,
             existingAccountId,
@@ -1128,6 +1160,7 @@ export default function Import() {
     setPreviousImport(null);
     setFreePlanLimit(null);
     setLimitOverridden(false);
+    setLatestMonthOnly(false);
     setRows([]);
     setReview(EMPTY_REVIEW);
     setUnparseableRows([]);
@@ -1781,6 +1814,9 @@ export default function Import() {
               notice={freePlanLimit}
               overridden={limitOverridden}
               onOverride={() => setLimitOverridden(true)}
+              latestMonthOnly={latestMonthOnly}
+              onLatestMonthOnly={chooseLatestMonthOnly}
+              onUndoLatestMonthOnly={undoLatestMonthOnly}
             />
           )}
           {previousImport && (
@@ -2811,15 +2847,67 @@ function TransactionPreviewTable({
  * when this review opened, and reloading the page would lose their review. It only re-enables the
  * button -- the backend checks the plan again at Import and refuses if it still applies.
  */
+/** "October 2026" from a yyyy-mm-dd date. */
+function monthName(date: string): string {
+  return new Date(`${date}T00:00:00`).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+}
+
 function FreePlanLimitBanner({
   notice,
   overridden,
   onOverride,
+  latestMonthOnly,
+  onLatestMonthOnly,
+  onUndoLatestMonthOnly,
 }: {
   notice: FreePlanLimitNotice;
   overridden: boolean;
   onOverride: () => void;
+  latestMonthOnly: boolean;
+  onLatestMonthOnly: () => void;
+  onUndoLatestMonthOnly: () => void;
 }) {
+  const month = notice.latestMonthFrom ? monthName(notice.latestMonthFrom) : null;
+  const monthRows = notice.latestMonthRows ?? 0;
+  const transactions = `${monthRows} ${monthRows === 1 ? 'transaction' : 'transactions'}`;
+  const plans = (
+    <Link
+      to="/app/billing"
+      onClick={() => trackNavigation('subscription', 'contextual')}
+      className="font-semibold underline text-ink"
+    >
+      See Plus plans
+    </Link>
+  );
+
+  // Chosen: say what is being imported, why the rest is left out, and what Plus would do instead.
+  if (latestMonthOnly && month) {
+    return (
+      <div
+        data-testid="free-plan-limit-notice"
+        role="status"
+        className="bg-card border border-border rounded-xl2 px-5 py-3.5 flex items-start gap-2.5"
+      >
+        <CheckCircle2 size={16} className="text-success flex-shrink-0 mt-0.5" />
+        <div className="space-y-1.5">
+          <p className="text-sm text-ink">
+            Importing only {month}: {transactions}.
+          </p>
+          <p className="text-xs text-muted">
+            The Free plan imports one month per statement, so the other months in this file are left out. With Plus,
+            you can import the whole statement in one go.
+          </p>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+            {plans}
+            <button type="button" onClick={onUndoLatestMonthOnly} className="underline text-muted">
+              Undo
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       data-testid="free-plan-limit-notice"
@@ -2830,17 +2918,23 @@ function FreePlanLimitBanner({
       <div className="space-y-1.5">
         <p className="text-sm text-ink">{notice.message}</p>
         <p className="text-xs text-muted">
-          You can't import this statement on the Free plan. Upload a statement covering one month, or upgrade.
-          Your upload stays under "Continue previous import" for 48 hours.
+          {month
+            ? `The Free plan imports one month per statement. Import just ${month} now, or upgrade to Plus to import the whole statement.`
+            : 'You can\'t import this statement on the Free plan. Upload a statement covering one month, or upgrade.'}
+          {' '}Your upload stays under "Continue previous import" for 48 hours.
         </p>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-          <Link
-            to="/app/billing"
-            onClick={() => trackNavigation('subscription', 'contextual')}
-            className="font-semibold underline text-ink"
-          >
-            See Plus plans
-          </Link>
+          {month && monthRows > 0 && (
+            <button
+              type="button"
+              onClick={onLatestMonthOnly}
+              data-testid="import-latest-month"
+              className="font-semibold rounded-lg px-3 py-1.5 bg-primary text-on-primary"
+            >
+              Import only {month} ({transactions})
+            </button>
+          )}
+          {plans}
           {!overridden && (
             <button type="button" onClick={onOverride} className="underline text-muted">
               I've already upgraded

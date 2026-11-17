@@ -566,6 +566,11 @@ export interface FreePlanLimitNotice {
   coveredFrom: string;
   coveredTo: string;
   basis: 'PRINTED_PERIOD' | 'TRANSACTIONS' | string;
+  /** "Import only the latest month": the statement's latest whole month with transactions, which a
+   *  Free customer may import on its own. Absent when there is none. */
+  latestMonthFrom?: string | null;
+  latestMonthTo?: string | null;
+  latestMonthRows?: number | null;
 }
 
 // A PDF upload can now detect more than one account section in a single file (e.g. an
@@ -650,8 +655,13 @@ export const importApi = {
   // it's already persisted server-side from staging, looked up via payload.sessionId. Exactly one
   // of existingAccountId / newAccount should be set — see ImportDto.ConfirmRequest on the
   // backend, which is exactly what makes an import auto-create its account when needed.
-  confirm: (payload: ConfirmPayload) =>
-    api.post<ImportSummary>('/import/csv/confirm', payload).then((r) => r.data),
+  // latestMonthOnly: import only the statement's latest whole month (the Free plan offer); the server
+  // checks every kept row is in it and uses that month's own period and balances.
+  confirm: (payload: ConfirmPayload, opts?: { latestMonthOnly?: boolean }) =>
+    api
+      .post<ImportSummary>('/import/csv/confirm', payload,
+        opts?.latestMonthOnly ? { params: { latestMonthOnly: true } } : undefined)
+      .then((r) => r.data),
   // Confirms every detected account section of a multi-account PDF staging session together --
   // used only when stagePdf() returned multiAccount: true. See ImportService.confirmMultiSection
   // on the backend, which loops the existing single-account confirm() once per section rather

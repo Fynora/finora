@@ -8739,6 +8739,12 @@ export interface components {
             /** Format: date */
             coveredTo?: string;
             basis?: string;
+            /** Format: date */
+            latestMonthFrom?: string;
+            /** Format: date */
+            latestMonthTo?: string;
+            /** Format: int32 */
+            latestMonthRows?: number;
         };
         PdfStagingSessionResponse: {
             /** Format: uuid */
@@ -13855,6 +13861,8 @@ export interface components {
             freeLimitShownAt?: string;
             /** Format: date-time */
             freeLimitRefusedAt?: string;
+            /** Format: date-time */
+            latestMonthImportedAt?: string;
         };
         Finding: {
             /** Format: int32 */
@@ -14118,6 +14126,8 @@ export interface components {
             /** Format: int64 */
             freeLimitThenImported?: number;
             discardReasons?: components["schemas"]["StagedOutcomesDiscardReasons"];
+            /** Format: int64 */
+            latestMonthOnly?: number;
         };
         ApiResponseListLayoutSummary: {
             success?: boolean;
@@ -18465,7 +18475,9 @@ export interface operations {
     };
     confirm_1: {
         parameters: {
-            query?: never;
+            query?: {
+                latestMonthOnly?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;

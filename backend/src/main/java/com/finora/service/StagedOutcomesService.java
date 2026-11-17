@@ -59,7 +59,8 @@ public class StagedOutcomesService {
                    count(*) FILTER (WHERE %1$s AND s.discard_reason = 'TOO_MANY_MONTHS') AS too_many_months,
                    count(*) FILTER (WHERE %1$s AND s.discard_reason = 'LOOKS_WRONG') AS looks_wrong,
                    count(*) FILTER (WHERE %1$s AND s.discard_reason = 'LATER') AS later,
-                   count(*) FILTER (WHERE %1$s AND s.discard_reason = 'OTHER') AS other
+                   count(*) FILTER (WHERE %1$s AND s.discard_reason = 'OTHER') AS other,
+                   count(*) FILTER (WHERE s.confirmed_at IS NOT NULL AND s.latest_month_imported_at IS NOT NULL) AS latest_month
             FROM statement_analysis_sessions s
             WHERE s.source = 'CUSTOMER_IMPORT' AND s.outcome = 'PARSED' AND s.import_session_id IS NOT NULL
               AND s.created_at >= ? AND s.created_at < ?
@@ -111,15 +112,15 @@ public class StagedOutcomesService {
     }
 
     /** Columns after week_start: staged, imported, discarded, phone, expired, open, shown, refused,
-     *  shown-then-imported, then the five discard reasons. */
-    private static final int SLOTS = 14;
+     *  shown-then-imported, the five discard reasons, then latest-month-only imports. */
+    private static final int SLOTS = 15;
 
     private static StagedOutcomesDto.Week week(LocalDate weekStart, long[] c) {
         long notRecorded = c[0] - c[1] - c[2] - c[3] - c[4] - c[5];
         long noReason = c[2] - c[9] - c[10] - c[11] - c[12] - c[13];
         return new StagedOutcomesDto.Week(weekStart, c[0], c[1], c[2], c[3], c[4], c[5], notRecorded,
                 c[6], c[7], c[8],
-                new StagedOutcomesDto.DiscardReasons(c[9], c[10], c[11], c[12], c[13], noReason));
+                new StagedOutcomesDto.DiscardReasons(c[9], c[10], c[11], c[12], c[13], noReason), c[14]);
     }
 
     private LocalDate recordedSince() {

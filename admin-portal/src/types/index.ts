@@ -1354,6 +1354,8 @@ interface ImportTraceCompletion {
   expiredUnconfirmedAt: string | null;
   freeLimitShownAt: string | null;
   freeLimitRefusedAt: string | null;
+  /** Imported as just its latest month -- the Free plan offer. */
+  latestMonthImportedAt: string | null;
 }
 
 /** One of a customer's own recent failed imports, looked up by email -- the support half of
@@ -1557,6 +1559,8 @@ export interface StagedOutcomesWeek {
   discardReasons: {
     wrongFile: number; tooManyMonths: number; looksWrong: number; later: number; other: number; noReason: number;
   };
+  /** Imported as just its latest month (the Free plan offer); one part of `imported`. */
+  latestMonthOnly: number;
 }
 
 export interface StagedOutcomesReport {

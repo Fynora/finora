@@ -47,12 +47,14 @@ public final class StagedOutcomesDto {
      * @param freeLimitThenImported shown the notice, and imported all the same: after an upgrade, or as
      *                             just its latest month (the Free plan's "import only the latest month")
      * @param discardReasons       the customer's optional reasons, of those {@code discardedByCustomer}
+     * @param latestMonthOnly      imported as just its latest month -- the Free plan offer (V328); one
+     *                             part of {@code imported}, and of {@code freeLimitThenImported}
      */
     @Schema(name = "StagedOutcomesWeek")
     public record Week(LocalDate weekStart, long staged, long imported, long discardedByCustomer,
                        long removedByPhone, long expired, long stillOpen, long notRecorded,
                        long freeLimitShown, long freeLimitRefused, long freeLimitThenImported,
-                       DiscardReasons discardReasons) {}
+                       DiscardReasons discardReasons, long latestMonthOnly) {}
 
     /**
      * Of the statements discarded by the customer, by the optional reason they tapped (V327).

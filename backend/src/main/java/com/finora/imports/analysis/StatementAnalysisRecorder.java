@@ -64,7 +64,7 @@ public class StatementAnalysisRecorder {
 
     /** A later fact about a staged statement (V326; CONFIRMED is V327). Named for the first two, which
      *  came first; kept so in-flight changes that use the name still compile. */
-    public enum UnconfirmedOutcome { FREE_LIMIT_SHOWN, FREE_LIMIT_REFUSED, CONFIRMED }
+    public enum UnconfirmedOutcome { FREE_LIMIT_SHOWN, FREE_LIMIT_REFUSED, CONFIRMED, LATEST_MONTH_IMPORTED }
 
     /**
      * Stamps {@code outcome} on the read that staged {@code sessionId}, where it is still unset.
@@ -86,6 +86,7 @@ public class StatementAnalysisRecorder {
             case FREE_LIMIT_SHOWN -> repository.stampFreeLimitShown(sessionId, now);
             case FREE_LIMIT_REFUSED -> repository.stampFreeLimitRefused(sessionId, now);
             case CONFIRMED -> repository.stampConfirmed(sessionId, now);
+            case LATEST_MONTH_IMPORTED -> repository.stampLatestMonthImported(sessionId, now);
         }
     }
 

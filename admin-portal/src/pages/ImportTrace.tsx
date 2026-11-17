@@ -364,6 +364,7 @@ function stagedOutcomes(completion: ImportTrace['completion']): [string, string]
   const outcomes: [string, string | null][] = [
     ['Free plan limit notice shown', completion.freeLimitShownAt],
     ['Confirm refused by the Free plan limit', completion.freeLimitRefusedAt],
+    ['Imported just its latest month', completion.latestMonthImportedAt],
     [discardLabel(completion.discardedBy, completion.discardReason), completion.discardedUnconfirmedAt],
     ['Expired unconfirmed', completion.expiredUnconfirmedAt],
   ];

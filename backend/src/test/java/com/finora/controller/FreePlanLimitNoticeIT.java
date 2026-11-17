@@ -73,7 +73,8 @@ class FreePlanLimitNoticeIT extends AbstractIntegrationTest {
             """;
 
     private static final String REFUSAL = "Free plan statements can cover at most one month. "
-            + "Its transactions run from 5 Jan 2026 to 5 Mar 2026. Upgrade to Plus to import longer statement periods.";
+            + "Its transactions run from 5 Jan 2026 to 5 Mar 2026. You can import just its transactions from"
+            + " February 2026, or upgrade to Plus to import all of it.";
 
     private User user(String plan) {
         User user = new User();

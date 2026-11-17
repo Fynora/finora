@@ -95,7 +95,7 @@ function trace(over: Partial<Trace> = {}): Trace {
       statementImportId: null, transactionsImported: null, transactionsSkipped: null, importedAt: null,
       sessionConfirmedAt: null, discardedUnconfirmedAt: null, discardedBy: null, discardReason: null,
       expiredUnconfirmedAt: null,
-      freeLimitShownAt: null, freeLimitRefusedAt: null,
+      freeLimitShownAt: null, freeLimitRefusedAt: null, latestMonthImportedAt: null,
     },
     ...over,
   };
@@ -229,6 +229,22 @@ describe('Import Trace — an absent block is an answer', () => {
     expect(screen.getByText('Confirm refused by the Free plan limit')).toBeInTheDocument();
     expect(screen.getByText('si-1')).toBeInTheDocument();
     expect(screen.queryByText(/Nothing was confirmed/i)).not.toBeInTheDocument();
+  });
+
+  it('says when a statement was imported as just its latest month', async () => {
+    const base = trace();
+    vi.mocked(adminImportTraceApi.byAnalysis).mockResolvedValue(trace({
+      completion: {
+        ...base.completion,
+        statementImportId: 'si-2', transactionsImported: 12, transactionsSkipped: 0,
+        importedAt: '2026-08-06T09:10:00Z', sessionConfirmedAt: '2026-08-06T09:10:00Z',
+        freeLimitShownAt: '2026-08-06T09:00:05Z', latestMonthImportedAt: '2026-08-06T09:10:00Z',
+      },
+    }));
+    await traceFor();
+
+    expect(await screen.findByText('Imported just its latest month')).toBeInTheDocument();
+    expect(screen.getByText('Free plan limit notice shown')).toBeInTheDocument();
   });
 
   it('distinguishes "no verification recorded" from "everything passed"', async () => {

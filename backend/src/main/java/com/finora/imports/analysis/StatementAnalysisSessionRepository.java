@@ -96,6 +96,14 @@ public interface StatementAnalysisSessionRepository extends JpaRepository<Statem
             nativeQuery = true)
     int stampConfirmed(@Param("sessionId") UUID sessionId, @Param("now") Instant now);
 
+    /** V328: it was imported as just its latest month (called after the confirm committed). Once. */
+    @org.springframework.transaction.annotation.Transactional
+    @Modifying
+    @Query(value = "UPDATE statement_analysis_sessions SET latest_month_imported_at = :now "
+            + "WHERE import_session_id = :sessionId AND latest_month_imported_at IS NULL",
+            nativeQuery = true)
+    int stampLatestMonthImported(@Param("sessionId") UUID sessionId, @Param("now") Instant now);
+
     /**
      * The reference counter, from a database sequence rather than a count of existing rows.
      *

@@ -56,5 +56,5 @@ clears it from past events, so a kept confirmation of a since-deleted category r
 
 ## Measured
 
-On made-up load data (50,000 accounts, 1,000,000 learning events, 2,000,000 transactions) each stats
-query took 64-440 ms and an events page about 300 ms, with no new index. No migration.
+On made-up load data (50,000 accounts, 1,000,000 learning events, 2,000,000 transactions) the whole
+stats call took about 1 second and a page of events 0.3-0.6 seconds, with no new index. No migration.

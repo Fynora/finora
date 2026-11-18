@@ -89,7 +89,10 @@ const config: ExpoConfig = {
   // 1.2.1: Android 1.2.0 is live, and this build's native code differs from it (Google Sign-In
   // 17, the expo-share-intent "Open with" patch, newer screens/safe-area/Sentry/notify-kit), so
   // an update meant for one of them must never reach the other (Sid, 2026-11-02).
-  version: '1.2.1',
+  // 1.2.2: iOS 1.2.1 (build 38) went to App Review on 2026-11-15 and a store version string cannot
+  // be reused, so the next store build is 1.2.2 (Sid, 2026-11-18). An update meant for 1.2.2 then
+  // never reaches a 1.2.1 binary.
+  version: '1.2.2',
   orientation: 'portrait',
   icon: './assets/icon.png',
   userInterfaceStyle: 'automatic',

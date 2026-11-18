@@ -3,6 +3,7 @@ import {
   assetShare,
   comingUp,
   groupKeyFor,
+  hasDepositTerms,
   holdingTerms,
   holdingValueProblem,
   moneyInPeriod,
@@ -154,6 +155,15 @@ describe('holdingTerms', () => {
       expect(holdingTerms({ id: 'a', name: 'A', balance: 1, investmentKind }, TODAY, money)).toBe(label);
     },
   );
+});
+
+describe('hasDepositTerms', () => {
+  it('tells a deposit from a holding with only a name and a value', () => {
+    expect(hasDepositTerms({ id: 'a', name: 'A', balance: 1, investmentKind: 'FD' })).toBe(false);
+    expect(hasDepositTerms({ id: 'a', name: 'A', balance: 1, interestRate: 7 })).toBe(true);
+    expect(hasDepositTerms({ id: 'a', name: 'A', balance: 1, maturityDate: '2027-01-12' })).toBe(true);
+    expect(hasDepositTerms({ id: 'a', name: 'A', balance: 1, installmentsPaid: 1, installmentsTotal: 12 })).toBe(true);
+  });
 });
 
 describe('moneyInPeriod', () => {

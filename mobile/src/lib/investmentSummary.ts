@@ -205,6 +205,14 @@ export function comingUp<T extends HoldingLike>(holdings: T[], today: Date): Com
   return [...maturing, ...plans].slice(0, COMING_UP_ROWS);
 }
 
+/** Whether a statement gave this holding deposit terms; a hand-added one has only a name and a value. */
+export function hasDepositTerms(holding: HoldingLike): boolean {
+  return [
+    holding.principalAmount, holding.interestRate, holding.installmentAmount, holding.maturityAmount,
+    holding.maturityDate, holding.installmentsPaid != null && holding.installmentsTotal != null ? 1 : null,
+  ].some((term) => term != null);
+}
+
 /** The line under a holding's name: its deposit terms, or its type when it has none. */
 export function holdingTerms(holding: HoldingLike, today: Date, money: Money): string {
   const terms: string[] = [];

@@ -34,7 +34,10 @@ public class AdminLearningStatsController {
     }
 
     /** The newest learning events across customer accounts, with each customer's email -- an
-     *  admin read of many customers' data, recorded by AdminReadAuditPolicy. */
+     *  admin read of many customers' data, recorded by AdminReadAuditPolicy. Also needs USER_VIEW:
+     *  MERCHANT_MANAGE alone is held by roles that may not see who a customer is (OPS), and a
+     *  method-level rule replaces the class-level one, so both are named here. */
+    @PreAuthorize("hasAuthority('MERCHANT_MANAGE') and hasAuthority('USER_VIEW')")
     @GetMapping("/events")
     public ApiResponse<PagedResponse<LearningEventRow>> events(
             @RequestParam(defaultValue = "0") int page,

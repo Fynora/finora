@@ -8,6 +8,7 @@ import com.finora.dto.AdminDtos.LearningPlatformStatsDto;
 import com.finora.dto.AdminDtos.LearningTrendPoint;
 import com.finora.dto.AdminDtos.LearningWindow;
 import com.finora.dto.PagedResponse;
+import com.finora.util.UserZone;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -20,9 +21,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.YearMonth;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
 
@@ -38,16 +37,25 @@ import java.util.UUID;
  * <h2>What each figure means</h2>
  * <ul>
  *   <li><b>Learned pairs</b>: (merchant, category) pairs with at least one confirmation, now.</li>
- *   <li><b>LEARNED / CORRECTED</b>: one per confirmation (MerchantLearningService.confirm). CORRECTED
- *       when the confirmed category was not the merchant's top category going in, so the engine's
- *       guess for that merchant was overridden. Confirmations = LEARNED + CORRECTED.</li>
+ *   <li><b>Confirmations</b>: one per confirmation (MerchantLearningService.confirm), of three
+ *       kinds. <em>First time</em>: LEARNED with no previous category, the merchant was new to the
+ *       engine. <em>Kept</em>: LEARNED with a previous category, the confirmed category was the
+ *       merchant's top one going in. <em>Corrected</em>: CORRECTED, it was not.</li>
  *   <li><b>Correction rate</b> (computed by the page from {@link LearningWindow}): corrected /
- *       (learned + corrected) in the last 30 days, against the 30 days before.</li>
- *   <li><b>Category sources</b>: transactions added in the last 30 days (by {@code created_at},
- *       not deleted), by {@code decision_source}. A category a person set or changed is
- *       {@code MANUAL}, whatever picked it first.</li>
+ *       (kept + corrected). First-time confirmations are left out because the engine had no answer
+ *       to get right or wrong; counting them made the rate fall whenever many new merchants
+ *       arrived, however often the engine was overridden. Deleting a category clears it from past
+ *       events, so a kept confirmation of a since-deleted category reads as first time. A correction
+ *       later undone still counts: the audit trail does not tie an undo to the event it reverted.</li>
+ *   <li><b>Months</b> are calendar months in India time ({@link UserZone#DEFAULT}), like the other
+ *       admin reports.</li>
+ *   <li><b>Category sources</b>: transactions added in the last 30 days (by {@code created_at}),
+ *       not deleted and on an account that still exists, by {@code decision_source}. Deleting an
+ *       account leaves its transactions' own {@code deleted_at} unset, so the account is checked
+ *       here. A category a person set or changed is {@code MANUAL}, whatever picked it first.</li>
  *   <li><b>Most corrected merchants</b>: CORRECTED events by merchant name, grouped across accounts
- *       ignoring case and outer spaces, since every account has its own merchant rows.</li>
+ *       ignoring case and outer spaces, since every account has its own merchant rows. Category
+ *       changes are grouped the same way, since every account has its own category rows.</li>
  * </ul>
  *
  * <p>Every figure is a grouped query in Postgres. The earlier version loaded the whole audit table
@@ -77,42 +85,58 @@ public class AdminLearningStatsService {
             FROM per_user
             """.formatted(CUSTOMER.formatted("l.user_id"));
 
+    /** Confirmed with no category to compare against: the merchant was new to the engine. */
+    private static final String FIRST_TIME = "a.action = 'LEARNED' AND a.previous_category_id IS NULL";
+    /** Confirmed the category the engine already had. */
+    private static final String KEPT = "a.action = 'LEARNED' AND a.previous_category_id IS NOT NULL";
+    private static final String CORRECTED = "a.action = 'CORRECTED'";
+
     private static final String ACTIONS = """
-            SELECT a.action,
-                   COUNT(*) AS total,
-                   COUNT(*) FILTER (WHERE a.created_at >= ?) AS last30,
-                   COUNT(*) FILTER (WHERE a.created_at >= ? AND a.created_at < ?) AS previous30
+            WITH bounds AS (SELECT CAST(? AS timestamptz) AS last_start, CAST(? AS timestamptz) AS previous_start)
+            SELECT COUNT(*) FILTER (WHERE a.action IN ('LEARNED', 'CORRECTED')) AS confirmations,
+                   COUNT(*) FILTER (WHERE %3$s) AS corrected,
+                   COUNT(*) FILTER (WHERE a.action = 'UNDONE') AS undone,
+                   COUNT(*) FILTER (WHERE a.action = 'RESET') AS reset,
+                   COUNT(*) FILTER (WHERE %1$s AND a.created_at >= b.last_start) AS last_first_time,
+                   COUNT(*) FILTER (WHERE %2$s AND a.created_at >= b.last_start) AS last_kept,
+                   COUNT(*) FILTER (WHERE %3$s AND a.created_at >= b.last_start) AS last_corrected,
+                   COUNT(*) FILTER (WHERE %1$s AND a.created_at >= b.previous_start AND a.created_at < b.last_start) AS previous_first_time,
+                   COUNT(*) FILTER (WHERE %2$s AND a.created_at >= b.previous_start AND a.created_at < b.last_start) AS previous_kept,
+                   COUNT(*) FILTER (WHERE %3$s AND a.created_at >= b.previous_start AND a.created_at < b.last_start) AS previous_corrected
             FROM merchant_learning_audit a
-            WHERE %s
-            GROUP BY a.action
-            """.formatted(CUSTOMER.formatted("a.user_id"));
+            CROSS JOIN bounds b
+            WHERE %4$s
+            """.formatted(FIRST_TIME, KEPT, CORRECTED, CUSTOMER.formatted("a.user_id"));
 
     private static final String TREND = """
-            SELECT to_char(date_trunc('month', a.created_at AT TIME ZONE 'UTC'), 'YYYY-MM') AS month,
-                   COUNT(*) FILTER (WHERE a.action = 'LEARNED') AS learned,
-                   COUNT(*) FILTER (WHERE a.action = 'CORRECTED') AS corrected,
+            SELECT to_char(a.created_at AT TIME ZONE '%1$s', 'YYYY-MM') AS month,
+                   COUNT(*) FILTER (WHERE %2$s) AS first_time,
+                   COUNT(*) FILTER (WHERE %3$s) AS kept,
+                   COUNT(*) FILTER (WHERE %4$s) AS corrected,
                    COUNT(*) FILTER (WHERE a.action = 'UNDONE') AS undone,
                    COUNT(*) FILTER (WHERE a.action = 'RESET') AS reset
             FROM merchant_learning_audit a
-            WHERE a.action IN ('LEARNED', 'CORRECTED', 'UNDONE', 'RESET') AND %s
+            WHERE a.action IN ('LEARNED', 'CORRECTED', 'UNDONE', 'RESET') AND %5$s
             GROUP BY 1
             ORDER BY 1
-            """.formatted(CUSTOMER.formatted("a.user_id"));
+            """.formatted(UserZone.DEFAULT.getId(), FIRST_TIME, KEPT, CORRECTED, CUSTOMER.formatted("a.user_id"));
 
     private static final String CATEGORY_SOURCES = """
             SELECT t.decision_source, COUNT(*) AS transactions
             FROM transactions t
+            JOIN accounts acc ON acc.id = t.account_id AND acc.deleted_at IS NULL
             WHERE t.created_at >= ? AND t.deleted_at IS NULL AND %s
             GROUP BY t.decision_source
             ORDER BY transactions DESC, t.decision_source
             """.formatted(CUSTOMER.formatted("t.user_id"));
 
-    /** Corrections with their merchant key, display name and category names. */
+    /** Corrections with the keys that group them across accounts, and the names to show. */
     private static final String CORRECTIONS = """
             corrections AS (
                 SELECT a.user_id, lower(btrim(m.canonical_name)) AS merchant_key,
                        btrim(m.canonical_name) AS merchant_name,
-                       pc.name AS from_name, nc.name AS to_name
+                       lower(btrim(pc.name)) AS from_key, btrim(pc.name) AS from_name,
+                       lower(btrim(nc.name)) AS to_key, btrim(nc.name) AS to_name
                 FROM merchant_learning_audit a
                 JOIN merchants m ON m.id = a.merchant_id
                 LEFT JOIN categories pc ON pc.id = a.previous_category_id
@@ -128,12 +152,14 @@ public class AdminLearningStatsService {
                 FROM corrections
                 GROUP BY merchant_key),
             changes AS (
-                SELECT merchant_key, from_name, to_name,
+                SELECT merchant_key,
+                       mode() WITHIN GROUP (ORDER BY from_name) AS from_name,
+                       mode() WITHIN GROUP (ORDER BY to_name) AS to_name,
                        row_number() OVER (PARTITION BY merchant_key
-                                          ORDER BY COUNT(*) DESC, from_name, to_name) AS rank
+                                          ORDER BY COUNT(*) DESC, from_key, to_key) AS rank
                 FROM corrections
-                WHERE from_name IS NOT NULL AND to_name IS NOT NULL
-                GROUP BY merchant_key, from_name, to_name)
+                WHERE from_key IS NOT NULL AND to_key IS NOT NULL
+                GROUP BY merchant_key, from_key, to_key)
             SELECT t.merchant, t.corrections, t.users, c.from_name, c.to_name
             FROM totals t
             LEFT JOIN changes c ON c.merchant_key = t.merchant_key AND c.rank = 1
@@ -143,11 +169,13 @@ public class AdminLearningStatsService {
 
     private static final String TOP_CHANGES = """
             WITH %s
-            SELECT from_name, to_name, COUNT(*) AS changes
+            SELECT mode() WITHIN GROUP (ORDER BY from_name) AS from_name,
+                   mode() WITHIN GROUP (ORDER BY to_name) AS to_name,
+                   COUNT(*) AS changes
             FROM corrections
-            WHERE from_name IS NOT NULL AND to_name IS NOT NULL
-            GROUP BY from_name, to_name
-            ORDER BY changes DESC, from_name, to_name
+            WHERE from_key IS NOT NULL AND to_key IS NOT NULL
+            GROUP BY from_key, to_key
+            ORDER BY changes DESC, from_key, to_key
             LIMIT %d
             """.formatted(CORRECTIONS, TOP_LIMIT);
 
@@ -168,6 +196,9 @@ public class AdminLearningStatsService {
             """.formatted(CUSTOMER.formatted("a.user_id"));
 
     private record Pairs(long pairs, long users, double median) {}
+
+    private record Actions(long confirmations, long corrected, long undone, long reset,
+                           LearningWindow last30Days, LearningWindow previous30Days) {}
 
     private final JdbcTemplate jdbc;
     private final Clock clock;
@@ -191,25 +222,22 @@ public class AdminLearningStatsService {
         Pairs pairs = jdbc.queryForObject(PAIRS,
                 (rs, i) -> new Pairs(rs.getLong("pairs"), rs.getLong("users"), rs.getDouble("median")));
 
-        Map<String, long[]> actions = new HashMap<>(); // action -> [total, last30, previous30]
-        jdbc.query(ACTIONS, rs -> {
-            actions.put(rs.getString("action"),
-                    new long[]{rs.getLong("total"), rs.getLong("last30"), rs.getLong("previous30")});
-        }, last30Start, previous30Start, last30Start);
-        long[] none = new long[3];
-        long[] learned = actions.getOrDefault("LEARNED", none);
-        long[] corrected = actions.getOrDefault("CORRECTED", none);
+        Actions actions = jdbc.queryForObject(ACTIONS, (rs, i) -> new Actions(
+                rs.getLong("confirmations"), rs.getLong("corrected"), rs.getLong("undone"), rs.getLong("reset"),
+                new LearningWindow(rs.getLong("last_first_time"), rs.getLong("last_kept"), rs.getLong("last_corrected")),
+                new LearningWindow(rs.getLong("previous_first_time"), rs.getLong("previous_kept"), rs.getLong("previous_corrected"))),
+                last30Start, previous30Start);
 
         return new LearningPlatformStatsDto(
                 pairs.pairs(),
-                learned[0] + corrected[0],
-                corrected[0],
-                actions.getOrDefault("RESET", none)[0],
-                actions.getOrDefault("UNDONE", none)[0],
+                actions.confirmations(),
+                actions.corrected(),
+                actions.reset(),
+                actions.undone(),
                 pairs.users(),
                 pairs.median(),
-                new LearningWindow(learned[1], corrected[1]),
-                new LearningWindow(learned[2], corrected[2]),
+                actions.last30Days(),
+                actions.previous30Days(),
                 trend(),
                 jdbc.query(CATEGORY_SOURCES, (rs, i) -> new LearningCategorySourceCount(
                         rs.getString("decision_source"), rs.getLong("transactions")), last30Start),
@@ -246,14 +274,14 @@ public class AdminLearningStatsService {
         TreeMap<YearMonth, LearningTrendPoint> byMonth = new TreeMap<>();
         jdbc.query(TREND, rs -> {
             String month = rs.getString("month");
-            byMonth.put(YearMonth.parse(month), new LearningTrendPoint(month, rs.getLong("learned"),
+            byMonth.put(YearMonth.parse(month), new LearningTrendPoint(month, rs.getLong("first_time"), rs.getLong("kept"),
                     rs.getLong("corrected"), rs.getLong("undone"), rs.getLong("reset")));
         });
         if (byMonth.isEmpty()) return List.of();
         List<LearningTrendPoint> points = new ArrayList<>();
         for (YearMonth m = byMonth.firstKey(); !m.isAfter(byMonth.lastKey()); m = m.plusMonths(1)) {
             LearningTrendPoint point = byMonth.get(m);
-            points.add(point != null ? point : new LearningTrendPoint(m.toString(), 0, 0, 0, 0));
+            points.add(point != null ? point : new LearningTrendPoint(m.toString(), 0, 0, 0, 0, 0));
         }
         return points;
     }

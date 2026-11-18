@@ -367,16 +367,20 @@ public class AdminDtos {
             List<LearningCategoryChange> topCategoryChanges
     ) {}
 
-    /** LEARNED and CORRECTED events in one 30-day window. The correction rate is
-     *  corrected / (learned + corrected), and has no value when both are zero. */
-    public record LearningWindow(long learned, long corrected) {}
+    /** Confirmations in one 30-day window. firstTime had no category to check against (the merchant
+     *  was new to the engine); kept agreed with the category the engine already had; corrected
+     *  changed it. The correction rate is corrected / (kept + corrected), and has no value when
+     *  both are zero: a first confirmation cannot show the engine was right or wrong. */
+    public record LearningWindow(long firstTime, long kept, long corrected) {}
 
-    /** One calendar month (UTC, "YYYY-MM") of learning events, every month from the first to the
-     *  last with any event, quiet months as zeros. */
-    public record LearningTrendPoint(String month, long learned, long corrected, long undone, long reset) {}
+    /** One calendar month in India time ("YYYY-MM") of learning events, every month from the first
+     *  to the last with any event, quiet months as zeros. firstTime, kept and corrected as on
+     *  {@link LearningWindow}. */
+    public record LearningTrendPoint(String month, long firstTime, long kept, long corrected,
+                                     long undone, long reset) {}
 
-    /** How many transactions added in the last 30 days took their category from this source
-     *  (Transaction.DecisionSource name; MANUAL is set or changed by hand). */
+    /** How many transactions added in the last 30 days, on accounts that still exist, took their
+     *  category from this source (Transaction.DecisionSource name; MANUAL is set or changed by hand). */
     public record LearningCategorySourceCount(String source, long transactions) {}
 
     /** A merchant name (grouped across accounts, ignoring case and outer spaces) whose learned
@@ -385,7 +389,8 @@ public class AdminDtos {
     public record LearningCorrectedMerchant(String merchant, long corrections, long users,
                                             String usualFrom, String usualTo) {}
 
-    /** A from-category to to-category change made by corrections, by category name. */
+    /** A from-category to to-category change made by corrections, by category name across accounts,
+     *  ignoring case and outer spaces. */
     public record LearningCategoryChange(String fromCategory, String toCategory, long count) {}
 
     /** One learning event for the admin Learning Engine page's recent events list. Category names

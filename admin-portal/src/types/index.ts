@@ -892,15 +892,19 @@ export interface LearningPlatformStatsDto {
   topCategoryChanges: LearningCategoryChange[];
 }
 
-/** LEARNED and CORRECTED events in one 30-day window. */
+/** Confirmations in one 30-day window. firstTime: the merchant was new to the engine. kept: agreed
+ *  with the category the engine already had. corrected: changed it. */
 export interface LearningWindow {
-  learned: number;
+  firstTime: number;
+  kept: number;
   corrected: number;
 }
 
+/** One calendar month in India time. */
 export interface LearningTrendPoint {
   month: string;
-  learned: number;
+  firstTime: number;
+  kept: number;
   corrected: number;
   undone: number;
   reset: number;

@@ -13758,7 +13758,9 @@ export interface components {
         LearningTrendPoint: {
             month?: string;
             /** Format: int64 */
-            learned?: number;
+            firstTime?: number;
+            /** Format: int64 */
+            kept?: number;
             /** Format: int64 */
             corrected?: number;
             /** Format: int64 */
@@ -13768,7 +13770,9 @@ export interface components {
         };
         LearningWindow: {
             /** Format: int64 */
-            learned?: number;
+            firstTime?: number;
+            /** Format: int64 */
+            kept?: number;
             /** Format: int64 */
             corrected?: number;
         };

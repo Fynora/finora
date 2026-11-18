@@ -7,12 +7,16 @@ import com.finora.entity.Account;
 import com.finora.entity.Category;
 import com.finora.entity.Merchant;
 import com.finora.entity.MerchantCategoryLearning;
+import com.finora.entity.Permission;
+import com.finora.entity.Role;
 import com.finora.entity.User;
 import com.finora.repository.AccountRepository;
 import com.finora.repository.CategoryRepository;
 import com.finora.repository.MerchantCategoryLearningRepository;
 import com.finora.repository.MerchantRepository;
+import com.finora.repository.PermissionRepository;
 import com.finora.repository.RefreshTokenRepository;
+import com.finora.repository.RoleRepository;
 import com.finora.repository.UserRepository;
 import com.finora.security.JwtService;
 import com.finora.testsupport.TestSessions;
@@ -55,6 +59,8 @@ class AdminLearningStatsControllerIT extends AbstractIntegrationTest {
     @Autowired private MerchantRepository merchantRepository;
     @Autowired private CategoryRepository categoryRepository;
     @Autowired private AccountRepository accountRepository;
+    @Autowired private RoleRepository roleRepository;
+    @Autowired private PermissionRepository permissionRepository;
     @Autowired private JwtService jwtService;
     @Autowired private RefreshTokenRepository refreshTokens;
     @Autowired private JdbcTemplate jdbc;
@@ -73,6 +79,27 @@ class AdminLearningStatsControllerIT extends AbstractIntegrationTest {
         user.setAccountScope(User.SCOPE_ADMIN);
         user.setPhoneVerified(true);
         return userRepository.save(user);
+    }
+
+    /** An admin holding exactly these permissions, as a preset role like OPS does. */
+    private User adminWith(String... permissions) {
+        Role role = new Role();
+        role.setName("LEARNING_ENGINE_IT_" + UUID.randomUUID().toString().substring(0, 8));
+        role.setDescription("Role for the learning engine IT");
+        for (String name : permissions) {
+            Permission permission = permissionRepository.findAll().stream()
+                    .filter(p -> p.getName().equals(name)).findFirst().orElseThrow();
+            role.getPermissions().add(permission);
+        }
+        roleRepository.save(role);
+        User user = admin();
+        user.setRole(role.getName());
+        return userRepository.save(user);
+    }
+
+    private int statusOf(User as, String path) {
+        return restTemplate.exchange(path, HttpMethod.GET, new HttpEntity<>(bearerFor(as)), String.class)
+                .getStatusCode().value();
     }
 
     private User customer(boolean internal) {
@@ -188,6 +215,20 @@ class AdminLearningStatsControllerIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void customerEmailsNeedPermissionToViewUsersAsWellAsManageMerchants() {
+        User merchantsOnly = adminWith("MERCHANT_MANAGE");
+        assertThat(statusOf(merchantsOnly, STATS)).isEqualTo(200);
+        assertThat(statusOf(merchantsOnly, EVENTS)).isEqualTo(403);
+
+        User usersOnly = adminWith("USER_VIEW");
+        assertThat(statusOf(usersOnly, STATS)).isEqualTo(403);
+        assertThat(statusOf(usersOnly, EVENTS)).isEqualTo(403);
+
+        User both = adminWith("MERCHANT_MANAGE", "USER_VIEW");
+        assertThat(statusOf(both, EVENTS)).isEqualTo(200);
+    }
+
+    @Test
     void totalsAndWindowsCountCustomersOnly() throws Exception {
         User admin = admin();
         JsonNode before = get(admin, STATS);
@@ -202,7 +243,10 @@ class AdminLearningStatsControllerIT extends AbstractIntegrationTest {
         pair(customer, merchant, groceries, 1);
         pair(customer, merchant(customer, "LE IT empty " + tag), food, 0); // no confirmation: not a pair
         events(3, customer, merchant, "LEARNED", null, food, now.minus(Duration.ofDays(5)));
+        events(6, customer, merchant, "LEARNED", food, food, now.minus(Duration.ofDays(5)));
         events(1, customer, merchant, "CORRECTED", food, groceries, now.minus(Duration.ofDays(5)));
+        events(5, customer, merchant, "LEARNED", null, food, now.minus(Duration.ofDays(40)));
+        events(8, customer, merchant, "LEARNED", food, food, now.minus(Duration.ofDays(40)));
         events(2, customer, merchant, "CORRECTED", groceries, food, now.minus(Duration.ofDays(40)));
         events(4, customer, merchant, "LEARNED", null, food, now.minus(Duration.ofDays(90)));
         events(1, customer, merchant, "UNDONE", null, null, now.minus(Duration.ofDays(1)));
@@ -218,13 +262,15 @@ class AdminLearningStatsControllerIT extends AbstractIntegrationTest {
 
         assertThat(delta(after, before, "/learnedMerchantPairs")).isEqualTo(2);
         assertThat(delta(after, before, "/usersWithLearning")).isEqualTo(1);
-        assertThat(delta(after, before, "/totalConfirmations")).isEqualTo(10);
+        assertThat(delta(after, before, "/totalConfirmations")).isEqualTo(29);
         assertThat(delta(after, before, "/correctedCount")).isEqualTo(3);
         assertThat(delta(after, before, "/undoneCount")).isEqualTo(1);
         assertThat(delta(after, before, "/resetCount")).isEqualTo(1);
-        assertThat(delta(after, before, "/last30Days/learned")).isEqualTo(3);
+        assertThat(delta(after, before, "/last30Days/firstTime")).isEqualTo(3);
+        assertThat(delta(after, before, "/last30Days/kept")).isEqualTo(6);
         assertThat(delta(after, before, "/last30Days/corrected")).isEqualTo(1);
-        assertThat(delta(after, before, "/previous30Days/learned")).isZero();
+        assertThat(delta(after, before, "/previous30Days/firstTime")).isEqualTo(5);
+        assertThat(delta(after, before, "/previous30Days/kept")).isEqualTo(8);
         assertThat(delta(after, before, "/previous30Days/corrected")).isEqualTo(2);
     }
 
@@ -259,7 +305,8 @@ class AdminLearningStatsControllerIT extends AbstractIntegrationTest {
         UUID category = category(customer, "LE IT trend " + tag);
         // Months no other test writes to, so their counts are exactly this test's.
         events(4, customer, merchant, "LEARNED", null, category, Instant.parse("2001-01-10T00:00:00Z"));
-        events(1, customer, merchant, "CORRECTED", category, category, Instant.parse("2001-01-31T23:59:00Z"));
+        events(3, customer, merchant, "LEARNED", category, category, Instant.parse("2001-01-11T00:00:00Z"));
+        events(1, customer, merchant, "CORRECTED", category, category, Instant.parse("2001-01-31T18:00:00Z"));
         events(2, customer, merchant, "UNDONE", null, null, Instant.parse("2001-03-01T00:00:00Z"));
         events(1, customer, merchant, "RESET", category, null, Instant.parse("2001-03-15T00:00:00Z"));
         events(1, customer, merchant, "MERGED", null, null, Instant.parse("2000-12-15T00:00:00Z"));
@@ -271,11 +318,12 @@ class AdminLearningStatsControllerIT extends AbstractIntegrationTest {
         assertThat(find(trend, "month", "2000-12")).as("a month with only a merge has no learning").isNull();
         JsonNode jan = find(trend, "month", "2001-01");
         assertThat(jan).isNotNull();
-        assertThat(jan.get("learned").asLong()).isEqualTo(4);
+        assertThat(jan.get("firstTime").asLong()).isEqualTo(4);
+        assertThat(jan.get("kept").asLong()).isEqualTo(3);
         assertThat(jan.get("corrected").asLong()).isEqualTo(1);
         JsonNode feb = find(trend, "month", "2001-02");
         assertThat(feb).as("quiet month filled").isNotNull();
-        assertThat(feb.get("learned").asLong() + feb.get("corrected").asLong()
+        assertThat(feb.get("firstTime").asLong() + feb.get("kept").asLong() + feb.get("corrected").asLong()
                 + feb.get("undone").asLong() + feb.get("reset").asLong()).isZero();
         JsonNode mar = find(trend, "month", "2001-03");
         assertThat(mar.get("undone").asLong()).isEqualTo(2);
@@ -283,6 +331,64 @@ class AdminLearningStatsControllerIT extends AbstractIntegrationTest {
         List<String> months = new ArrayList<>();
         trend.forEach(p -> months.add(p.get("month").asText()));
         assertThat(months).isSorted().doesNotHaveDuplicates();
+    }
+
+    @Test
+    void monthsTurnOverAtMidnightInIndia() throws Exception {
+        User admin = admin();
+        User customer = customer(false);
+        UUID merchant = merchant(customer, "LE IT months " + tag);
+        // 23:59:59 on 31 March and 00:00:00 on 1 April in India, both still 31 March in UTC.
+        events(2, customer, merchant, "RESET", null, null, Instant.parse("2002-03-31T18:29:59Z").minusMillis(5));
+        events(3, customer, merchant, "RESET", null, null, Instant.parse("2002-03-31T18:30:00Z"));
+
+        JsonNode trend = get(admin, STATS).get("trend");
+
+        assertThat(find(trend, "month", "2002-03").get("reset").asLong()).isEqualTo(2);
+        assertThat(find(trend, "month", "2002-04").get("reset").asLong()).isEqualTo(3);
+    }
+
+    @Test
+    void categorySourcesLeaveOutTransactionsOnADeletedAccount() throws Exception {
+        User admin = admin();
+        JsonNode before = get(admin, STATS);
+        User owner = customer(false);
+        Account kept = account(owner);
+        Account closed = account(owner);
+        Instant at = Instant.now().minus(Duration.ofDays(2));
+        transactions(2, kept, "USER_RULE", at, false);
+        transactions(5, closed, "USER_RULE", at, false);
+        jdbc.update("UPDATE accounts SET deleted_at = now() WHERE id = ?", closed.getId());
+
+        JsonNode after = get(admin, STATS);
+        assertThat(sourceCount(after, "USER_RULE") - sourceCount(before, "USER_RULE")).isEqualTo(2);
+    }
+
+    @Test
+    void categoryChangesCountOneCategorySpelledDifferentlyAcrossAccountsTogether() throws Exception {
+        User admin = admin();
+        User one = customer(false);
+        User two = customer(false);
+        String from = "LE IT Spelled From " + tag;
+        String to = "LE IT Spelled To " + tag;
+        Instant at = Instant.now().minus(Duration.ofDays(1));
+        events(40, one, merchant(one, "LE IT spelled " + tag), "CORRECTED", category(one, from), category(one, to), at);
+        events(30, two, merchant(two, "LE IT spelled " + tag), "CORRECTED",
+                category(two, from.toUpperCase()), category(two, " " + to.toLowerCase() + " "), at);
+
+        JsonNode stats = get(admin, STATS);
+
+        List<JsonNode> rows = new ArrayList<>();
+        stats.get("topCategoryChanges").forEach(c -> {
+            if (c.get("fromCategory").asText().equalsIgnoreCase(from)) rows.add(c);
+        });
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).get("count").asLong()).isEqualTo(70);
+        assertThat(rows.get(0).get("fromCategory").asText()).isEqualTo(from);
+        assertThat(rows.get(0).get("toCategory").asText()).isEqualTo(to);
+        JsonNode merchant = find(stats.get("topCorrectedMerchants"), "merchant", "LE IT spelled " + tag);
+        assertThat(merchant.get("usualFrom").asText()).isEqualTo(from);
+        assertThat(merchant.get("usualTo").asText()).isEqualTo(to);
     }
 
     @Test

@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
   Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
@@ -8,6 +8,7 @@ import { Sparkles, CheckCircle2, RotateCcw, TrendingUp, Percent, Wand2, Users, U
 import { AdminLayout } from '../components/AdminLayout';
 import { StatCard, type StatDelta } from '../components/StatCard';
 import { RequirePermission } from '../components/ProtectedRoute';
+import { useAdminAuth } from '../context/AdminAuthContext';
 import { DataTable, type DataTableColumn } from '../components/DataTable';
 import { Pagination } from '../components/Pagination';
 import { adminLearningApi } from '../api/endpoints';
@@ -48,27 +49,44 @@ const tooltipStyle = {
   fontSize: 12,
 };
 
-/** corrected / (learned + corrected), or null when there was nothing to correct. */
-export function correctionRate(w: { learned: number; corrected: number }): number | null {
-  const total = w.learned + w.corrected;
+/** Of the confirmations where the engine already had a category, the share a customer changed.
+ *  A first-time confirmation is left out: the engine had no answer to get right or wrong. Null when
+ *  there was nothing to check. */
+export function correctionRate(w: { kept: number; corrected: number }): number | null {
+  const total = w.kept + w.corrected;
   return total === 0 ? null : w.corrected / total;
 }
 
-/** One decimal; a rate too small to show at one decimal reads "<0.1%", never "0.0%". */
+/** One decimal; a rate too small or too large to show at one decimal never rounds to 0.0% or 100.0%. */
 export function formatPercent(rate: number | null): string {
   if (rate === null) return '—';
   const pct = rate * 100;
-  return pct > 0 && pct < 0.05 ? '<0.1%' : `${pct.toFixed(1)}%`;
+  if (pct > 0 && pct < 0.05) return '<0.1%';
+  if (pct < 100 && pct >= 99.95) return '>99.9%';
+  return `${pct.toFixed(1)}%`;
 }
 
-/** A falling correction rate is the good direction. */
-function rateDelta(last: LearningWindow, previous: LearningWindow): StatDelta | undefined {
+/** A falling correction rate is the good direction. Two rates that read the same are the same. */
+export function rateDelta(last: LearningWindow, previous: LearningWindow): StatDelta | undefined {
   const now = correctionRate(last);
   const before = correctionRate(previous);
   if (now === null || before === null) return undefined;
-  const label = `${formatPercent(before)} in the 30 days before`;
-  if (now === before) return { direction: 'flat', label, isGood: true };
-  return { direction: now > before ? 'up' : 'down', label, isGood: now < before };
+  if (formatPercent(now) === formatPercent(before)) {
+    return { direction: 'flat', label: 'Same as the 30 days before', isGood: true };
+  }
+  const fell = now < before;
+  return {
+    direction: fell ? 'down' : 'up',
+    label: `${fell ? 'Down' : 'Up'} from ${formatPercent(before)} in the 30 days before`,
+    isGood: fell,
+  };
+}
+
+/** Why the correction rate tile has no comparison, when it has none. */
+function rateHint(last: LearningWindow, previous: LearningWindow): string | undefined {
+  if (correctionRate(last) === null) return 'No repeat confirmations in the last 30 days';
+  if (correctionRate(previous) === null) return 'No repeat confirmations in the 30 days before';
+  return undefined;
 }
 
 function sourceShare(sources: LearningCategorySourceCount[], source: string): number | null {
@@ -95,12 +113,12 @@ function Panel({ children }: { children: ReactNode }) {
 function MonthlyCharts({ stats }: { stats: LearningPlatformStatsDto }) {
   const rates = stats.trend.map((p) => {
     const rate = correctionRate(p);
-    return { month: p.month, rate: rate === null ? null : Math.round(rate * 1000) / 10 };
+    return { month: p.month, rate: rate === null ? null : rate * 100 };
   });
   return (
     <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
       <div className="lg:col-span-3" data-testid="learning-monthly-chart">
-        <p className="text-xs text-muted mb-2">Confirmations each month: the engine's guess kept, or corrected</p>
+        <p className="text-xs text-muted mb-2">Confirmations each month: new to the engine, category kept, or corrected</p>
         <ResponsiveContainer width="100%" height={240}>
           <BarChart data={stats.trend} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid stroke="var(--color-border)" vertical={false} />
@@ -108,7 +126,8 @@ function MonthlyCharts({ stats }: { stats: LearningPlatformStatsDto }) {
             <YAxis allowDecimals={false} tick={axisTick} axisLine={false} tickLine={false} width={44} />
             <Tooltip contentStyle={tooltipStyle} cursor={{ fill: 'var(--color-border)', opacity: 0.4 }} />
             <Legend wrapperStyle={{ fontSize: 12 }} />
-            <Bar dataKey="learned" name="Learned" stackId="m" fill="rgb(var(--color-primary))" maxBarSize={28} />
+            <Bar dataKey="firstTime" name="First time" stackId="m" fill="var(--color-info)" maxBarSize={28} />
+            <Bar dataKey="kept" name="Kept" stackId="m" fill="rgb(var(--color-primary))" maxBarSize={28} />
             <Bar dataKey="corrected" name="Corrected" stackId="m" fill="var(--color-warning)" maxBarSize={28}
               radius={[4, 4, 0, 0]} />
           </BarChart>
@@ -120,8 +139,8 @@ function MonthlyCharts({ stats }: { stats: LearningPlatformStatsDto }) {
           <LineChart data={rates} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid stroke="var(--color-border)" vertical={false} />
             <XAxis dataKey="month" tick={axisTick} axisLine={{ stroke: 'var(--color-border)' }} tickLine={false} />
-            <YAxis tick={axisTick} axisLine={false} tickLine={false} width={44} tickFormatter={(v) => `${v}%`} />
-            <Tooltip contentStyle={tooltipStyle} formatter={(v) => [`${v}%`, 'Correction rate']} />
+            <YAxis tick={axisTick} axisLine={false} tickLine={false} width={44} domain={[0, 'auto']} tickFormatter={(v) => `${v}%`} />
+            <Tooltip contentStyle={tooltipStyle} formatter={(v) => [formatPercent(Number(v) / 100), 'Correction rate']} />
             <Line type="monotone" dataKey="rate" name="Correction rate" stroke="var(--color-warning)"
               strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
           </LineChart>
@@ -134,7 +153,8 @@ function MonthlyCharts({ stats }: { stats: LearningPlatformStatsDto }) {
 function MonthlyTable({ stats }: { stats: LearningPlatformStatsDto }) {
   const columns: DataTableColumn<LearningPlatformStatsDto['trend'][number]>[] = [
     { header: 'Month', render: (p) => p.month },
-    { header: 'Learned', render: (p) => count(p.learned), cellClassName: 'text-success tabular-nums' },
+    { header: 'First time', render: (p) => count(p.firstTime), cellClassName: 'text-muted tabular-nums' },
+    { header: 'Kept', render: (p) => count(p.kept), cellClassName: 'text-success tabular-nums' },
     { header: 'Corrected', render: (p) => count(p.corrected), cellClassName: 'text-warning tabular-nums' },
     { header: 'Correction rate', render: (p) => formatPercent(correctionRate(p)), cellClassName: 'tabular-nums' },
     { header: 'Undone', render: (p) => count(p.undone), cellClassName: 'text-muted tabular-nums' },
@@ -222,21 +242,31 @@ function CategoryChanges({ stats }: { stats: LearningPlatformStatsDto }) {
 }
 
 /** A learned event names the category it confirmed (its "from" is the merchant's top category going
- *  in, often the same one). A correction shows the change. An undo, reset or merge names what the
- *  merchant had. A category deleted since reads as a dash. */
+ *  in, often the same one). A correction shows the change. An undo or reset names the category it
+ *  took away. A category deleted since reads as a dash. */
 export function categoryChange(e: LearningEventRow): string {
   if (e.action === 'LEARNED') return e.toCategory ?? '—';
   if (e.action === 'CORRECTED') return `${e.fromCategory ?? '—'} → ${e.toCategory ?? '—'}`;
-  if (e.fromCategory) return `Was ${e.fromCategory}`;
+  if (e.action === 'UNDONE' && e.fromCategory) return `Undid ${e.fromCategory}`;
+  if (e.action === 'RESET' && e.fromCategory) return `Cleared ${e.fromCategory}`;
   return e.toCategory ?? '—';
 }
 
 function RecentEvents() {
   const [page, setPage] = useState(0);
+  const [paging, setPaging] = useState<{ totalPages: number; totalElements: number } | null>(null);
   const events = useQuery({
     queryKey: ['admin-learning-events', page],
     queryFn: () => adminLearningApi.events({ page, size: EVENTS_PAGE_SIZE }),
+    placeholderData: keepPreviousData,
   });
+  // The paging controls outlive a page that fails to load, so the admin can move off it.
+  const loaded = events.data && !events.isPlaceholderData ? events.data : null;
+  if (loaded && (loaded.totalPages !== paging?.totalPages || loaded.totalElements !== paging?.totalElements)) {
+    setPaging({ totalPages: loaded.totalPages, totalElements: loaded.totalElements });
+  }
+  // Events can disappear while the list is open (a customer's account is purged).
+  if (loaded && page > 0 && page >= loaded.totalPages) setPage(Math.max(loaded.totalPages - 1, 0));
   const columns: DataTableColumn<LearningEventRow>[] = [
     { header: 'When', render: (e) => formatWhen(e.createdAt), cellClassName: 'text-muted whitespace-nowrap' },
     {
@@ -260,14 +290,14 @@ function RecentEvents() {
         rows={events.data?.content}
         keyFor={(e) => e.id}
         loading={events.isLoading}
-        error={events.data ? null : events.error}
+        error={events.isError ? events.error : null}
         emptyMessage="No learning events from customers yet."
       />
-      {events.data && (
+      {paging && (
         <Pagination
           page={page}
-          totalPages={events.data.totalPages}
-          totalElements={events.data.totalElements}
+          totalPages={paging.totalPages}
+          totalElements={paging.totalElements}
           pageSize={EVENTS_PAGE_SIZE}
           onPageChange={setPage}
         />
@@ -284,6 +314,7 @@ function RecentEvents() {
  * on the self-service Merchants console, see AdminUserLearningController's class comment).
  */
 function LearningEngineContent() {
+  const { hasPermission } = useAdminAuth();
   const { data: stats, isLoading, error: loadError } = useQuery({
     queryKey: ['admin-learning-stats'],
     queryFn: () => adminLearningApi.platformStats(),
@@ -297,8 +328,9 @@ function LearningEngineContent() {
     <div className="space-y-8">
       <p className="text-sm text-muted max-w-2xl">
         Merchant category learning across every customer account (internal and admin accounts are
-        left out). A correction is a customer overriding the category the engine had learned for a
-        merchant, so a falling correction rate means the engine's guesses are getting better.
+        left out). The correction rate is how often a customer changes the category the engine
+        already had for a merchant, so a falling rate means the engine is getting better. A
+        merchant's first confirmation is not counted in it: the engine had no answer to get wrong.
       </p>
 
       {loadError && !stats && (
@@ -312,7 +344,7 @@ function LearningEngineContent() {
             label="Correction rate, 30 days"
             value={stats ? formatPercent(last30Rate) : placeholder}
             delta={stats ? rateDelta(stats.last30Days, stats.previous30Days) : undefined}
-            hint={stats && last30Rate === null ? 'No confirmations in the last 30 days' : undefined}
+            hint={stats ? rateHint(stats.last30Days, stats.previous30Days) : undefined}
           />
           <StatCard
             icon={Wand2}
@@ -340,7 +372,7 @@ function LearningEngineContent() {
 
       {stats && (
         <section>
-          <SectionTitle>Monthly learning</SectionTitle>
+          <SectionTitle note="Calendar months in India time.">Monthly learning</SectionTitle>
           {stats.trend.length === 0
             ? <Panel><p className="text-sm text-muted">No learning activity from customers yet.</p></Panel>
             : (
@@ -378,7 +410,9 @@ function LearningEngineContent() {
 
       <section>
         <SectionTitle note="Newest first. Open a customer to see their own learning.">Recent learning events</SectionTitle>
-        <RecentEvents />
+        {hasPermission('USER_VIEW')
+          ? <RecentEvents />
+          : <Panel><p className="text-sm text-muted">This list shows customers' emails, so it needs permission to view users.</p></Panel>}
       </section>
     </div>
   );

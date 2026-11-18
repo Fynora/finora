@@ -33799,7 +33799,11 @@
                     "month": {
                         "type": "string"
                     },
-                    "learned": {
+                    "firstTime": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "kept": {
                         "type": "integer",
                         "format": "int64"
                     },
@@ -33820,7 +33824,11 @@
             "LearningWindow": {
                 "type": "object",
                 "properties": {
-                    "learned": {
+                    "firstTime": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "kept": {
                         "type": "integer",
                         "format": "int64"
                     },

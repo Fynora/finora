@@ -1,10 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   LayoutDashboard, Wallet, ArrowLeftRight, PiggyBank, Target, UploadCloud, History,
   TrendingUp, BarChart3, Crown, Sparkles, User, Settings as SettingsIcon, MoreVertical, LogOut,
-  ChevronsLeft, ChevronsRight, Gift, CreditCard, Archive,
+  ChevronsLeft, ChevronsRight, Gift, CreditCard, Archive, X,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { safeStorage } from '../lib/safeStorage';
@@ -13,11 +13,16 @@ import { aiInsightsApi, entitlementsApi, insightsApi } from '../api/endpoints';
 import { BrandMark } from './BrandMark';
 import { trackNavigation } from '../lib/trackNavigation';
 import { LOOK_AT_KEY, ackEntry, isAcked, lookAtRowsFromServer } from '../lib/insightsFeed';
+import { useDialogA11y } from '../design-system';
 
 // Persisted so the choice survives a reload/new tab rather than resetting to expanded every
 // time -- same reasoning TopBar's own read-notification tracking and ThemeContext already apply
 // to their own preferences.
 const COLLAPSED_STORAGE_KEY = 'finora_sidebar_collapsed';
+
+// Tailwind's `lg`: from this width up the sidebar sits beside the page, below it the sidebar is a
+// drawer opened from the top bar's menu button.
+const DESKTOP_QUERY = '(min-width: 1024px)';
 
 // `id` is the shared taxonomy id (src/navigation/taxonomy.ts), carried here so navigation
 // reporting names the same destination the mobile client does. It is deliberately not derived from
@@ -53,11 +58,83 @@ function initials(name: string | null) {
   return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase();
 }
 
-export function Sidebar() {
+interface SidebarProps {
+  /** Below `lg` only: whether the drawer is showing. */
+  drawerOpen?: boolean;
+  onDrawerClose?: () => void;
+}
+
+export function Sidebar({ drawerOpen = false, onDrawerClose }: SidebarProps) {
+  const [collapsed, setCollapsed] = useState(() => safeStorage.getItem(COLLAPSED_STORAGE_KEY) === 'true');
+
+  function toggleCollapsed() {
+    setCollapsed((current) => {
+      const next = !current;
+      safeStorage.setItem(COLLAPSED_STORAGE_KEY, String(next));
+      return next;
+    });
+  }
+
+  return (
+    <>
+      <aside className={`hidden lg:flex ${collapsed ? 'w-20' : 'w-64'} flex-shrink-0 bg-sidebar min-h-screen flex-col py-6 px-3 transition-[width] duration-200`}>
+        <SidebarContent collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
+      </aside>
+      {drawerOpen && onDrawerClose && <SidebarDrawer onClose={onDrawerClose} />}
+    </>
+  );
+}
+
+/** The sidebar on a phone or small tablet. Mounted only while open, so the dialog hook moves focus
+ *  in on open and back to the menu button on close. A saved "collapsed" choice is a desktop
+ *  preference and does not apply here: the drawer always shows its labels. */
+function SidebarDrawer({ onClose }: { onClose: () => void }) {
+  const panelRef = useDialogA11y({ onClose });
+
+  useEffect(() => {
+    // Widening the window past `lg` hides the drawer with CSS, so it has to let go of focus too.
+    const desktop = window.matchMedia(DESKTOP_QUERY);
+    const closeOnDesktop = (e: MediaQueryListEvent) => {
+      if (e.matches) onClose();
+    };
+    desktop.addEventListener('change', closeOnDesktop);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      desktop.removeEventListener('change', closeOnDesktop);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [onClose]);
+
+  return (
+    <div className="lg:hidden">
+      <div data-testid="sidebar-drawer-backdrop" className="fixed inset-0 z-30 bg-black/40" onClick={onClose} />
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Menu"
+        tabIndex={-1}
+        className="fixed inset-y-0 left-0 z-40 w-64 max-w-[85vw] bg-sidebar flex flex-col py-6 px-3 overflow-y-auto overscroll-contain"
+      >
+        <SidebarContent collapsed={false} onClose={onClose} />
+      </div>
+    </div>
+  );
+}
+
+interface SidebarContentProps {
+  collapsed: boolean;
+  /** Desktop: the collapse toggle. */
+  onToggleCollapsed?: () => void;
+  /** Drawer: shows a close button in place of the toggle, and closes after any navigation. */
+  onClose?: () => void;
+}
+
+function SidebarContent({ collapsed, onToggleCollapsed, onClose }: SidebarContentProps) {
   const { fullName, logout } = useAuth();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(() => safeStorage.getItem(COLLAPSED_STORAGE_KEY) === 'true');
   const { data: entitlements } = useQuery({
     queryKey: ['entitlements'],
     queryFn: () => entitlementsApi.mine(),
@@ -74,16 +151,9 @@ export function Sidebar() {
     return lookAtRowsFromServer(lookAtQ.data.rows).some((r) => !isAcked(r, acks));
   }, [lookAtQ.data, acksQ.data]);
 
-  function toggleCollapsed() {
-    setCollapsed((current) => {
-      const next = !current;
-      safeStorage.setItem(COLLAPSED_STORAGE_KEY, String(next));
-      return next;
-    });
-  }
-
   function handleLogout() {
     setMenuOpen(false);
+    onClose?.();
     logout();
     // logout() already clears the token in context, which makes ProtectedRoute redirect
     // on its own re-render — this just makes the jump immediate and explicit.
@@ -91,7 +161,7 @@ export function Sidebar() {
   }
 
   return (
-    <aside className={`${collapsed ? 'w-20' : 'w-64'} flex-shrink-0 bg-sidebar min-h-screen flex flex-col py-6 px-3 transition-[width] duration-200`}>
+    <>
       {/* Logo -- links back to the Dashboard, same as clicking the "Dashboard" nav item below.
           The collapse toggle sits next to it rather than floating separately, so there's one
           predictable place to look for it regardless of which state the sidebar is already in. */}
@@ -99,7 +169,7 @@ export function Sidebar() {
         {/* Reported as `group`, the same entry point the Dashboard nav item below uses -- both are
             the sidebar taking you home, and splitting them would make Home's own number depend on
             which half of the sidebar someone happened to click. */}
-        <NavLink to="/app" end onClick={() => trackNavigation('home', 'group')} className="flex items-center gap-2.5 min-w-0">
+        <NavLink to="/app" end onClick={() => { trackNavigation('home', 'group'); onClose?.(); }} className="flex items-center gap-2.5 min-w-0">
           <div className="w-8 h-8 rounded-lg overflow-hidden flex-shrink-0">
             <BrandMark size={32} invert />
           </div>
@@ -124,15 +194,26 @@ export function Sidebar() {
             </span>
           )}
         </NavLink>
-        <button
-          type="button"
-          onClick={toggleCollapsed}
-          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          className="text-fixed-ink-3 hover:text-white hover:bg-sidebar-hover rounded-lg p-1.5 flex-shrink-0"
-        >
-          {collapsed ? <ChevronsRight size={16} /> : <ChevronsLeft size={16} />}
-        </button>
+        {onClose ? (
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close menu"
+            className="text-fixed-ink-2 hover:text-white hover:bg-sidebar-hover rounded-lg p-2 flex-shrink-0"
+          >
+            <X size={20} />
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onToggleCollapsed}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className="text-fixed-ink-3 hover:text-white hover:bg-sidebar-hover rounded-lg p-1.5 flex-shrink-0"
+          >
+            {collapsed ? <ChevronsRight size={16} /> : <ChevronsLeft size={16} />}
+          </button>
+        )}
       </div>
 
       {/* Nav -- collapsed drops the label text and centers the icon; title carries the label as
@@ -146,7 +227,7 @@ export function Sidebar() {
             end={end}
             title={collapsed ? label : undefined}
             data-tour={tourId}
-            onClick={() => trackNavigation(id, 'group')}
+            onClick={() => { trackNavigation(id, 'group'); onClose?.(); }}
             className={({ isActive }) =>
               // The sidebar is a fixed-dark surface regardless of the app's own light/dark
               // toggle, so the active state can't use the toggling `primary` token (it's dark
@@ -202,28 +283,28 @@ export function Sidebar() {
             <div className="absolute bottom-full left-0 mb-2 w-56 bg-sidebar-hover border border-white/10 rounded-lg shadow-soft py-1.5 z-20">
               <NavLink
                 to="/app/profile"
-                onClick={() => { setMenuOpen(false); trackNavigation('profile', 'group'); }}
+                onClick={() => { setMenuOpen(false); trackNavigation('profile', 'group'); onClose?.(); }}
                 className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-fixed-ink hover:text-white hover:bg-white/5"
               >
                 <User size={15} /> Profile
               </NavLink>
               <NavLink
                 to="/app/billing"
-                onClick={() => { setMenuOpen(false); trackNavigation('subscription', 'group'); }}
+                onClick={() => { setMenuOpen(false); trackNavigation('subscription', 'group'); onClose?.(); }}
                 className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-fixed-ink hover:text-white hover:bg-white/5"
               >
                 <CreditCard size={15} /> Billing
               </NavLink>
               <NavLink
                 to="/app/settings"
-                onClick={() => { setMenuOpen(false); trackNavigation('settings', 'group'); }}
+                onClick={() => { setMenuOpen(false); trackNavigation('settings', 'group'); onClose?.(); }}
                 className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-fixed-ink hover:text-white hover:bg-white/5"
               >
                 <SettingsIcon size={15} /> Settings
               </NavLink>
               <NavLink
                 to="/app/referrals"
-                onClick={() => { setMenuOpen(false); trackNavigation('referrals', 'group'); }}
+                onClick={() => { setMenuOpen(false); trackNavigation('referrals', 'group'); onClose?.(); }}
                 className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-fixed-ink hover:text-white hover:bg-white/5"
               >
                 <Gift size={15} /> Refer & Earn
@@ -245,6 +326,6 @@ export function Sidebar() {
           </>
         )}
       </div>
-    </aside>
+    </>
   );
 }

@@ -102,5 +102,34 @@ describe('TourOverlay', () => {
       const style = (screen.getByText('Step A').closest('div') as HTMLElement).style;
       expect(parseFloat(style.left) + 280).toBeLessThanOrEqual(1200 - 12);
     });
+
+    // On a phone every target is a link in the sidebar, which is hidden behind the menu button.
+    it('centres the card and draws no spotlight when the target is hidden', () => {
+      window.innerHeight = 800;
+      window.innerWidth = 375;
+      renderWithTargets(STEPS);
+      const card = screen.getByText('Step A').closest('div')!;
+      mockRect(card, { width: 320, height: 200 });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+
+      const style = (screen.getByText('Step A').closest('div') as HTMLElement).style;
+      expect(parseFloat(style.top)).toBe(300);
+      expect(parseFloat(style.left)).toBe(27.5);
+      expect(document.querySelector('.ring-primary')).toBeNull();
+    });
+
+    it('draws the spotlight when the target is showing', () => {
+      window.innerHeight = 800;
+      window.innerWidth = 1200;
+      renderWithTargets(STEPS);
+      mockRect(document.querySelector('[data-tour="a"]')!, { top: 100, bottom: 140, left: 20, right: 220, width: 200, height: 40 });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+
+      expect(document.querySelector('.ring-primary')).not.toBeNull();
+    });
   });
 });

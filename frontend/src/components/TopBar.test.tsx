@@ -172,3 +172,45 @@ describe('TopBar — Help menu', () => {
     expect(screen.getByRole('heading', { name: /send feedback/i })).toBeInTheDocument();
   });
 });
+
+describe('TopBar — phone menu button', () => {
+  beforeEach(() => {
+    vi.mocked(dashboardApi.summary).mockReset().mockResolvedValue({ notifications: [] } as any);
+  });
+
+  function renderWithMenu(onOpenMenu: () => void) {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <ThemeProvider>
+            <AuthProvider>
+              <TopBar onOpenMenu={onOpenMenu} />
+            </AuthProvider>
+          </ThemeProvider>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+  }
+
+  it('opens the menu', async () => {
+    const onOpenMenu = vi.fn();
+    const user = userEvent.setup();
+    renderWithMenu(onOpenMenu);
+
+    await user.click(screen.getByRole('button', { name: 'Open menu' }));
+
+    expect(onOpenMenu).toHaveBeenCalledTimes(1);
+  });
+
+  it('has no menu button when nothing can open a menu', () => {
+    renderTopBar();
+    expect(screen.queryByRole('button', { name: 'Open menu' })).not.toBeInTheDocument();
+  });
+
+  // The label is visually hidden below `lg`, where the button is only a plus sign.
+  it('keeps the Add Transaction name for screen readers', () => {
+    renderWithMenu(vi.fn());
+    expect(screen.getByRole('button', { name: 'Add Transaction' })).toBeInTheDocument();
+  });
+});

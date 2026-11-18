@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -134,6 +134,18 @@ describe('Budgets', () => {
     const shop = screen.getByText('Shopping').closest('[data-testid="budget-row"]') as HTMLElement;
     expect(within(shop).getByText('₹2,400 over')).toBeInTheDocument();
     expect(within(shop).getByRole('img', { name: 'Spent 140%, month 57% gone' })).toBeInTheDocument();
+  });
+
+  // jsdom has no layout, so these pin the classes the phone-width check in a browser relied on.
+  it('keeps the name on its own line and the limit field at 16px on a phone', async () => {
+    vi.mocked(budgetsApi.list).mockResolvedValue([budget({ categoryName: 'Groceries' })]);
+    renderPage();
+
+    const name = await screen.findByTestId('budget-name');
+    expect(name.className).toContain('max-sm:basis-[calc(100%-3rem)]');
+
+    fireEvent.click(screen.getByRole('button', { name: /Edit the Groceries limit/ }));
+    expect(screen.getByLabelText('Monthly limit for Groceries').className).toContain('max-sm:text-base');
   });
 
   it('reads Last day on the final day of the month', async () => {

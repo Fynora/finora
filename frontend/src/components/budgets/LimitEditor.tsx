@@ -46,7 +46,7 @@ export function LimitEditor({
   }
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+    <div className="flex min-w-0 flex-1 flex-col gap-1.5 max-sm:basis-full">
       <div className="flex flex-wrap items-center gap-2">
         <label htmlFor={inputId} className="sr-only">{`Monthly limit for ${categoryName}`}</label>
         <div className="flex items-center rounded-lg border-2 border-primary bg-card px-3 py-1.5">
@@ -65,7 +65,8 @@ export function LimitEditor({
             }}
             aria-invalid={error ? true : undefined}
             aria-describedby={error ? `${inputId}-error` : undefined}
-            className="w-24 bg-transparent text-sm font-semibold text-ink focus:outline-none"
+            // 16px on a phone: iOS zooms the page into any field smaller than that.
+            className="w-24 min-w-0 bg-transparent text-sm font-semibold text-ink focus:outline-none max-sm:text-base"
           />
         </div>
         {CHIPS.map((n) => (

@@ -721,6 +721,26 @@ public class AnalyticsService {
         return reportRows.reportable(userId, rows);
     }
 
+    /**
+     * One row of a customer's spend, priced as their own reports price it. {@code amount} is negative
+     * for an unlinked refund that gives spend back ({@code purchase} false). {@code investmentTransfer}
+     * rows belong in a category list but not in a period's total
+     * ({@link RefundNetting#excludingInvestmentTransfers}).
+     */
+    public record CustomerSpendLine(UUID categoryId, UUID merchantId, BigDecimal amount, boolean purchase,
+                                    boolean needsReview, boolean investmentTransfer) {}
+
+    /** The admin Platform Analytics page's source, so it can never count money differently from the
+     *  customer's own screens. */
+    public List<CustomerSpendLine> customerSpendLines(UUID userId, LocalDate from, LocalDate to) {
+        SpendRows spend = activeSpend(userId, from, to);
+        return spend.rows().stream()
+                .map(t -> new CustomerSpendLine(t.getCategoryId(), t.getMerchantId(), spend.netting().spendAmount(t),
+                        t.getTxnType() == Transaction.Type.EXPENSE, t.isNeedsCategoryReview(),
+                        t.getReconciliationStatus() == Transaction.ReconciliationStatus.INVESTMENT_TRANSFER))
+                .toList();
+    }
+
     /** How many of these rows are purchases -- a group's count never includes the refunds netted into it. */
     private static long purchasesIn(List<Transaction> rows) {
         return rows.stream().filter(t -> t.getTxnType() == Transaction.Type.EXPENSE).count();

@@ -15087,7 +15087,7 @@ export interface components {
             medianSpendPerCustomer?: number;
             /** Format: int64 */
             transactionCount?: number;
-            previousTotalSpend?: number;
+            previousMedianSpendPerCustomer?: number;
         };
         PlatformSpendSummaryDto: {
             /** Format: int64 */

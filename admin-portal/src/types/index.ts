@@ -1046,15 +1046,15 @@ export interface WorkspaceSummaryDto {
 
 // --- Platform Analytics (AdminPlatformAnalyticsController) ---
 
-/** One category or merchant name in a period, summed across customers. previousTotalSpend is null
- *  when there is no comparison, or fewer than minCustomers customers spent there before. */
+/** One category or merchant name in a period, across customers. previousMedianSpendPerCustomer is
+ *  null when there is no comparison, or fewer than minCustomers customers spent there before. */
 export interface PlatformSpendRowDto {
   name: string;
   customers: number;
   totalSpend: number;
   medianSpendPerCustomer: number;
   transactionCount: number;
-  previousTotalSpend: number | null;
+  previousMedianSpendPerCustomer: number | null;
 }
 
 /** The money figures are null when fewer than minCustomers customers spent in the period. */

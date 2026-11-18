@@ -37080,7 +37080,7 @@
                         "type": "integer",
                         "format": "int64"
                     },
-                    "previousTotalSpend": {
+                    "previousMedianSpendPerCustomer": {
                         "type": "number"
                     }
                 }

@@ -382,14 +382,15 @@ public class AdminDtos {
 
     // --- Platform Analytics (AdminPlatformAnalyticsService / AdminPlatformAnalyticsController) ---
 
-    /** One category or merchant name for a period, summed across every customer whose own private
-     *  row carries that name (see AdminPlatformAnalyticsService's class comment). {@code customers}
-     *  is how many customers spent under it; {@code medianSpendPerCustomer} is the middle of their
-     *  period totals. {@code previousTotalSpend} is the same name's spend in the comparison period,
+    /** One category or merchant name for a period, across every customer whose own private row
+     *  carries that name (see AdminPlatformAnalyticsService's class comment). {@code customers} is
+     *  how many customers spent under it; {@code medianSpendPerCustomer} is the middle of their
+     *  period totals. {@code previousMedianSpendPerCustomer} is that middle figure in the comparison
+     *  period -- per customer, because a total rises whenever more customers join or import --
      *  null when there is no comparison or fewer than the privacy floor of customers spent there. */
     public record PlatformSpendRowDto(String name, long customers, BigDecimal totalSpend,
                                       BigDecimal medianSpendPerCustomer, long transactionCount,
-                                      BigDecimal previousTotalSpend) {}
+                                      BigDecimal previousMedianSpendPerCustomer) {}
 
     /** Whole-period figures. The money figures are null when fewer customers than the privacy floor
      *  spent in the period, since they would then describe one or two people. {@code toSortSpend}

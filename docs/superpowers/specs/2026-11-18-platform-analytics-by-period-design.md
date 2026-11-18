@@ -18,21 +18,27 @@ customer uses showed that customer's total to every admin.
 - **Summary:** customers with spend, spend per customer (median of each customer's period total),
   share of spend still to sort, expense transactions.
 - **Top categories and top merchants:** ranked by number of customers, then spend. Columns:
-  customers, spend, spend per customer (median), change in spend against the previous period.
+  customers, spend, spend per customer (median), change per customer against the previous period.
 - **Privacy floor:** a category or merchant from fewer than 3 customers is not listed; its change
   is not shown when the previous period had fewer than 3; the summary's money figures are not shown
-  for a period with fewer than 3 customers.
+  for a period with fewer than 3 customers. This keeps the page from pointing at one or two people. It is
+  not a guarantee: admins holding this permission can already open one customer's analytics.
 - **Setup answers** ("How users tracked spending before Fynora") move to Activation, which already
   shows those answers by step and uses the same permission.
 
 ## Rules
 
-- Same exclusions as before: no duplicates, no linked transfers, no REFUND-status rows, EXPENSE only.
+- **Every amount is the customer's own report figure.** Each customer's rows come from
+  `AnalyticsService.customerSpendLines`, so refunds and shares are netted off, and duplicates, transfers,
+  card-bill payments, replaced statements, deleted accounts and loans are left out. A grouped SQL query
+  cannot apply these rules: the first version used one and showed 17,800 where the reports said 1,400.
+- Investments stay in their category row but are not in the period's totals, as in customers' reports.
 - Customers only: account scope USER and not deleted (the setup-answers count already uses this).
-  Staff accounts' own transactions are no longer counted.
-- "Still to sort" = expense rows with no category or flagged `needsCategoryReview`, the same flag
-  the customer's own "needs review" badge uses. A row filed under "Other" with confidence is sorted.
-- Names are still grouped by name across customers' private category and merchant rows.
+  Staff accounts' own transactions are not counted.
+- "Still to sort" = expense with no category (or one that no longer exists) or flagged
+  `needsCategoryReview`, the same flag the customer's own "needs review" badge uses. A row filed under
+  "Other" with confidence is sorted.
+- Names are grouped across customers' private rows, ignoring case and outer spaces.
 
 ## Approaches
 
@@ -43,5 +49,6 @@ customer uses showed that customer's total to every admin.
 ## Calls made while building (Claude's, Sid can change them)
 
 - Minimum of 3 customers per listed row.
-- Change shown for spend only, as a percentage.
+- The change column compares spend per customer (the median), not total spend: a total rises whenever
+  more customers join or import, which says nothing about how spending moved.
 - API takes `from` (a month, `YYYY-MM`) and `months` (1 to 12); no `from` means all time.

@@ -33,11 +33,11 @@ function month(over: Partial<PlatformAnalyticsDto> = {}): PlatformAnalyticsDto {
     summary: { customersWithSpend: 41, totalSpend: 1000000, medianSpendPerCustomer: 38400, toSortSpend: 140000, transactionCount: 3912 },
     previousSummary: { customersWithSpend: 35, totalSpend: 900000, medianSpendPerCustomer: 30000, toSortSpend: 99000, transactionCount: 3000 },
     topCategories: [
-      { name: 'Food and dining', customers: 37, totalSpend: 210000, medianSpendPerCustomer: 4800.4, transactionCount: 900, previousTotalSpend: 194444 },
-      { name: 'Rent', customers: 3, totalSpend: 90000, medianSpendPerCustomer: 30000, transactionCount: 3, previousTotalSpend: null },
+      { name: 'Food and dining', customers: 37, totalSpend: 210000, medianSpendPerCustomer: 4800.4, transactionCount: 900, previousMedianSpendPerCustomer: 4400 },
+      { name: 'Rent', customers: 3, totalSpend: 90000, medianSpendPerCustomer: 30000, transactionCount: 3, previousMedianSpendPerCustomer: null },
     ],
     topMerchants: [
-      { name: 'Swiggy', customers: 22, totalSpend: 71000, medianSpendPerCustomer: 2600, transactionCount: 300, previousTotalSpend: 78000 },
+      { name: 'Swiggy', customers: 22, totalSpend: 71000, medianSpendPerCustomer: 2600, transactionCount: 300, previousMedianSpendPerCustomer: 2860 },
     ],
     ...over,
   };
@@ -45,19 +45,20 @@ function month(over: Partial<PlatformAnalyticsDto> = {}): PlatformAnalyticsDto {
 
 const ALL_TIME = month({
   from: null, to: null, previousFrom: null, previousTo: null, previousSummary: null,
-  topCategories: [{ name: 'Groceries', customers: 50, totalSpend: 5000000, medianSpendPerCustomer: 60000, transactionCount: 9000, previousTotalSpend: null }],
+  topCategories: [{ name: 'Groceries', customers: 50, totalSpend: 5000000, medianSpendPerCustomer: 60000, transactionCount: 9000, previousMedianSpendPerCustomer: null }],
   topMerchants: [],
 });
 
 function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
         <PlatformAnalytics />
       </MemoryRouter>
     </QueryClientProvider>
   );
+  return queryClient;
 }
 
 // See LearningEngine.test.tsx's mockAuth comment -- AdminLayout always renders Sidebar, which
@@ -96,7 +97,7 @@ describe('PlatformAnalytics', () => {
 
     await screen.findByText('Food and dining');
     expect(adminPlatformAnalyticsApi.get).toHaveBeenCalledWith(periodChoices(new Date())[0].period);
-    expect(screen.getByText('Compared with September 2026.')).toBeInTheDocument();
+    expect(screen.getByText('October 2026, compared with September 2026.')).toBeInTheDocument();
   });
 
   it('shows customers, spend per customer, the share still to sort and transactions, with changes', async () => {
@@ -112,16 +113,16 @@ describe('PlatformAnalytics', () => {
     expect(screen.getByText('3,912')).toBeInTheDocument();
   });
 
-  it('lists categories and merchants with customers, whole-rupee spend and the change in spend', async () => {
+  it('lists categories and merchants with customers, whole-rupee spend and the change per customer', async () => {
     mockAuth(['PLATFORM_ANALYTICS_VIEW']);
     renderPage();
 
     await screen.findByText('Food and dining');
-    expect(rowOf('Food and dining')).toEqual(['Food and dining', '37', '₹2,10,000', '₹4,800', '900', '+8%']);
+    expect(rowOf('Food and dining')).toEqual(['Food and dining', '37', '₹2,10,000', '₹4,800', '900', '+9%']);
     // No comparable figure for September: a dash, not a made-up change.
     expect(rowOf('Rent')).toEqual(['Rent', '3', '₹90,000', '₹30,000', '3', '—']);
     expect(rowOf('Swiggy')).toEqual(['Swiggy', '22', '₹71,000', '₹2,600', '300', '−9%']);
-    expect(screen.getAllByRole('columnheader', { name: 'Spend vs September 2026' })).toHaveLength(2);
+    expect(screen.getAllByRole('columnheader', { name: 'Per customer vs September 2026' })).toHaveLength(2);
   });
 
   it('switches to all time: no comparison column and no changes', async () => {
@@ -134,7 +135,7 @@ describe('PlatformAnalytics', () => {
     await screen.findByText('Groceries');
     expect(adminPlatformAnalyticsApi.get).toHaveBeenLastCalledWith(undefined);
     expect(screen.getByText('All time has nothing to compare with.')).toBeInTheDocument();
-    expect(screen.queryByRole('columnheader', { name: /Spend vs/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: /Per customer vs/ })).not.toBeInTheDocument();
     expect(screen.queryByText(/vs September 2026/)).not.toBeInTheDocument();
   });
 
@@ -164,6 +165,28 @@ describe('PlatformAnalytics', () => {
     expect(screen.queryByText(/pts vs/)).not.toBeInTheDocument();
     expect(screen.getByText('No category had spend from 3 or more customers in this period.')).toBeInTheDocument();
     expect(screen.getByText('No merchant had spend from 3 or more customers in this period.')).toBeInTheDocument();
+  });
+
+  it('keeps the figures on screen when a later refresh fails', async () => {
+    mockAuth(['PLATFORM_ANALYTICS_VIEW']);
+    const queryClient = renderPage();
+    await screen.findByText('Food and dining');
+
+    vi.mocked(adminPlatformAnalyticsApi.get).mockRejectedValue(new Error('offline'));
+    await queryClient.refetchQueries();
+
+    await waitFor(() => expect(queryClient.getQueryState(['admin-platform-analytics', periodChoices(new Date())[0].key])?.status).toBe('error'));
+    expect(screen.getByText('Food and dining')).toBeInTheDocument();
+    expect(screen.getByText('Swiggy')).toBeInTheDocument();
+  });
+
+  it('says a first load failed instead of showing an empty page', async () => {
+    mockAuth(['PLATFORM_ANALYTICS_VIEW']);
+    vi.mocked(adminPlatformAnalyticsApi.get).mockRejectedValue(new Error('offline'));
+    renderPage();
+
+    expect(await screen.findAllByRole('alert')).toHaveLength(2);
+    expect(screen.queryByText('No category had spend from 3 or more customers in this period.')).not.toBeInTheDocument();
   });
 
   it('points to Activation for the setup answers, which no longer load here', async () => {

@@ -21,6 +21,7 @@ import org.springframework.http.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -113,9 +114,8 @@ class AdminPlatformAnalyticsControllerIT extends AbstractIntegrationTest {
     }
 
     /**
-     * Runs the real SQL for one month. March 1990 is used so that no other IT class's rows (the
-     * suite shares one database, and they date theirs today) can land in the period and push this
-     * test's row out of the top 10. Covers: same-name private categories combined; customers and
+     * Runs the real path for one month. A random month long ago is used so that no other test's
+     * rows (the suite shares one database) can land in the period, even on a re-run. Covers: same-name private categories combined; customers and
      * median per customer; a staff account, a duplicate and a transfer left out; a row from another
      * month left out; the unsorted share (no category, or flagged for review); and the comparison
      * with February.
@@ -124,8 +124,9 @@ class AdminPlatformAnalyticsControllerIT extends AbstractIntegrationTest {
     void oneMonthCombinesCustomersAndComparesWithTheMonthBefore() throws Exception {
         User admin = createUser("ADMIN");
         String name = "Test Category " + UUID.randomUUID();
-        LocalDate march = LocalDate.of(1990, 3, 15);
-        LocalDate february = LocalDate.of(1990, 2, 10);
+        YearMonth marchMonth = YearMonth.of(1901 + java.util.concurrent.ThreadLocalRandom.current().nextInt(80), 3);
+        LocalDate march = marchMonth.atDay(15);
+        LocalDate february = marchMonth.minusMonths(1).atDay(10);
 
         User one = createUser("USER");
         User two = createUser("USER");
@@ -152,7 +153,7 @@ class AdminPlatformAnalyticsControllerIT extends AbstractIntegrationTest {
         Transaction transfer = expense(two, accountTwo, catTwo.getId(), march, "8888.00");
         transfer.setTransfer(true);
         transactionRepository.save(transfer);
-        transactionRepository.save(expense(one, accountOne, catOne.getId(), LocalDate.of(1990, 4, 1), "7777.00"));
+        transactionRepository.save(expense(one, accountOne, catOne.getId(), marchMonth.plusMonths(1).atDay(1), "7777.00"));
         User staff = createUser("ADMIN");
         transactionRepository.save(expense(staff, accountFor(staff), categoryFor(staff, name).getId(), march, "6666.00"));
 
@@ -161,12 +162,12 @@ class AdminPlatformAnalyticsControllerIT extends AbstractIntegrationTest {
         transactionRepository.save(expense(two, accountTwo, catTwo.getId(), february, "10.00"));
         transactionRepository.save(expense(three, accountThree, catThree.getId(), february, "10.00"));
 
-        JsonNode data = get(admin, "?from=1990-03&months=1");
+        JsonNode data = get(admin, "?from=" + marchMonth + "&months=1");
 
-        assertThat(data.get("from").asText()).isEqualTo("1990-03-01");
-        assertThat(data.get("to").asText()).isEqualTo("1990-03-31");
-        assertThat(data.get("previousFrom").asText()).isEqualTo("1990-02-01");
-        assertThat(data.get("previousTo").asText()).isEqualTo("1990-02-28");
+        assertThat(data.get("from").asText()).isEqualTo(marchMonth.atDay(1).toString());
+        assertThat(data.get("to").asText()).isEqualTo(marchMonth.atEndOfMonth().toString());
+        assertThat(data.get("previousFrom").asText()).isEqualTo(marchMonth.minusMonths(1).atDay(1).toString());
+        assertThat(data.get("previousTo").asText()).isEqualTo(marchMonth.minusMonths(1).atEndOfMonth().toString());
         JsonNode row = rowNamed(data.get("topCategories"), name);
         assertThat(row).as("platform category row for " + name).isNotNull();
         assertThat(row.get("customers").asLong()).isEqualTo(3);
@@ -174,13 +175,69 @@ class AdminPlatformAnalyticsControllerIT extends AbstractIntegrationTest {
         assertThat(row.get("transactionCount").asLong()).isEqualTo(4);
         // Customer totals 120, 50, 30 -> middle is 50.
         assertThat(row.get("medianSpendPerCustomer").decimalValue()).isEqualByComparingTo("50.00");
-        assertThat(row.get("previousTotalSpend").decimalValue()).isEqualByComparingTo("30.00");
+        assertThat(row.get("previousMedianSpendPerCustomer").decimalValue()).isEqualByComparingTo("10.00");
 
         JsonNode summary = data.get("summary");
         assertThat(summary.get("customersWithSpend").asLong()).isEqualTo(3);
         assertThat(summary.get("totalSpend").decimalValue()).isEqualByComparingTo("205.00");
         assertThat(summary.get("toSortSpend").decimalValue()).isEqualByComparingTo("35.00");
         assertThat(data.get("previousSummary").get("customersWithSpend").asLong()).isEqualTo(3);
+    }
+
+    /**
+     * The page must price a customer's spend the way that customer's own reports do. Every row
+     * below is one AnalyticsService leaves out or nets off: a linked refund, a superseded
+     * statement's row, a deleted account's row and an investment transfer in the top-line total.
+     */
+    @Test
+    void spendIsPricedTheWayEachCustomersOwnReportsPriceIt() throws Exception {
+        User admin = createUser("ADMIN");
+        String name = "Priced Category " + UUID.randomUUID();
+        YearMonth month = YearMonth.of(1901 + java.util.concurrent.ThreadLocalRandom.current().nextInt(80), 6);
+        LocalDate day = month.atDay(15);
+
+        User one = createUser("USER");
+        User two = createUser("USER");
+        User three = createUser("USER");
+        Account accountOne = accountFor(one);
+        Account accountTwo = accountFor(two);
+        Account accountThree = accountFor(three);
+        Category catOne = categoryFor(one, name);
+        Category catTwo = categoryFor(two, name);
+        Category catThree = categoryFor(three, name);
+
+        // One: 1,000 with 400 refunded costs 600.
+        Transaction purchase = transactionRepository.save(expense(one, accountOne, catOne.getId(), day, "1000.00"));
+        Transaction refund = expense(one, accountOne, catOne.getId(), day, "400.00");
+        refund.setTxnType(Transaction.Type.INCOME);
+        refund.setReconciliationStatus(Transaction.ReconciliationStatus.REFUND);
+        refund.setRefundOfTransactionId(purchase.getId());
+        transactionRepository.save(refund);
+        // One: an investment is not spending in the period's total.
+        Transaction investment = expense(one, accountOne, null, day, "2000.00");
+        investment.setReconciliationStatus(Transaction.ReconciliationStatus.INVESTMENT_TRANSFER);
+        transactionRepository.save(investment);
+
+        // Two: 500, and a row from a statement that was replaced.
+        transactionRepository.save(expense(two, accountTwo, catTwo.getId(), day, "500.00"));
+        Transaction superseded = expense(two, accountTwo, catTwo.getId(), day, "9000.00");
+        superseded.setReconciliationStatus(Transaction.ReconciliationStatus.SUPERSEDED);
+        transactionRepository.save(superseded);
+
+        // Three: 300, and a row on an account they have since deleted.
+        transactionRepository.save(expense(three, accountThree, catThree.getId(), day, "300.00"));
+        Account closed = accountFor(three);
+        transactionRepository.save(expense(three, closed, catThree.getId(), day, "7000.00"));
+        accountRepository.delete(closed);
+
+        JsonNode data = get(admin, "?from=" + month + "&months=1");
+
+        JsonNode row = rowNamed(data.get("topCategories"), name);
+        assertThat(row).as("platform category row for " + name).isNotNull();
+        assertThat(row.get("customers").asLong()).isEqualTo(3);
+        assertThat(row.get("totalSpend").decimalValue()).isEqualByComparingTo("1400.00");
+        assertThat(row.get("medianSpendPerCustomer").decimalValue()).isEqualByComparingTo("500.00");
+        assertThat(data.get("summary").get("totalSpend").decimalValue()).isEqualByComparingTo("1400.00");
     }
 
     @Test
@@ -195,7 +252,8 @@ class AdminPlatformAnalyticsControllerIT extends AbstractIntegrationTest {
     @Test
     void aBadMonthOrMonthsIsABadRequest() {
         User admin = createUser("ADMIN");
-        for (String query : new String[]{"?from=1990-03&months=0", "?from=1990-03&months=13", "?from=1990-13", "?from=March"}) {
+        for (String query : new String[]{"?from=1990-03&months=0", "?from=1990-03&months=13", "?from=1990-13", "?from=March",
+                "?from=0000-01", "?from=1899-12", "?from=2101-01"}) {
             ResponseEntity<String> response = restTemplate.exchange(
                     "/api/v1/admin/analytics/platform" + query, HttpMethod.GET, new HttpEntity<>(bearerFor(admin)), String.class);
             assertThat(response.getStatusCode()).as(query).isEqualTo(HttpStatus.BAD_REQUEST);

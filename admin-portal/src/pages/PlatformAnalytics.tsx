@@ -24,7 +24,7 @@ function delta(change: number, unit: string, vs: string, upIsGood: boolean): Sta
   };
 }
 
-function SpendTable({ title, nameHeader, icon: Icon, rows, loading, error, vs, emptyMessage }: {
+function SpendTable({ title, nameHeader, icon: Icon, rows, loading, error, vs, minCustomers, emptyMessage }: {
   title: string;
   nameHeader: string;
   icon: typeof Tag;
@@ -32,6 +32,7 @@ function SpendTable({ title, nameHeader, icon: Icon, rows, loading, error, vs, e
   loading: boolean;
   error: unknown;
   vs: string | null;
+  minCustomers: number;
   emptyMessage: string;
 }) {
   const columns: DataTableColumn<PlatformSpendRowDto>[] = [
@@ -53,11 +54,12 @@ function SpendTable({ title, nameHeader, icon: Icon, rows, loading, error, vs, e
   ];
   if (vs) {
     columns.push({
-      header: `Spend vs ${vs}`,
+      // Per customer, not the total: a total rises whenever more customers join or import.
+      header: `Per customer vs ${vs}`,
       render: (r) => {
-        const change = changePercent(r.totalSpend, r.previousTotalSpend);
+        const change = changePercent(r.medianSpendPerCustomer, r.previousMedianSpendPerCustomer);
         return change == null
-          ? <span title="Fewer than 3 customers spent here then, or none">—</span>
+          ? <span title={`Fewer than ${minCustomers} customers spent here then`}>—</span>
           : `${signed(change)}%`;
       },
       cellClassName: 'text-muted',
@@ -74,11 +76,10 @@ function SpendTable({ title, nameHeader, icon: Icon, rows, loading, error, vs, e
 }
 
 /**
- * Platform-wide spend for one period: who spends, on what, and how much is still to sort. Rows are
- * ranked by how many customers spent under a name, and a name fewer than 3 customers spent under
- * is not listed, so one customer's spending can't be read off the page (see
- * AdminPlatformAnalyticsService). AnalyticsController's self-service equivalents are scoped to
- * CurrentUser, by design -- this has no per-user counterpart to link out to.
+ * Platform-wide spend for one period: who spends, on what, and how much is still to sort. Amounts
+ * are each customer's own report figures (see AdminPlatformAnalyticsService). Rows are ranked by
+ * how many customers spent under a name, and a name fewer than 3 customers spent under is not
+ * listed, so the page does not point at one or two people.
  */
 function PlatformAnalyticsContent() {
   const choices = useMemo(() => periodChoices(new Date()), []);
@@ -89,9 +90,15 @@ function PlatformAnalyticsContent() {
     queryKey: ['admin-platform-analytics', choice.key],
     queryFn: () => adminPlatformAnalyticsApi.get(choice.period),
     placeholderData: keepPreviousData,
+    // Each load reads every customer's rows, so returning to the tab should not repeat it.
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
+  // A failed refresh keeps the figures already on screen; only a load with nothing to show is an error.
+  const loadError = data ? null : error;
 
   const vs = data?.previousFrom && data.previousTo ? spanLabel(data.previousFrom, data.previousTo) : null;
+  const span = data?.from && data.to ? spanLabel(data.from, data.to) : null;
   const summary = data?.summary;
   const previous = data?.previousSummary;
   const withheld = summary != null && summary.totalSpend == null;
@@ -114,7 +121,7 @@ function PlatformAnalyticsContent() {
           </select>
         </label>
         <p className="text-sm text-muted pb-1">
-          {vs ? `Compared with ${vs}.` : choice.period ? '' : 'All time has nothing to compare with.'}
+          {span && vs ? `${span}, compared with ${vs}.` : choice.period ? '' : 'All time has nothing to compare with.'}
           {isFetching && !isLoading ? ' Updating…' : ''}
         </p>
       </div>
@@ -148,7 +155,9 @@ function PlatformAnalyticsContent() {
         <p className="text-sm text-muted max-w-3xl">
           Spend per customer is the middle customer&apos;s total for the period. Still to sort is the share of
           spend with no category or flagged for review, the same flag customers see as &quot;needs review&quot;.
-          Expenses only: duplicates, linked transfers, refunds and staff accounts are left out.
+          Amounts match each customer&apos;s own reports: refunds and shared costs are taken off, and duplicates,
+          transfers, card bill payments and replaced statements are left out. Investments are not in these totals.
+          Staff accounts are not counted. Recent months can rise as customers import more statements.
           {withheld && ` Money figures are hidden because fewer than ${minCustomers} customers spent in this period.`}
         </p>
       </div>
@@ -159,8 +168,9 @@ function PlatformAnalyticsContent() {
         icon={Tag}
         rows={data?.topCategories}
         loading={isLoading}
-        error={error}
+        error={loadError}
         vs={vs}
+        minCustomers={minCustomers}
         emptyMessage={`No category had spend from ${minCustomers} or more customers in this period.`}
       />
 
@@ -170,14 +180,15 @@ function PlatformAnalyticsContent() {
         icon={Store}
         rows={data?.topMerchants}
         loading={isLoading}
-        error={error}
+        error={loadError}
         vs={vs}
+        minCustomers={minCustomers}
         emptyMessage={`No merchant had spend from ${minCustomers} or more customers in this period.`}
       />
 
       <p className="text-xs text-muted">
-        A category or merchant fewer than {minCustomers} customers spent under is not listed, so no one customer&apos;s
-        spending can be read off this page. How users tracked spending before Fynora is now on{' '}
+        A category or merchant fewer than {minCustomers} customers spent under is not listed, so this page does not
+        point at one or two people. How users tracked spending before Fynora is now on{' '}
         <Link to="/analytics/activation" className="underline hover:text-ink">Activation</Link>.
       </p>
     </div>

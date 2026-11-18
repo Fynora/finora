@@ -279,6 +279,24 @@ describe('InvestmentsScreen: add holding', () => {
     expectHaptics({ success: 1 });
   });
 
+  // Two native sheets open at once can close together when the app locks, and that has frozen every
+  // touch on iOS until the app was killed.
+  it('the form steps aside while the type picker is open, and keeps what was typed', async () => {
+    renderScreen();
+    await loaded();
+    await openAdd();
+    fireEvent.changeText(screen.getByLabelText(/^Name/), 'Gold ETF');
+
+    fireEvent.press(screen.getByLabelText('Type: Mutual Fund. Change'));
+    await settle();
+    expect(screen.queryByLabelText(/^Name/)).toBeNull();
+
+    fireEvent.press(screen.getByTestId('option-FD'));
+    await settle();
+    expect(screen.getByLabelText(/^Name/).props.value).toBe('Gold ETF');
+    expect(screen.getByLabelText('Type: FD. Change')).toBeTruthy();
+  });
+
   it('an add the server refuses gives one error', async () => {
     accounts.create.mockRejectedValueOnce(new Error('down'));
     renderScreen();
@@ -367,6 +385,23 @@ describe('InvestmentsScreen: delete holding', () => {
 
     expect(await screen.findByText('Could not delete this holding.')).toBeTruthy();
     expectHaptics({ error: 1 });
+    alertSpy.mockRestore();
+  });
+
+  it('a delete failure does not outlive a later save that worked', async () => {
+    accounts.remove.mockRejectedValueOnce(new Error('down'));
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
+    renderScreen();
+    await chooseDelete('Index fund');
+    await act(async () => { alertSpy.mock.calls[0][2]!.find((b) => b.text === 'Delete')!.onPress!(); });
+    await screen.findByText('Could not delete this holding.');
+
+    await openUpdate();
+    fireEvent.changeText(screen.getByLabelText(/Current value/), '1,65,000');
+    fireEvent.press(screen.getByText('Save value'));
+
+    await waitFor(() => expect(screen.queryByText('Save value')).toBeNull());
+    expect(screen.queryByText('Could not delete this holding.')).toBeNull();
     alertSpy.mockRestore();
   });
 });

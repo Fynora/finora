@@ -106,6 +106,15 @@ describe('Investments: what the page shows', () => {
     expect(await screen.findByText("Leaves out 1 card whose amount owed isn't known.")).toBeInTheDocument();
   });
 
+  // Without an explicit column, one long unbroken name set the width of the stacked cards on a phone
+  // and pushed the page 482px past the edge of a 375px screen.
+  it('keeps the stacked cards to the width of the page', async () => {
+    renderInvestments();
+
+    const cards = (await screen.findByRole('heading', { name: 'Money going in' })).closest('.grid');
+    expect(cards).toHaveClass('grid-cols-1');
+  });
+
   it('invites someone with no holdings to add one', async () => {
     vi.mocked(accountsApi.list).mockResolvedValue([]);
     renderInvestments();
@@ -368,5 +377,29 @@ describe('Investments: delete holding', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not delete this holding.');
     expect(screen.getByText('Index Fund')).toBeInTheDocument();
+  });
+
+  it('a delete failure can be dismissed', async () => {
+    vi.mocked(accountsApi.remove).mockRejectedValue(new Error('down'));
+    renderInvestments();
+    await confirmDelete('Index Fund');
+    await screen.findByRole('alert');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Dismiss error' }));
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('a delete failure does not outlive a later save that worked', async () => {
+    vi.mocked(accountsApi.remove).mockRejectedValue(new Error('down'));
+    renderInvestments();
+    await confirmDelete('Index Fund');
+    await screen.findByRole('alert');
+
+    const dialog = await openUpdate();
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save value' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.queryByText('Could not delete this holding.')).not.toBeInTheDocument();
   });
 });

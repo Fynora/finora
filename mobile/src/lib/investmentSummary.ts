@@ -107,7 +107,8 @@ const MONTH_LETTERS = 'JFMAMJJASOND';
 const NOT_REAL_PAYMENT = ['DUPLICATE', 'SUPERSEDED'];
 // accounts.balance is NUMERIC(14,2); the API refuses anything larger or finer.
 const MAX_VALUE = 999_999_999_999.99;
-const VALUE_FORMAT = /^(\d+|\d{1,3}(,\d{2,3})+)?(\.\d*)?$/;
+// Grouped digits always end in three: "12,50" is a decimal comma or a typo, not 1,250.
+const VALUE_FORMAT = /^(\d+|\d{1,3}(,\d{2,3})*,\d{3})?(\.\d*)?$/;
 
 export function groupKeyFor(kind?: string | null): HoldingGroupKey {
   return KIND_GROUP[(kind ?? '').trim().toLowerCase()] ?? 'other';
@@ -159,9 +160,11 @@ function daysUntil(parts: { year: number; month: number; day: number }, today: D
   return Math.round((Date.UTC(parts.year, parts.month, parts.day) - from) / 86_400_000);
 }
 
+/** "12 Sep 2027". Intl writes "Sept" for en-IN; every other date in the app has three letters. */
 function dateLabel(parts: { year: number; month: number; day: number }): string {
   return new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
-    .format(new Date(parts.year, parts.month, parts.day));
+    .format(new Date(parts.year, parts.month, parts.day))
+    .replace(/\bSept\b/, 'Sep');
 }
 
 function whenLabel(days: number): string {
@@ -272,7 +275,9 @@ export function summarizeMoneyIn(payments: PaymentLike[], today: Date): MoneyInS
 /** Why a well-formed number can't be saved, in words; null when there is nothing specific to say. */
 export function holdingValueProblem(text: string): string | null {
   const trimmed = text.trim();
-  if (!VALUE_FORMAT.test(trimmed)) return null;
+  if (!VALUE_FORMAT.test(trimmed)) {
+    return /^[\d,]*,[\d,]*(\.\d*)?$/.test(trimmed) ? 'Check the commas in this amount. For paise, use a point: 12.50.' : null;
+  }
   if (/\.\d{3,}$/.test(trimmed)) return 'Current value can have at most 2 decimal places.';
   return Number(trimmed.replace(/,/g, '')) > MAX_VALUE ? 'Current value is too large.' : null;
 }

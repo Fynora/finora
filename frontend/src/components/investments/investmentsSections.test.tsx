@@ -12,7 +12,13 @@ import { MoneyGoingInCard } from './MoneyGoingInCard';
 import { HoldingsCard } from './HoldingsCard';
 import { NetWorthCard } from './NetWorthCard';
 
-vi.mock('react-chartjs-2', () => ({ Line: () => <div data-testid="trend-chart" /> }));
+const trend = vi.hoisted(() => ({ options: null as unknown }));
+vi.mock('react-chartjs-2', () => ({
+  Line: ({ options }: { options: unknown }) => {
+    trend.options = options;
+    return <div data-testid="trend-chart" />;
+  },
+}));
 vi.mock('../../api/endpoints', () => ({
   categoriesApi: { list: vi.fn() },
   transactionsApi: { search: vi.fn() },
@@ -205,6 +211,19 @@ describe('NetWorthCard', () => {
     expect(screen.getByText('₹16,20,000')).toBeInTheDocument();
     expect(screen.getByText('₹18,40,000 assets · ₹2,20,000 liabilities')).toBeInTheDocument();
     expect(screen.getByTestId('trend-chart')).toBeInTheDocument();
+  });
+
+  // The line draws no points, so a tooltip that needs the pointer exactly on one never opened.
+  it('shows the date and amount anywhere along the trend', () => {
+    renderCard();
+
+    const options = trend.options as {
+      interaction: { mode: string; intersect: boolean };
+      plugins: { tooltip: { callbacks: { title: (items: { label: string }[]) => string; label: (item: { parsed: { y: number } }) => string } } };
+    };
+    expect(options.interaction).toEqual({ mode: 'index', intersect: false });
+    expect(options.plugins.tooltip.callbacks.title([{ label: '2026-09-01' }])).toBe('1 Sep 2026');
+    expect(options.plugins.tooltip.callbacks.label({ parsed: { y: 1620000 } })).toBe('₹16,20,000');
   });
 
   it('explains a trend with too few points', () => {

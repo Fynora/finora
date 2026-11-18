@@ -105,6 +105,7 @@ export function InvestmentsScreen() {
     hapticSuccess();
     queryClient.setQueryData<Account[]>(['accounts'], (current) => current?.map((a) => (a.id === holding.id ? { ...a, balance } : a)));
     setUpdating(null);
+    setError(null);
     refreshAfterChange();
   }
 
@@ -121,6 +122,7 @@ export function InvestmentsScreen() {
     hapticSuccess();
     queryClient.setQueryData<Account[]>(['accounts'], (current) => (current ? [...current, created] : current));
     setAddOpen(false);
+    setError(null);
     refreshAfterChange();
   }
 

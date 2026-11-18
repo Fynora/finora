@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Plus, Wallet } from 'lucide-react';
+import { Plus, Wallet, X } from 'lucide-react';
 import { accountsApi, networthApi, type NetWorthData } from '../api/endpoints';
 import type { Account } from '../types';
 import { useAsyncGuard } from '../hooks/useAsyncGuard';
@@ -80,6 +80,7 @@ export default function Investments() {
     await accountsApi.update(holding.id, { name: holding.name, accountType: 'INVESTMENT', balance });
     setHoldings((current) => current.map((h) => (h.id === holding.id ? { ...h, balance } : h)));
     setUpdating(null);
+    setError(null);
     setStatus(`${holding.name} value saved.`);
     refreshAfterChange();
   }
@@ -88,6 +89,7 @@ export default function Investments() {
     const created = await accountsApi.create({ ...body, accountType: 'INVESTMENT' });
     setHoldings((current) => [...current, created]);
     setAddOpen(false);
+    setError(null);
     setStatus(`${body.name} added.`);
     refreshAfterChange();
   }
@@ -129,7 +131,14 @@ export default function Investments() {
         </Button>
       </div>
 
-      {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+      {error && (
+        <div role="alert" className="flex items-start justify-between gap-3 text-sm text-danger">
+          <span>{error}</span>
+          <button type="button" aria-label="Dismiss error" onClick={() => setError(null)} className="flex-shrink-0 rounded hover:opacity-70">
+            <X size={16} aria-hidden="true" />
+          </button>
+        </div>
+      )}
       <p role="status" className="sr-only">{status}</p>
 
       {loading ? (
@@ -165,7 +174,7 @@ export default function Investments() {
             <PortfolioCard summary={summary} money={fmt} />
           )}
 
-          <div className={`grid gap-5 ${upcoming.length > 0 ? 'lg:grid-cols-2' : ''}`}>
+          <div className={`grid grid-cols-1 gap-5 ${upcoming.length > 0 ? 'lg:grid-cols-2' : ''}`}>
             <ComingUpCard rows={upcoming} money={fmt} />
             <MoneyGoingInCard today={today} />
           </div>

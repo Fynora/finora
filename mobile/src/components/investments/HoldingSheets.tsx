@@ -128,39 +128,43 @@ export function AddHoldingSheet({ onClose, onSave }: {
     });
   }
 
+  // The form steps aside while the picker is open. Nested, the two close in one step when the app
+  // locks, and that left an invisible iOS layer that swallowed every touch, the PIN pad's included.
   return (
-    <BudgetSheet visible title="Add holding" onClose={onClose} closeDisabled={saving}>
-      <TextField
-        label="Name"
-        value={name}
-        onChangeText={(v) => { setName(v); setNameError(null); }}
-        placeholder="Index fund"
-        maxLength={NAME_MAX}
-        error={nameError ?? undefined}
-      />
-      <TextField
-        label="Current value"
-        value={text}
-        onChangeText={(v) => { setText(v); setValueProblem(null); }}
-        keyboardType="decimal-pad"
-        placeholder="0"
-        prefix="₹"
-        error={valueProblem ?? undefined}
-      />
-      <View>
-        <Text style={[styles.fieldLabel, { color: c.muted }]}>Type</Text>
-        <Pressable
-          onPress={() => setPickerOpen(true)}
-          style={[styles.picker, { backgroundColor: c.inputBg, borderColor: c.border }]}
-          accessibilityRole="button"
-          accessibilityLabel={`Type: ${kind}. Change`}
-        >
-          <Text style={[styles.pickerText, { color: c.ink }]}>{kind}</Text>
-          <Text style={[styles.chevron, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">›</Text>
-        </Pressable>
-      </View>
-      {formError ? <Text style={[typography.bodyS, { color: c.dangerInk }]}>{formError}</Text> : null}
-      <Button label={saving ? 'Adding…' : 'Add holding'} onPress={() => void save()} loading={saving} />
+    <>
+      <BudgetSheet visible={!pickerOpen} title="Add holding" onClose={onClose} closeDisabled={saving}>
+        <TextField
+          label="Name"
+          value={name}
+          onChangeText={(v) => { setName(v); setNameError(null); }}
+          placeholder="Index fund"
+          maxLength={NAME_MAX}
+          error={nameError ?? undefined}
+        />
+        <TextField
+          label="Current value"
+          value={text}
+          onChangeText={(v) => { setText(v); setValueProblem(null); }}
+          keyboardType="decimal-pad"
+          placeholder="0"
+          prefix="₹"
+          error={valueProblem ?? undefined}
+        />
+        <View>
+          <Text style={[styles.fieldLabel, { color: c.muted }]}>Type</Text>
+          <Pressable
+            onPress={() => setPickerOpen(true)}
+            style={[styles.picker, { backgroundColor: c.inputBg, borderColor: c.border }]}
+            accessibilityRole="button"
+            accessibilityLabel={`Type: ${kind}. Change`}
+          >
+            <Text style={[styles.pickerText, { color: c.ink }]}>{kind}</Text>
+            <Text style={[styles.chevron, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">›</Text>
+          </Pressable>
+        </View>
+        {formError ? <Text style={[typography.bodyS, { color: c.dangerInk }]}>{formError}</Text> : null}
+        <Button label={saving ? 'Adding…' : 'Add holding'} onPress={() => void save()} loading={saving} />
+      </BudgetSheet>
       <OptionPickerModal
         visible={pickerOpen}
         title="Type"
@@ -169,7 +173,7 @@ export function AddHoldingSheet({ onClose, onSave }: {
         onSelect={(k) => { setKind(k); setPickerOpen(false); }}
         onClose={() => setPickerOpen(false)}
       />
-    </BudgetSheet>
+    </>
   );
 }
 

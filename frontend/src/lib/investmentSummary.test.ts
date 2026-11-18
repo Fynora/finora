@@ -202,11 +202,11 @@ describe('summarizeMoneyIn', () => {
 });
 
 describe('parseHoldingValue', () => {
-  it.each([['2,60,000', 260000], ['260,000', 260000], [' 5000 ', 5000], ['99.50', 99.5], ['5.', 5], ['999999999999.99', 999999999999.99]])(
+  it.each([['2,60,000', 260000], ['260,000', 260000], ['12,34,567', 1234567], [' 5000 ', 5000], ['99.50', 99.5], ['5.', 5], ['999999999999.99', 999999999999.99]])(
     'reads %j', (typed, value) => { expect(parseHoldingValue(typed)).toBe(value); },
   );
 
-  it.each(['', '   ', '0', '-5', 'abc', '12abc', '1e5', '0x10', '12,5', '100.555', '1000000000000'])('refuses %j', (typed) => {
+  it.each(['', '   ', '0', '-5', 'abc', '12abc', '1e5', '0x10', '12,5', '12,50', '1,00', '1,000,00', '100.555', '1000000000000'])('refuses %j', (typed) => {
     expect(parseHoldingValue(typed)).toBeNull();
   });
 });
@@ -217,8 +217,22 @@ describe('holdingValueProblem', () => {
     expect(holdingValueProblem('1000000000000')).toBe('Current value is too large.');
   });
 
-  it.each(['', '0', 'abc', '1e99', '5000'])('has nothing specific to say about %j', (typed) => {
+  it.each(['12,50', '1,00', '1,000,00', '12,5.50'])('says what is wrong with the commas in %j', (typed) => {
+    expect(holdingValueProblem(typed)).toBe('Check the commas in this amount. For paise, use a point: 12.50.');
+  });
+
+  it.each(['', '0', 'abc', '1e99', '5000', '2,60,000'])('has nothing specific to say about %j', (typed) => {
     expect(holdingValueProblem(typed)).toBeNull();
+  });
+});
+
+describe('dates', () => {
+  // Intl writes September as "Sept" for en-IN; every other date in the app says "Sep".
+  it('writes September the way the rest of the app does', () => {
+    const deposit = { id: 'fd', name: 'Bank FD', balance: 1000, maturityDate: '2027-09-12' };
+
+    expect(holdingTerms(deposit, TODAY, money)).toBe('Matures 12 Sep 2027');
+    expect(comingUp([deposit], TODAY)[0].dateLabel).toBe('12 Sep 2027');
   });
 });
 

@@ -29,6 +29,9 @@ export const FINANCIAL_QUERY_KEYS = [
   // until their caches age out on their own.
   'networth',
   'recurring',
+  // Investments' Money going in: its total is the payments filed under Investments, and its own
+  // "See payments" link leads straight to the screen where one can be recategorised.
+  'investment-activity',
   // The recurring-payment question's "still X?" rows: an import or an answer can move a payee's
   // latest amount in or out of its saved range.
   'recurring-changed-amounts',

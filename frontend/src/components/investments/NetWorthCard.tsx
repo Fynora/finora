@@ -3,6 +3,7 @@ import { Chart as ChartJS, CategoryScale, LinearScale, LineElement, PointElement
 import type { NetWorthData } from '../../api/endpoints';
 import { FinoraCard, useChartColors } from '../../design-system';
 import { unknownCardsNote } from '../../lib/amountOwed';
+import { formatDate } from '../../utils/date';
 
 ChartJS.register(CategoryScale, LinearScale, LineElement, PointElement, Tooltip);
 
@@ -40,7 +41,18 @@ export function NetWorthCard({ netWorth, failed, money }: { netWorth: NetWorthDa
             options={{
               responsive: true,
               maintainAspectRatio: false,
-              plugins: { legend: { display: false } },
+              // The line draws no points, so the tooltip follows the pointer along it.
+              interaction: { mode: 'index', intersect: false },
+              plugins: {
+                legend: { display: false },
+                tooltip: {
+                  displayColors: false,
+                  callbacks: {
+                    title: (items) => formatDate(items[0]?.label),
+                    label: (item) => money(item.parsed.y ?? 0),
+                  },
+                },
+              },
               scales: { x: { display: false }, y: { display: false } },
             }}
           />

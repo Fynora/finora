@@ -1,5 +1,5 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { lazy, Suspense, type ReactNode } from 'react';
+import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
+import { lazy, Suspense, useCallback, useState, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
@@ -79,11 +79,22 @@ const Setup = lazy(() => import('./pages/Setup'));
 function AppShell({ children }: { children: ReactNode }) {
   // The tab shows the product's name inside the app, not index.html's search-result title.
   useDocumentTitle('Fynora');
+  const { pathname } = useLocation();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const closeMenu = useCallback(() => setMenuOpen(false), []);
+  // Any route change closes the phone menu, the browser's back button included.
+  const [menuPathname, setMenuPathname] = useState(pathname);
+  if (menuPathname !== pathname) {
+    setMenuPathname(pathname);
+    setMenuOpen(false);
+  }
   return (
     <div className="min-h-screen bg-bg flex">
-      <Sidebar />
-      <main className="flex-1 p-8 max-w-[1600px]">
-        <TopBar />
+      <Sidebar drawerOpen={menuOpen} onDrawerClose={closeMenu} />
+      {/* min-w-0 below `lg`: a flex child otherwise refuses to get narrower than its widest
+          content, which pushes the whole page sideways on a phone. */}
+      <main className="flex-1 p-8 max-w-[1600px] max-lg:min-w-0 max-lg:p-4">
+        <TopBar onOpenMenu={() => setMenuOpen(true)} />
         {/* Inside the shell, not around it: a page that throws is contained to the content area
             while the sidebar and top bar keep rendering, so the user can navigate away instead of
             being stranded. This is the boundary that does the real work -- see the outer one in

@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Search, Bell, HelpCircle, Sun, Moon, Monitor, Check,
-  Keyboard, MessageSquarePlus, LifeBuoy, X, BellOff, Plus,
+  Keyboard, MessageSquarePlus, LifeBuoy, X, BellOff, Plus, Menu,
 } from 'lucide-react';
 import { useTheme, type ThemeSetting } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
@@ -46,7 +46,7 @@ const THEME_OPTIONS: { value: ThemeSetting; label: string; icon: typeof Sun }[] 
 
 type OpenMenu = 'theme' | 'notifications' | 'help' | null;
 
-export function TopBar() {
+export function TopBar({ onOpenMenu }: { onOpenMenu?: () => void }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { email } = useAuth();
@@ -121,8 +121,22 @@ export function TopBar() {
   const ThemeIcon = theme === 'light' ? Sun : theme === 'dark' ? Moon : Monitor;
 
   return (
-    <div className="flex items-center justify-between gap-4 mb-8">
-      <div className="relative flex-1 max-w-md">
+    // Below `lg` this is two rows: menu button and actions, then search at full width. The row is
+    // also what the dropdowns anchor to there, because a panel hung from its own button runs off
+    // the left edge of a phone.
+    <div className="flex items-center justify-between gap-4 mb-8 max-lg:relative max-lg:flex-wrap max-lg:gap-3 max-lg:mb-5">
+      {onOpenMenu && (
+        <button
+          type="button"
+          onClick={onOpenMenu}
+          aria-label="Open menu"
+          aria-haspopup="dialog"
+          className="lg:hidden w-10 h-10 rounded-full bg-card border border-border shadow-card flex items-center justify-center text-ink flex-shrink-0"
+        >
+          <Menu size={18} />
+        </button>
+      )}
+      <div className="relative flex-1 max-w-md max-lg:order-last max-lg:basis-full max-lg:max-w-none">
         <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" />
         <input
           ref={searchRef}
@@ -130,22 +144,23 @@ export function TopBar() {
           value={searchValue}
           onChange={(e) => setSearchValue(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && runSearch()}
-          className="bg-card text-ink w-full border border-border rounded-lg pl-10 pr-16 py-2.5 text-sm shadow-card focus:outline-none focus:ring-2 focus:ring-primary/30"
+          // 16px below `lg`: iOS Safari zooms the whole page when a smaller input takes focus.
+          className="bg-card text-ink w-full border border-border rounded-lg pl-10 pr-16 py-2.5 text-sm shadow-card focus:outline-none focus:ring-2 focus:ring-primary/30 max-lg:pr-4 max-lg:text-base"
         />
-        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-2xs text-muted bg-bg border border-border rounded px-1.5 py-0.5">
+        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-2xs text-muted bg-bg border border-border rounded px-1.5 py-0.5 max-lg:hidden">
           Ctrl + K
         </span>
       </div>
-      <div className="flex items-center gap-3 flex-shrink-0">
+      <div className="flex items-center gap-3 flex-shrink-0 max-lg:gap-2">
         {/* Global entry point for AddTransactionModal -- previously only reachable from
             Dashboard's own empty-state cards, so anywhere else in the app had no way to add one
             without navigating back to Dashboard first. */}
         <button
           type="button"
           onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-1.5 bg-primary text-on-primary hover:bg-primary-dark rounded-lg px-4 py-2.5 text-sm font-semibold"
+          className="flex items-center gap-1.5 bg-primary text-on-primary hover:bg-primary-dark rounded-lg px-4 py-2.5 text-sm font-semibold max-lg:w-10 max-lg:h-10 max-lg:p-0 max-lg:justify-center max-lg:rounded-full"
         >
-          <Plus size={16} /> Add Transaction
+          <Plus size={16} /> <span className="max-lg:sr-only">Add Transaction</span>
         </button>
 
         {/* Ask Fyn -- promoted from its own sidebar page to a header icon (see FynWidget's own
@@ -154,7 +169,7 @@ export function TopBar() {
         <FynWidget />
 
         {/* Theme */}
-        <div className="relative">
+        <div className="relative max-lg:static">
           <button
             type="button"
             onClick={() => toggleMenu('theme')}
@@ -190,7 +205,7 @@ export function TopBar() {
         </div>
 
         {/* Notifications */}
-        <div className="relative">
+        <div className="relative max-lg:static">
           <button
             type="button"
             onClick={() => toggleMenu('notifications')}
@@ -238,7 +253,7 @@ export function TopBar() {
 
         {/* Help -- account actions (profile, settings, billing, log out) live in the Sidebar's
             own account menu; this is help-only so the two don't duplicate each other. */}
-        <div className="relative">
+        <div className="relative max-lg:static">
           <button
             type="button"
             onClick={() => toggleMenu('help')}
@@ -311,7 +326,7 @@ function Dropdown({ children, onClose, width = 'w-56' }: { children: ReactNode; 
   return (
     <>
       <div className="fixed inset-0 z-10" onClick={onClose} />
-      <div className={`absolute right-0 top-full mt-2 ${width} bg-card border border-border rounded-lg shadow-soft py-1.5 z-20`}>
+      <div className={`absolute right-0 top-full mt-2 ${width} bg-card border border-border rounded-lg shadow-soft py-1.5 z-20 max-lg:top-10 max-lg:left-0 max-lg:ml-auto max-lg:w-auto max-lg:max-w-sm`}>
         {children}
       </div>
     </>

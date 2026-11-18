@@ -170,14 +170,14 @@ export default function Budgets() {
 
       <FinoraCard>
         <SectionHeader title="Set a Budget" size="sm" />
-        <div className="flex gap-2 items-end">
-          <div>
+        <div className="flex flex-wrap gap-2 items-end">
+          <div className="max-sm:w-full">
             <label htmlFor="budget-category" className="block text-xs uppercase text-muted mb-1">Category</label>
-            <input id="budget-category" value={newCategory} onChange={(e) => setNewCategory(e.target.value)} className="bg-card text-ink border rounded px-2 py-1.5 text-sm" />
+            <input id="budget-category" value={newCategory} onChange={(e) => setNewCategory(e.target.value)} className="bg-card text-ink border rounded px-2 py-1.5 text-sm max-sm:w-full max-sm:text-base" />
           </div>
-          <div>
+          <div className="max-sm:w-full">
             <label htmlFor="budget-monthly-limit" className="block text-xs uppercase text-muted mb-1">Monthly limit</label>
-            <input id="budget-monthly-limit" type="number" value={newLimit} onChange={(e) => setNewLimit(e.target.value)} className="bg-card text-ink border rounded px-2 py-1.5 text-sm" />
+            <input id="budget-monthly-limit" type="number" value={newLimit} onChange={(e) => setNewLimit(e.target.value)} className="bg-card text-ink border rounded px-2 py-1.5 text-sm max-sm:w-full max-sm:text-base" />
           </div>
           <Button onClick={addOrUpdate} loading={saving} size="md" className="uppercase">
             Set Budget
@@ -187,7 +187,7 @@ export default function Budgets() {
       </FinoraCard>
       {error && <p className="text-danger text-sm">{error}</p>}
 
-      <div className="grid lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <FinoraCard padding="sm" className="lg:col-span-2 space-y-3">
           {loading ? (
             showSkeleton && (
@@ -222,18 +222,18 @@ export default function Budgets() {
               const Icon = ICON_COMPONENTS[cat?.icon ?? 'tag'] ?? Wallet;
               const color = COLOR_HEX[cat?.color ?? 'gray'];
               return (
-                <div key={b.id} data-testid="budget-row" className="flex items-center gap-3 text-sm">
+                <div key={b.id} data-testid="budget-row" className="flex items-center gap-3 text-sm max-sm:flex-wrap">
                   <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: `${color}26` }}>
                     <Icon size={16} style={{ color }} />
                   </div>
-                  <span className="w-32 flex-shrink-0 truncate">{b.categoryName}</span>
-                  <div className="flex-1 h-2 bg-black/10 rounded overflow-hidden">
+                  <span className="w-32 flex-shrink-0 truncate max-sm:w-auto max-sm:flex-1 max-sm:min-w-0">{b.categoryName}</span>
+                  <div className="flex-1 h-2 bg-black/10 rounded overflow-hidden max-sm:order-2 max-sm:basis-full">
                     <div
                       className={`h-full ${status.tone === 'danger' ? 'bg-danger' : status.tone === 'warning' ? 'bg-warning' : 'bg-success'}`}
                       style={{ width: `${barPct}%` }}
                     />
                   </div>
-                  <span className="w-36 flex-shrink-0 text-right">{fmt(b.spentThisMonth)} / {fmt(b.monthlyLimit)}</span>
+                  <span className="w-36 flex-shrink-0 text-right max-sm:order-1 max-sm:w-full max-sm:text-left">{fmt(b.spentThisMonth)} / {fmt(b.monthlyLimit)}</span>
                   <Badge tone={status.tone} label={status.label} className="flex-shrink-0" />
                   <IconButton
                     variant="danger"

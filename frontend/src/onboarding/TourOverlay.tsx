@@ -37,7 +37,11 @@ export function TourOverlay({ steps, onFinish, onSkip }: Props) {
   // clamped independently of that flip.
   useLayoutEffect(() => {
     const target = document.querySelector(step.targetSelector);
-    const targetRect = target ? target.getBoundingClientRect() : null;
+    const measured = target ? target.getBoundingClientRect() : null;
+    // Every step points at a sidebar link, and on a phone the sidebar is hidden behind the menu
+    // button. A hidden target measures 0x0 at the top-left corner, so show the card centred instead
+    // of a spotlight on nothing.
+    const targetRect = measured && measured.width > 0 && measured.height > 0 ? measured : null;
     setRect(targetRect);
 
     const card = cardRef.current;
@@ -84,7 +88,9 @@ export function TourOverlay({ steps, onFinish, onSkip }: Props) {
       )}
       <div
         ref={cardRef}
-        className="absolute bg-card rounded-lg shadow-soft p-5 max-w-xs"
+        // A set width below `lg`: left to fit its content, the card is measured narrower at each
+        // position it starts from, so on a phone it drifts sideways from step to step.
+        className="absolute bg-card rounded-lg shadow-soft p-5 max-w-xs max-lg:w-[calc(100vw-24px)]"
         // Rendered at cardPos once useLayoutEffect has measured and clamped it; until then (first
         // paint of a new step), the same unclamped fallback the fix replaces -- correct for the
         // common case, and immediately superseded before the browser actually paints if it wasn't.

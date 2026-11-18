@@ -179,6 +179,29 @@ ACCEPTED = [
         "and delete this entry. Re-check at once if app code, or a runtime part of a package the "
         "app bundles, starts importing minimatch: repeat the sourcemap search above.",
     ),
+    Accepted(
+        "GHSA-fc5q-39xc-vjpf",
+        {"mobile"},
+        "picomatch: ReDoS through single-branch repeated extglobs",
+        "No fixed picomatch exists: the advisory covers every version through 4.0.7, 4.0.7 is the "
+        "newest published, and GitHub lists no first patched version (checked 2026-11-18), so "
+        "neither an update nor an override can remove it. The attack needs the attacker to supply "
+        "the glob pattern itself, e.g. `+(*)`. Every shipped path is Expo's build tooling: "
+        "expo -> @expo/cli -> picomatch 4.0.7, expo -> @expo/cli -> @expo/metro-file-map -> "
+        "jest-worker -> jest-util -> picomatch 2.3.2, and expo -> @expo/metro -> metro-file-map -> "
+        "micromatch -> picomatch 2.3.2. Inside @expo/cli and @expo/metro-config the patterns are "
+        "app.json's assetBundlePatterns, installed packages' package.json `sideEffects` and "
+        "template file filters, all from the developer's own project or its dependencies, which "
+        "can run their own code at install time anyway. Measured 2026-11-18 by the same sourcemap "
+        "search as the glob entry (2558 modules in the Android bundle): no file under picomatch, "
+        "micromatch, jest-util or jest-worker, while axios and react were found. The anymatch copy "
+        "and the jest 30 copies are marked dev in the lockfile.",
+        "When picomatch publishes a fixed release, update the lockfile (an override if a parent's "
+        "range excludes it; micromatch and jest-util declare ^2, so they also need a fixed 2.x or "
+        "a checked override) and delete this entry. Re-check at once if app code, or a runtime "
+        "part of a package the app bundles, starts importing picomatch or micromatch: repeat the "
+        "sourcemap search above.",
+    ),
     # GHSA-gcqx-w48m-w2h4 (deepmerge: mergeObject() prototype poisoning) was accepted here for mobile
     # from 2026-10-30 and removed on 2026-11-10: the npm-minor-and-patch group bump (#2498) dropped
     # the @sentry/react-native -> @expo/config -> deepmerge path, so deepmerge 4.3.1 is now marked

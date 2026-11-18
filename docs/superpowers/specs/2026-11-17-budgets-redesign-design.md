@@ -90,6 +90,8 @@ Rules and edge cases:
 
 - `safePerDay` rounds down so following it never tips a budget over.
 - Last day of the month (`daysLeft = 0`): show "Last day · ₹X left" instead of a per-day figure.
+- Spent exactly the limit (to the rupee shown): the budget is in Over and reads "Limit reached", not
+  "₹0 over".
 - `limit` is always > 0 (the API rejects 0), so no division by zero there.
 - `spent = 0`: forecast is ₹0, budget is On track, bar is empty with the marker visible.
 - Sort inside each group: Over by amount over (largest first); Heading over by forecast overshoot;

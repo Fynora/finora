@@ -1,4 +1,4 @@
-import type { BudgetGroup } from '../../lib/budgetPace';
+import { spentPercent, type BudgetGroup } from '../../lib/budgetPace';
 
 const FILL: Record<BudgetGroup, string> = {
   over: 'bg-danger',
@@ -13,7 +13,7 @@ const FILL: Record<BudgetGroup, string> = {
 export function PaceBar({ spentFrac, monthFrac, group, className = '' }: {
   spentFrac: number; monthFrac: number; group: BudgetGroup; className?: string;
 }) {
-  const label = `Spent ${Math.round(spentFrac * 100)}%, month ${Math.round(monthFrac * 100)}% gone`;
+  const label = `Spent ${spentPercent(spentFrac)}, month ${Math.round(monthFrac * 100)}% gone`;
   return (
     <div role="img" aria-label={label} className={`relative h-2 rounded-full bg-surface ${className}`}>
       {spentFrac > 0 && (

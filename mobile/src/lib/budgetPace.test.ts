@@ -2,11 +2,18 @@ import fs from 'fs';
 import path from 'path';
 import {
   budgetPace,
+  dayCount,
   describePace,
   groupBudgets,
+  limitProblem,
   monthClock,
   overallPace,
+  overallSummary,
   paceA11yLabel,
+  parseLimit,
+  replaceLimitNote,
+  spentPercent,
+  withSavedBudget,
   GROUP_LABEL,
 } from './budgetPace';
 
@@ -163,5 +170,92 @@ describe('parity with the web app', () => {
   it('is byte-identical to frontend/src/lib/budgetPace.ts, so both apps say the same thing', () => {
     const web = fs.readFileSync(path.join(__dirname, '../../../frontend/src/lib/budgetPace.ts'), 'utf8');
     expect(fs.readFileSync(path.join(__dirname, 'budgetPace.ts'), 'utf8')).toBe(web);
+  });
+});
+
+describe('wording at the edges', () => {
+  const rupees = (n: number) => '₹' + Math.round(n).toLocaleString('en-IN');
+  const dayBeforeLast = monthClock(new Date(2026, 10, 29));
+
+  it('says 1 day, not 1 days', () => {
+    expect(dayCount(1)).toBe('1 day');
+    expect(dayCount(13)).toBe('13 days');
+    const p = budgetPace(100, 1000, dayBeforeLast);
+    expect(paceA11yLabel('Fuel', 100, 1000, p, dayBeforeLast, rupees)).toContain('₹900 a day safe for 1 day.');
+    expect(overallSummary(100, 1000, p, dayBeforeLast, rupees)).toContain('₹900 a day safe for 1 day.');
+  });
+
+  it.each([[5000, 5000], [5000.4, 5000]])('spent %d of %d reads as limit reached, never ₹0 over', (spent, limit) => {
+    const p = budgetPace(spent, limit, clock);
+    expect(p.group).toBe('over');
+    expect(describePace(p, clock, rupees).main).toBe('Limit reached');
+    expect(paceA11yLabel('Rent', spent, limit, p, clock, rupees)).toContain('Limit reached.');
+    expect(overallSummary(spent, limit, p, clock, rupees)).toContain('All of your budgets used.');
+  });
+
+  it('still names the amount from one rupee over', () => {
+    expect(describePace(budgetPace(5001, 5000, clock), clock, rupees).main).toBe('₹1 over');
+  });
+
+  it('caps a runaway percentage so it cannot overflow the ring', () => {
+    expect(spentPercent(0.781)).toBe('78%');
+    expect(spentPercent(9.99)).toBe('999%');
+    expect(spentPercent(100000)).toBe('999%+');
+  });
+});
+
+describe('parseLimit', () => {
+  it.each([
+    ['5000', 5000], [' 5000 ', 5000], ['10,000', 10000], ['1,25,000', 125000], ['125,000', 125000],
+    ['99.50', 99.5], ['5.', 5], ['.5', 0.5],
+  ])('reads %j as %d', (typed, expected) => {
+    expect(parseLimit(typed)).toBe(expected);
+  });
+
+  it.each(['', '   ', '0', '0.00', '-5', 'abc', '12abc', '1e5', '0x10', 'Infinity', '12,5', '1,2,3', ',500', '5,000,', '1.2.3'])(
+    'refuses %j', (typed) => {
+      expect(parseLimit(typed)).toBeNull();
+    },
+  );
+});
+
+describe('withSavedBudget', () => {
+  const a = { id: 'a', monthlyLimit: 100 };
+  const b = { id: 'b', monthlyLimit: 200 };
+
+  it('replaces the saved budget where it is', () => {
+    expect(withSavedBudget([a, b], { id: 'a', monthlyLimit: 900 })).toEqual([{ id: 'a', monthlyLimit: 900 }, b]);
+  });
+
+  it('adds a budget it has not seen', () => {
+    expect(withSavedBudget([a], b)).toEqual([a, b]);
+  });
+});
+
+describe('replaceLimitNote', () => {
+  it('says what saving will replace', () => {
+    expect(replaceLimitNote('Food', 5000, (n) => '₹' + n.toLocaleString('en-IN')))
+      .toBe('Food already has a ₹5,000 budget. Saving replaces that limit.');
+  });
+});
+
+describe('limitProblem', () => {
+  it.each([
+    ['100.555', 'Monthly limit can have at most 2 decimal places.'],
+    ['1,000.125', 'Monthly limit can have at most 2 decimal places.'],
+    ['1000000000000', 'Monthly limit is too large.'],
+    ['10,00,00,00,00,000', 'Monthly limit is too large.'],
+  ])('explains %j, and parseLimit refuses it', (typed, message) => {
+    expect(limitProblem(typed)).toBe(message);
+    expect(parseLimit(typed)).toBeNull();
+  });
+
+  it('accepts the largest limit the server stores', () => {
+    expect(parseLimit('999999999999.99')).toBe(999999999999.99);
+    expect(limitProblem('999999999999.99')).toBeNull();
+  });
+
+  it.each(['', '0', 'abc', '1e99', '5000'])('has nothing specific to say about %j', (typed) => {
+    expect(limitProblem(typed)).toBeNull();
   });
 });

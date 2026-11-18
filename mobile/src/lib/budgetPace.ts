@@ -56,6 +56,58 @@ export const GROUP_LABEL: Record<BudgetGroup, string> = {
 
 const GROUP_ORDER: BudgetGroup[] = ['over', 'heading-over', 'on-track'];
 
+/** "1 day", "13 days". */
+export function dayCount(n: number): string {
+  return `${n} ${n === 1 ? 'day' : 'days'}`;
+}
+
+/** budgets.monthly_limit is NUMERIC(14,2); the API refuses anything larger or finer. */
+const MAX_LIMIT = 999_999_999_999.99;
+const LIMIT_FORMAT = /^(\d+|\d{1,3}(,\d{2,3})+)?(\.\d*)?$/;
+
+/**
+ * The limit someone typed, or null if it isn't one. Digit grouping is fine ("10,000", "1,25,000");
+ * "12,5" is refused rather than read as 125, and so are forms Number() would quietly accept ("1e5",
+ * "0x10"). Anything the API would refuse is refused here, where limitProblem can explain it.
+ */
+export function parseLimit(text: string): number | null {
+  const trimmed = text.trim();
+  if (!LIMIT_FORMAT.test(trimmed) || limitProblem(trimmed)) return null;
+  const value = Number(trimmed.replace(/,/g, ''));
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+/** Why a well-formed number can't be a limit, in words; null when there is nothing specific to say. */
+export function limitProblem(text: string): string | null {
+  const trimmed = text.trim();
+  if (!LIMIT_FORMAT.test(trimmed)) return null;
+  if (/\.\d{3,}$/.test(trimmed)) return 'Monthly limit can have at most 2 decimal places.';
+  return Number(trimmed.replace(/,/g, '')) > MAX_LIMIT ? 'Monthly limit is too large.' : null;
+}
+
+/** "78%". Capped, because a tiny limit against a large spend would otherwise overflow the ring. */
+export function spentPercent(spentFrac: number): string {
+  const pct = Math.round(spentFrac * 100);
+  return pct > 999 ? '999%+' : `${pct}%`;
+}
+
+/** The list with a just-saved budget in place of its old copy, or added if it is new. */
+export function withSavedBudget<T extends { id: string }>(budgets: T[], saved: T): T[] {
+  return budgets.some((b) => b.id === saved.id)
+    ? budgets.map((b) => (b.id === saved.id ? saved : b))
+    : [...budgets, saved];
+}
+
+/** Saving a budget for a category that has one changes its limit, so New budget says so first. */
+export function replaceLimitNote(categoryName: string, currentLimit: number, money: Money): string {
+  return `${categoryName} already has a ${money(currentLimit)} budget. Saving replaces that limit.`;
+}
+
+/** Spent the whole limit, to the rupee shown: "₹0 over" would read like a glitch. */
+function atLimit(p: BudgetPace): boolean {
+  return Math.round(p.overBy) === 0;
+}
+
 export function monthClock(today: Date): MonthClock {
   const year = today.getFullYear();
   const month = today.getMonth();
@@ -114,7 +166,9 @@ export function groupBudgets<T extends SpendAndLimit>(
 }
 
 export function describePace(p: BudgetPace, clock: MonthClock, money: Money): PaceCopy {
-  if (p.group === 'over') return { main: `${money(p.overBy)} over`, sub: `${money(0)} left to spend` };
+  if (p.group === 'over') {
+    return { main: atLimit(p) ? 'Limit reached' : `${money(p.overBy)} over`, sub: `${money(0)} left to spend` };
+  }
   if (clock.daysLeft === 0) return { main: `Last day · ${money(p.remaining)} left`, sub: '' };
   if (p.group === 'heading-over') {
     return { main: `${money(p.safePerDay)} / day safe`, sub: `Heading ${money(p.forecastOverBy)} over by ${clock.monthEndLabel}` };
@@ -126,9 +180,17 @@ export function describePace(p: BudgetPace, clock: MonthClock, money: Money): Pa
 
 export function paceA11yLabel(name: string, spent: number, limit: number, p: BudgetPace, clock: MonthClock, money: Money): string {
   const head = `${name}: ${money(spent)} spent of ${money(limit)}. `;
-  if (p.group === 'over') return `${head}${money(p.overBy)} over budget.`;
+  if (p.group === 'over') return atLimit(p) ? `${head}Limit reached.` : `${head}${money(p.overBy)} over budget.`;
   if (clock.daysLeft === 0) return `${head}Last day, ${money(p.remaining)} left.`;
-  const daily = `${money(p.safePerDay)} a day safe for ${clock.daysLeft} days.`;
+  const daily = `${money(p.safePerDay)} a day safe for ${dayCount(clock.daysLeft)}.`;
   if (p.group === 'heading-over') return `${head}${daily} Heading ${money(p.forecastOverBy)} over by ${clock.monthEndLabel}.`;
   return `${head}${daily}`;
+}
+
+/** The hero card as one sentence for a screen reader. */
+export function overallSummary(spent: number, limit: number, p: BudgetPace, clock: MonthClock, money: Money): string {
+  let daily = `${money(p.safePerDay)} a day safe for ${dayCount(clock.daysLeft)}.`;
+  if (p.group === 'over') daily = atLimit(p) ? 'All of your budgets used.' : `${money(p.overBy)} over your budgets.`;
+  else if (clock.daysLeft === 0) daily = `Last day, ${money(p.remaining)} left.`;
+  return `${money(spent)} spent of ${money(limit)}. ${daily} At this pace ${money(p.forecast)} by ${clock.monthEndLabel}.`;
 }

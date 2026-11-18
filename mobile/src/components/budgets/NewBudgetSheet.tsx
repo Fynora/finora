@@ -7,7 +7,9 @@ import { radius, spacing, typography, useTheme } from '../../theme';
 import { hapticWarning } from '../../lib/haptics';
 import { toUserMessage } from '../../lib/apiError';
 import { useSingleFlight } from '../../lib/useSingleFlight';
-import { parsePositiveAmount } from '../../lib/validation';
+import { fmtCurrency } from '../../lib/format';
+import { limitProblem, parseLimit, replaceLimitNote } from '../../lib/budgetPace';
+import type { Budget } from '../../types';
 import { BudgetSheet } from './BudgetSheet';
 
 /**
@@ -16,8 +18,8 @@ import { BudgetSheet } from './BudgetSheet';
  * two never unmount together (that combination has frozen iOS touches before).
  * Mounted fresh each time it opens (BudgetsScreen renders it only while open).
  */
-export function NewBudgetSheet({ onClose, onSave }: {
-  onClose: () => void; onSave: (categoryName: string, limit: number) => Promise<void>;
+export function NewBudgetSheet({ budgets, onClose, onSave }: {
+  budgets: Budget[]; onClose: () => void; onSave: (categoryName: string, limit: number) => Promise<void>;
 }) {
   const c = useTheme();
   const [category, setCategory] = useState<string | null>(null);
@@ -28,6 +30,7 @@ export function NewBudgetSheet({ onClose, onSave }: {
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const singleFlight = useSingleFlight();
+  const existing = category ? budgets.find((b) => b.categoryName.toLowerCase() === category.toLowerCase()) : undefined;
 
   async function save() {
     await singleFlight(async () => {
@@ -37,9 +40,9 @@ export function NewBudgetSheet({ onClose, onSave }: {
         hapticWarning();
         return;
       }
-      const amount = parsePositiveAmount(limit);
+      const amount = parseLimit(limit);
       if (amount === null) {
-        setLimitError('Monthly limit must be a number greater than zero.');
+        setLimitError(limitProblem(limit) ?? 'Monthly limit must be a number greater than zero.');
         hapticWarning();
         return;
       }
@@ -67,6 +70,11 @@ export function NewBudgetSheet({ onClose, onSave }: {
           <Text style={[styles.chevron, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">›</Text>
         </Pressable>
         {categoryError ? <Text style={[typography.bodyS, styles.fieldError, { color: c.dangerInk }]}>{categoryError}</Text> : null}
+        {existing ? (
+          <Text style={[typography.bodyS, styles.fieldError, { color: c.warningInk }]}>
+            {replaceLimitNote(existing.categoryName, existing.monthlyLimit, fmtCurrency)}
+          </Text>
+        ) : null}
       </View>
       <TextField
         label="Monthly limit"
@@ -103,7 +111,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     borderWidth: 1, borderRadius: radius.md, paddingHorizontal: 12, minHeight: 48,
   },
-  pickerText: { fontSize: 15 },
+  // Shrinks so a long name wraps at large text instead of pushing the chevron out of the box.
+  pickerText: { fontSize: 15, flexShrink: 1 },
   chevron: { fontSize: 20, lineHeight: 20 },
   fieldError: { marginTop: spacing.xs },
 });

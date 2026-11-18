@@ -24,7 +24,7 @@ import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { currentYearMonth, fmtCurrency, monthDateRange, monthLabel } from '../lib/format';
 import { hapticError, hapticSuccess } from '../lib/haptics';
 import { colorHexFor, iconNameFor } from '../lib/categoryIcons';
-import { GROUP_LABEL, groupBudgets, monthClock, overallPace } from '../lib/budgetPace';
+import { GROUP_LABEL, groupBudgets, monthClock, overallPace, withSavedBudget } from '../lib/budgetPace';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { spacing, typography, useTheme } from '../theme';
 import type { AppTabParamList } from '../navigation/types';
@@ -76,10 +76,13 @@ export function BudgetsScreen() {
   const [error, setError] = useState<string | null>(null);
   const singleFlight = useSingleFlight();
 
-  const { data: budgets = [], isLoading, isError, isFetching, refetch } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ['budgets'],
     queryFn: () => budgetsApi.list(),
   });
+  const budgets = data ?? [];
+  // isError also turns on when a refresh fails, and the budgets already on screen are still good.
+  const loadFailed = isError && data === undefined;
   // Icons and colours only. A failure falls back to a neutral icon and never blocks the budgets.
   const { data: categories = [] } = useQuery({
     queryKey: ['categories'],
@@ -91,8 +94,9 @@ export function BudgetsScreen() {
   /** Upsert by category name. Rethrows so the sheet that called it can show the error and stay open. */
   async function saveBudget(categoryName: string, amount: number) {
     const startedAt = requestStartedAt();
+    let saved: Budget;
     try {
-      await budgetsApi.upsert(categoryName, amount);
+      saved = await budgetsApi.upsert(categoryName, amount);
     } catch (e) {
       reportTransportFailure(e, 'budgets:upsert', startedAt);
       // hapticError, not hapticWarning: the server rejected a well-formed submit.
@@ -101,6 +105,8 @@ export function BudgetsScreen() {
     }
     hapticSuccess();
     setError(null);
+    // The card shows the new limit as the sheet closes, not after the refetch below returns.
+    queryClient.setQueryData<Budget[]>(['budgets'], (current) => (current ? withSavedBudget(current, saved) : current));
     // Dashboard's budget widget and the health score/notifications both read this.
     void queryClient.invalidateQueries({ queryKey: ['budgets'] });
     void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
@@ -123,6 +129,7 @@ export function BudgetsScreen() {
       try {
         await budgetsApi.remove(b.id);
         hapticSuccess();
+        queryClient.setQueryData<Budget[]>(['budgets'], (current) => current?.filter((x) => x.id !== b.id));
         // Same caches a save invalidates: this list, and the Dashboard's widget and notices.
         void queryClient.invalidateQueries({ queryKey: ['budgets'] });
         void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
@@ -159,7 +166,7 @@ export function BudgetsScreen() {
         </Pressable>
       </View>
 
-      {!isLoading && !isError && budgets.length > 0 ? (
+      {!isLoading && !loadFailed && budgets.length > 0 ? (
         <BudgetHeroCard totalSpent={totalSpent} totalLimit={totalLimit} overall={overallPace(budgets, clock)} clock={clock} money={fmtCurrency} />
       ) : null}
 
@@ -172,7 +179,7 @@ export function BudgetsScreen() {
             <SkeletonBudgetCard />
             <SkeletonBudgetCard />
           </SkeletonGroup>
-        ) : isError ? (
+        ) : loadFailed ? (
           <Card>
             <Text style={[typography.bodyM, { color: c.dangerInk }]}>Could not load budgets.</Text>
           </Card>
@@ -241,7 +248,12 @@ export function BudgetsScreen() {
       ) : null}
       {newOpen ? (
         <NewBudgetSheet
-          onClose={() => setNewOpen(false)}
+          budgets={budgets}
+          // Refreshes because the category picker can rename a category, and cards save by name.
+          onClose={() => {
+            setNewOpen(false);
+            void queryClient.invalidateQueries({ queryKey: ['budgets'] });
+          }}
           onSave={async (categoryName, amount) => {
             await saveBudget(categoryName, amount);
             setNewOpen(false);

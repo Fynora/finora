@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { Wallet } from 'lucide-react';
 import { LimitEditor } from './LimitEditor';
 import type { CategoryOption } from '../../api/endpoints';
@@ -21,7 +21,7 @@ export function transactionsHref(categoryName: string, today: Date, clock: Month
 }
 
 export function BudgetRow({
-  budget, pace, clock, today, category, money, onSaveLimit, onRemove, removing,
+  budget, pace, clock, today, category, money, onSaveLimit, onRemove, removing, focusRequest,
 }: {
   budget: Budget;
   pace: BudgetPace;
@@ -33,8 +33,19 @@ export function BudgetRow({
   onSaveLimit?: (limit: number) => Promise<void>;
   onRemove: () => void;
   removing: boolean;
+  /** Budget id whose limit should take focus once its editor closes. Held by the page, because a
+   *  save can move a row to another group, which mounts it afresh. */
+  focusRequest?: MutableRefObject<string | null>;
 }) {
   const [editing, setEditing] = useState(false);
+  const limitButton = useRef<HTMLButtonElement>(null);
+  const ownFocusRequest = useRef<string | null>(null);
+  const focusAfterEdit = focusRequest ?? ownFocusRequest;
+  useEffect(() => {
+    if (editing || focusAfterEdit.current !== budget.id) return;
+    focusAfterEdit.current = null;
+    limitButton.current?.focus();
+  });
   const Icon = ICON_COMPONENTS[category?.icon ?? 'tag'] ?? Wallet;
   const color = COLOR_HEX[category?.color ?? 'gray'];
   const copy = describePace(pace, clock, money);
@@ -64,10 +75,19 @@ export function BudgetRow({
           categoryName={budget.categoryName}
           initial={budget.monthlyLimit}
           onSave={async (limit) => {
-            await onSaveLimit(limit);
+            focusAfterEdit.current = budget.id;
+            try {
+              await onSaveLimit(limit);
+            } catch (e) {
+              focusAfterEdit.current = null;
+              throw e;
+            }
             setEditing(false);
           }}
-          onCancel={() => setEditing(false)}
+          onCancel={() => {
+            focusAfterEdit.current = budget.id;
+            setEditing(false);
+          }}
         />
       </div>
     );
@@ -92,11 +112,13 @@ export function BudgetRow({
         <span className="text-muted"> / </span>
         {onSaveLimit ? (
           <button
+            ref={limitButton}
             type="button"
+            disabled={removing}
             onClick={() => setEditing(true)}
             aria-label={`Edit the ${budget.categoryName} limit, now ${money(budget.monthlyLimit)}`}
             title="Edit limit"
-            className="rounded text-muted underline decoration-dotted underline-offset-4 hover:text-ink"
+            className="rounded text-muted underline decoration-dotted underline-offset-4 hover:text-ink disabled:cursor-not-allowed"
           >
             {money(budget.monthlyLimit)}
           </button>
@@ -110,7 +132,7 @@ export function BudgetRow({
         <p className={`font-semibold ${pace.group === 'over' ? 'text-danger' : 'text-ink'}`}>{copy.main}</p>
         {copy.sub && <p className={`text-xs ${pace.group === 'heading-over' ? 'text-warning' : 'text-muted'}`}>{copy.sub}</p>}
       </div>
-      <RowMenu label={`More actions for ${budget.categoryName}`} items={items} />
+      <RowMenu label={`More actions for ${budget.categoryName}`} items={items} disabled={removing} />
     </div>
   );
 }

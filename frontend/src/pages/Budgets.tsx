@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { PiggyBank, Plus } from 'lucide-react';
 import { budgetsApi, categoriesApi, type CategoryOption } from '../api/endpoints';
@@ -6,7 +6,7 @@ import type { Budget } from '../types';
 import { FinoraCard, EmptyState, Button, ConfirmDialog, Skeleton } from '../design-system';
 import { NewBudgetDialog } from '../components/budgets/NewBudgetDialog';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
-import { GROUP_LABEL, groupBudgets, monthClock, overallPace, type BudgetGroup } from '../lib/budgetPace';
+import { GROUP_LABEL, groupBudgets, monthClock, overallPace, withSavedBudget, type BudgetGroup } from '../lib/budgetPace';
 import { BudgetHero } from '../components/budgets/BudgetHero';
 import { BudgetRow } from '../components/budgets/BudgetRow';
 
@@ -15,6 +15,8 @@ function fmt(n: number) {
   // not "₹-500" -- string concatenation put the currency symbol before the sign.
   return (n < 0 ? '-₹' : '₹') + Math.round(Math.abs(n)).toLocaleString('en-IN');
 }
+
+const LOAD_ERROR = 'Could not load budgets.';
 
 const GROUP_INK: Record<BudgetGroup, string> = {
   over: 'text-danger',
@@ -44,20 +46,30 @@ export default function Budgets() {
   const [loading, setLoading] = useState(true);
   const [categoriesById, setCategoriesById] = useState<Map<string, CategoryOption>>(new Map());
   const queryClient = useQueryClient();
+  // Spoken after a save or remove: the change itself is only visible on screen.
+  const [status, setStatus] = useState('');
+  const focusRequest = useRef<string | null>(null);
+  // Only the newest request may fill the page: a slower, older answer would undo a newer save.
+  const latestLoad = useRef(0);
+  const loadedOn = useRef('');
 
   /** `refresh`: reload after a save or remove without dropping back to the loading state, so the
    *  hero and list stay on screen instead of blanking until the request returns. */
   function load(refresh = false) {
+    const thisLoad = ++latestLoad.current;
+    loadedOn.current = new Date().toDateString();
     if (!refresh) setLoading(true);
     // Categories only supply each row's icon/color, with a safe fallback in the row -- so a
     // categories hiccup must not block budgets. allSettled lets it degrade to the fallback while a
     // budgets failure still surfaces the real error.
     Promise.allSettled([budgetsApi.list(), categoriesApi.list()])
       .then(([budgetsResult, categoriesResult]) => {
+        if (thisLoad !== latestLoad.current) return;
         if (budgetsResult.status === 'rejected') {
-          setError('Could not load budgets.');
+          setError(LOAD_ERROR);
           return;
         }
+        setError((current) => (current === LOAD_ERROR ? null : current));
         setBudgets(budgetsResult.value);
         setCategoriesById(
           categoriesResult.status === 'fulfilled'
@@ -65,10 +77,18 @@ export default function Budgets() {
             : new Map()
         );
       })
-      .catch(() => setError('Could not load budgets.'))
-      .finally(() => setLoading(false));
+      .catch(() => { if (thisLoad === latestLoad.current) setError(LOAD_ERROR); })
+      .finally(() => { if (thisLoad === latestLoad.current) setLoading(false); });
   }
   useEffect(() => load(), []);
+  // A tab left open overnight would otherwise set yesterday's spend against today's day count.
+  useEffect(() => {
+    function onVisible() {
+      if (document.visibilityState === 'visible' && new Date().toDateString() !== loadedOn.current) load(true);
+    }
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, []);
   const showSkeleton = useDelayedLoading(loading);
 
   function invalidateBudgetReaders() {
@@ -82,7 +102,9 @@ export default function Budgets() {
 
   /** Upsert by category name, as before. Rejections propagate so the editor or dialog shows them. */
   async function saveBudget(categoryName: string, limit: number) {
-    await budgetsApi.upsert(categoryName, limit);
+    const saved = await budgetsApi.upsert(categoryName, limit);
+    setBudgets((current) => withSavedBudget(current, saved));
+    setStatus(`${categoryName} budget saved.`);
     setError(null);
     load(true);
     invalidateBudgetReaders();
@@ -93,6 +115,8 @@ export default function Budgets() {
     setRemovingId(budget.id);
     try {
       await budgetsApi.remove(budget.id);
+      setBudgets((current) => current.filter((b) => b.id !== budget.id));
+      setStatus(`${budget.categoryName} budget removed.`);
       load(true);
       invalidateBudgetReaders();
     } catch (e: any) {
@@ -137,6 +161,7 @@ export default function Budgets() {
       )}
 
       {error && <p role="alert" className="text-danger text-sm">{error}</p>}
+      <p role="status" className="sr-only">{status}</p>
 
       {loading ? (
         showSkeleton && (
@@ -159,7 +184,7 @@ export default function Budgets() {
       ) : budgets.length === 0 ? (
         // A failed load leaves `budgets` at []; the error above already says so, and "No budgets
         // set" under it would be a false statement.
-        error === 'Could not load budgets.' ? null : (
+        error === LOAD_ERROR ? null : (
         <FinoraCard>
           <EmptyState
             icon={PiggyBank}
@@ -174,10 +199,10 @@ export default function Budgets() {
         <FinoraCard padding="none" className="px-6 pb-5 pt-2">
           {groups.map((g) => (
             <section key={g.group} aria-label={GROUP_LABEL[g.group]}>
-              <h3 className={`flex items-center gap-2 pb-1.5 pt-4 text-[13px] font-semibold ${GROUP_INK[g.group]}`}>
+              <h2 className={`flex items-center gap-2 pb-1.5 pt-4 text-[13px] font-semibold ${GROUP_INK[g.group]}`}>
                 <span aria-hidden="true" className={`h-2 w-2 rounded-full ${GROUP_DOT[g.group]}`} />
                 {`${GROUP_LABEL[g.group]} · ${g.items.length}`}
-              </h3>
+              </h2>
               {g.items.map(({ budget: b, pace }) => (
                 <BudgetRow
                   key={b.id}
@@ -190,6 +215,7 @@ export default function Budgets() {
                   onSaveLimit={(limit) => saveBudget(b.categoryName, limit)}
                   onRemove={() => setConfirmRemove(b)}
                   removing={removingId === b.id}
+                  focusRequest={focusRequest}
                 />
               ))}
             </section>
@@ -203,7 +229,10 @@ export default function Budgets() {
 
       {newOpen && (
         <NewBudgetDialog
-          onClose={() => setNewOpen(false)}
+          budgets={budgets}
+          money={fmt}
+          // Reloads because the category picker can rename a category, and rows save by name.
+          onClose={() => { setNewOpen(false); load(true); }}
           onSave={async (categoryName, limit) => {
             await saveBudget(categoryName, limit);
             setNewOpen(false);

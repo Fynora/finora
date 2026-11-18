@@ -2,7 +2,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { Card } from '../Card';
 import { AnimatedNumber } from '../AnimatedNumber';
 import { radius, spacing, typography, useTheme } from '../../theme';
-import type { BudgetPace, MonthClock } from '../../lib/budgetPace';
+import { overallSummary, type BudgetPace, type MonthClock } from '../../lib/budgetPace';
 import { useLargeFontScale } from '../../lib/useLargeFontScale';
 import { BudgetRing } from './BudgetRing';
 
@@ -25,12 +25,7 @@ export function BudgetHeroCard({ totalSpent, totalLimit, overall, clock, money }
   const isOver = overall.group === 'over';
   const forecastOver = overall.forecastOverBy > 0;
 
-  const daily = isOver
-    ? `${money(overall.overBy)} over your budgets.`
-    : lastDay
-      ? `Last day, ${money(overall.remaining)} left.`
-      : `${money(overall.safePerDay)} a day safe for ${clock.daysLeft} days.`;
-  const summary = `${money(totalSpent)} spent of ${money(totalLimit)}. ${daily} At this pace ${money(overall.forecast)} by ${clock.monthEndLabel}.`;
+  const summary = overallSummary(totalSpent, totalLimit, overall, clock, money);
   const forecastLine = forecastOver
     ? `At this pace you reach ${money(overall.forecast)} by ${clock.monthEndLabel}, ${money(overall.forecastOverBy)} over your budgets.`
     : `At this pace you reach ${money(overall.forecast)} by ${clock.monthEndLabel}, ${money(totalLimit - overall.forecast)} under your budgets.`;
@@ -65,7 +60,7 @@ export function BudgetHeroCard({ totalSpent, totalLimit, overall, clock, money }
           <View style={[styles.tile, { backgroundColor: c.bg /* glass-exempt: figure tile inside the glass hero card; opaque bg is its contrast */ }]}>
             <View style={styles.figureRow}>
               <Text style={[typography.numberM, { color: c.ink }]} numberOfLines={1}>{String(clock.daysLeft)}</Text>
-              <Text style={[typography.bodyS, { color: c.mutedInk }]}> days</Text>
+              <Text style={[typography.bodyS, { color: c.mutedInk }]}>{clock.daysLeft === 1 ? ' day' : ' days'}</Text>
             </View>
             <Text style={[typography.bodyS, { color: c.mutedInk }]}>{`Left · day ${clock.dayOfMonth} of ${clock.daysInMonth}`}</Text>
           </View>

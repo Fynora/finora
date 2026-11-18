@@ -1,14 +1,19 @@
 import { useRef, useState } from 'react';
 import { Button, useDialogA11y } from '../../design-system';
 import { CategoryCombobox } from '../CategoryCombobox';
+import { limitProblem, parseLimit, replaceLimitNote } from '../../lib/budgetPace';
+import type { Budget } from '../../types';
 import { limitErrorMessage } from './LimitEditor';
 
 /**
  * New budget: the category comes from the same picker the rest of the app uses, so a typo can no
  * longer create a budget against a category no transaction will ever be filed under.
  */
-export function NewBudgetDialog({ onClose, onSave }: {
-  onClose: () => void; onSave: (categoryName: string, limit: number) => Promise<void>;
+export function NewBudgetDialog({ budgets, money, onClose, onSave }: {
+  budgets: Budget[];
+  money: (n: number) => string;
+  onClose: () => void;
+  onSave: (categoryName: string, limit: number) => Promise<void>;
 }) {
   const [categoryName, setCategoryName] = useState('');
   const [limitText, setLimitText] = useState('');
@@ -16,6 +21,7 @@ export function NewBudgetDialog({ onClose, onSave }: {
   const [saving, setSaving] = useState(false);
   const inFlight = useRef(false);
   const panelRef = useDialogA11y({ onClose, closeDisabled: saving });
+  const existing = budgets.find((b) => b.categoryName.toLowerCase() === categoryName.toLowerCase());
 
   async function save() {
     if (inFlight.current) return;
@@ -23,10 +29,9 @@ export function NewBudgetDialog({ onClose, onSave }: {
       setError('Pick a category first.');
       return;
     }
-    const trimmed = limitText.trim();
-    const limit = Number(trimmed);
-    if (!trimmed || !Number.isFinite(limit) || !(limit > 0)) {
-      setError('Monthly limit must be greater than zero.');
+    const limit = parseLimit(limitText);
+    if (limit === null) {
+      setError(limitProblem(limitText) ?? 'Monthly limit must be greater than zero.');
       return;
     }
     inFlight.current = true;
@@ -57,6 +62,7 @@ export function NewBudgetDialog({ onClose, onSave }: {
           <div className="space-y-1.5">
             <label htmlFor="new-budget-category" className="block text-xs font-medium text-muted">Category</label>
             <CategoryCombobox inputId="new-budget-category" value={categoryName} onChange={(name) => { setCategoryName(name); setError(null); }} />
+            {existing && <p className="text-xs text-warning">{replaceLimitNote(existing.categoryName, existing.monthlyLimit, money)}</p>}
           </div>
           <div className="space-y-1.5">
             <label htmlFor="new-budget-limit" className="block text-xs font-medium text-muted">Monthly limit</label>

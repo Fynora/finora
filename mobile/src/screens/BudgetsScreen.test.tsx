@@ -522,3 +522,207 @@ describe('BudgetsScreen — removing a budget', () => {
     alertSpy.mockRestore();
   });
 });
+
+describe('BudgetsScreen: edge cases', () => {
+  beforeEach(() => {
+    pinDate(new Date(2026, 10, 17, 10));
+    api.list.mockReset().mockResolvedValue(budgets);
+    api.upsert.mockReset().mockResolvedValue(budgets[0]);
+    api.remove.mockReset().mockResolvedValue({} as never);
+    categories.list.mockReset().mockResolvedValue([
+      { id: 'c-1', name: 'Groceries', isSystem: true, icon: 'shopping-cart', color: 'green' },
+    ]);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  async function openEdit(name: string) {
+    fireEvent.press(await screen.findByLabelText(`More actions for ${name}`));
+    await settle();
+    fireEvent.press(screen.getByLabelText('Edit limit'));
+    await settle();
+  }
+
+  it('keeps showing the budgets it has when a refresh fails', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    render(<QueryClientProvider client={queryClient}><BudgetsScreen /></QueryClientProvider>);
+    await screen.findByText('₹461 / day safe');
+
+    api.list.mockRejectedValueOnce(new Error('offline'));
+    await act(async () => { await queryClient.refetchQueries({ queryKey: ['budgets'] }); });
+    // React Query tells the screen on a timer, and this file fakes timers.
+    await act(async () => { jest.advanceTimersByTime(50); });
+
+    expect(queryClient.getQueryState(['budgets'])?.status).toBe('error');
+    expect(screen.getByText('₹461 / day safe')).toBeTruthy();
+    expect(screen.queryByText('Could not load budgets.')).toBeNull();
+  });
+
+  it('shows the saved limit at once, before the refresh returns', async () => {
+    renderScreen();
+    await screen.findByText('₹461 / day safe');
+    api.list.mockReturnValue(new Promise(() => {}));
+    api.upsert.mockResolvedValueOnce({ ...budgets[0], monthlyLimit: 20000 });
+    await openEdit('Groceries');
+    fireEvent.changeText(screen.getByLabelText(/Monthly limit/i), '20000');
+    fireEvent.press(screen.getByText('Save limit'));
+    await settle();
+
+    await waitFor(() => expect(screen.getByText('₹4,000 of ₹20,000')).toBeTruthy());
+  });
+
+  it('a removed budget leaves the list even if the refresh fails', async () => {
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
+    renderScreen();
+    fireEvent.press(await screen.findByLabelText('More actions for Groceries'));
+    await settle();
+    fireEvent.press(screen.getByLabelText('Remove budget'));
+    await settle();
+    api.list.mockRejectedValue(new Error('offline'));
+    const buttons = alertSpy.mock.calls[0][2]!;
+    await act(async () => { buttons.find((b) => b.text === 'Remove')!.onPress!(); });
+    await settle();
+
+    await waitFor(() => expect(screen.queryByLabelText('More actions for Groceries')).toBeNull());
+    expect(screen.getByLabelText('More actions for Dining')).toBeTruthy();
+    alertSpy.mockRestore();
+  });
+
+  it('accepts a limit typed with commas, and the chips add to it', async () => {
+    renderScreen();
+    await openEdit('Groceries');
+    fireEvent.changeText(screen.getByLabelText(/Monthly limit/i), '10,000');
+    fireEvent.press(screen.getByLabelText('Add ₹500'));
+    expect(screen.getByLabelText(/Monthly limit/i).props.value).toBe('10500');
+
+    fireEvent.press(screen.getByText('Save limit'));
+    await settle();
+    await waitFor(() => expect(api.upsert).toHaveBeenCalledWith('Groceries', 10500));
+  });
+
+  it('does not call a limit equal to the spend "already more than" it', async () => {
+    renderScreen();
+    await openEdit('Groceries');
+    fireEvent.changeText(screen.getByLabelText(/Monthly limit/i), '4000');
+
+    expect(screen.getByText('₹4,000 spent so far, all of this limit.')).toBeTruthy();
+  });
+
+  it('says 1 day on the day before the last', async () => {
+    pinDate(new Date(2026, 10, 29, 10));
+    renderScreen();
+    await openEdit('Groceries');
+
+    expect(screen.getByText('₹4,000 spent so far. At ₹10,000 you can spend ₹6,000 a day for the next 1 day.')).toBeTruthy();
+    expect(screen.getByText(' day')).toBeTruthy();
+    expect(screen.queryByText(' days')).toBeNull();
+  });
+
+  it('a budget exactly at its limit says Limit reached, not ₹0 over', async () => {
+    api.list.mockResolvedValue([{ ...budgets[0], spentThisMonth: 10000 }]);
+    renderScreen();
+
+    expect(await screen.findByText('Limit reached')).toBeTruthy();
+    expect(screen.queryByText('₹0 over')).toBeNull();
+  });
+
+  it('warns before New budget replaces a limit the category already has', async () => {
+    renderScreen();
+    await screen.findByText('₹461 / day safe');
+    fireEvent.press(screen.getByLabelText('New budget'));
+    await settle();
+    fireEvent.press(screen.getByLabelText('Choose a category'));
+    await settle();
+    fireEvent.press(screen.getByTestId('category-Groceries'));
+    await settle();
+
+    expect(screen.getByText('Groceries already has a ₹10,000 budget. Saving replaces that limit.')).toBeTruthy();
+  });
+});
+
+// At the largest text size on an iPhone Air the keyboard covered Save, the decimal pad has no key
+// to close it, and the sheet's title sat under the status bar.
+describe('BudgetsScreen: sheets with the keyboard open', () => {
+  beforeEach(() => {
+    pinDate(new Date(2026, 10, 17, 10));
+    api.list.mockReset().mockResolvedValue(budgets);
+    categories.list.mockReset().mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('a sheet scrolls, keeps taps working and lets a drag close the keyboard', async () => {
+    renderScreen();
+    await screen.findByText('₹461 / day safe');
+    fireEvent.press(screen.getByLabelText('New budget'));
+    await settle();
+
+    const scroll = screen.getByTestId('budget-sheet-scroll');
+    expect(scroll.props.keyboardShouldPersistTaps).toBe('handled');
+    expect(scroll.props.keyboardDismissMode).toBe('on-drag');
+    expect(within(scroll).getByText('Save budget')).toBeTruthy();
+  });
+});
+
+// The category picker inside New budget can rename a category, and a card saves its limit by name:
+// a stale name would create a second category and a second budget.
+describe('BudgetsScreen: closing New budget', () => {
+  beforeEach(() => {
+    pinDate(new Date(2026, 10, 17, 10));
+    api.list.mockReset().mockResolvedValue(budgets);
+    categories.list.mockReset().mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('refreshes the budgets, so a category renamed in the picker shows its new name', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    const invalidate = jest.spyOn(queryClient, 'invalidateQueries');
+    render(<QueryClientProvider client={queryClient}><BudgetsScreen /></QueryClientProvider>);
+    await screen.findByText('₹461 / day safe');
+    fireEvent.press(screen.getByLabelText('New budget'));
+    await settle();
+    invalidate.mockClear();
+
+    fireEvent.press(screen.getAllByLabelText('Close').at(-1)!);
+    await settle();
+
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['budgets'] });
+  });
+});
+
+describe('BudgetsScreen: limits the server would refuse', () => {
+  beforeEach(() => {
+    pinDate(new Date(2026, 10, 17, 10));
+    api.list.mockReset().mockResolvedValue(budgets);
+    api.upsert.mockReset().mockResolvedValue(budgets[0]);
+    categories.list.mockReset().mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it.each([
+    ['100.555', 'Monthly limit can have at most 2 decimal places.'],
+    ['1000000000000', 'Monthly limit is too large.'],
+  ])('explains %j in plain words without calling the server', async (typed, message) => {
+    renderScreen();
+    fireEvent.press(await screen.findByLabelText('More actions for Groceries'));
+    await settle();
+    fireEvent.press(screen.getByLabelText('Edit limit'));
+    await settle();
+    fireEvent.changeText(screen.getByLabelText(/Monthly limit/i), typed);
+    fireEvent.press(screen.getByText('Save limit'));
+    await settle();
+
+    expect(await screen.findByText(message)).toBeTruthy();
+    expect(api.upsert).not.toHaveBeenCalled();
+  });
+});

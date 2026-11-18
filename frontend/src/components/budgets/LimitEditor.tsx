@@ -1,5 +1,6 @@
 import { useId, useRef, useState } from 'react';
 import { Button } from '../../design-system';
+import { limitProblem, parseLimit } from '../../lib/budgetPace';
 
 const CHIPS = [500, 1000];
 
@@ -27,10 +28,9 @@ export function LimitEditor({
 
   async function save() {
     if (inFlight.current) return;
-    const trimmed = value.trim();
-    const limit = Number(trimmed);
-    if (!trimmed || !Number.isFinite(limit) || !(limit > 0)) {
-      setError('Monthly limit must be greater than zero.');
+    const limit = parseLimit(value);
+    if (limit === null) {
+      setError(limitProblem(value) ?? 'Monthly limit must be greater than zero.');
       return;
     }
     inFlight.current = true;
@@ -56,10 +56,12 @@ export function LimitEditor({
             autoFocus
             inputMode="decimal"
             value={value}
+            readOnly={saving}
             onChange={(e) => { setValue(e.target.value); setError(null); }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') { e.preventDefault(); void save(); }
-              if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
+              // Inert while saving: the save is already on its way and would land anyway.
+              if (e.key === 'Escape') { e.preventDefault(); if (!saving) onCancel(); }
             }}
             aria-invalid={error ? true : undefined}
             aria-describedby={error ? `${inputId}-error` : undefined}
@@ -70,8 +72,10 @@ export function LimitEditor({
           <button
             key={n}
             type="button"
-            onClick={() => setValue(String((Number(value) || 0) + n))}
-            className="rounded-full bg-surface px-2.5 py-1 text-xs font-medium text-ink hover:bg-border"
+            disabled={saving}
+            aria-label={`Add ₹${n.toLocaleString('en-IN')}`}
+            onClick={() => { setValue(String((parseLimit(value) ?? 0) + n)); setError(null); }}
+            className="rounded-full bg-surface px-2.5 py-1 text-xs font-medium text-ink hover:bg-border disabled:opacity-50"
           >
             {`+${n.toLocaleString('en-IN')}`}
           </button>

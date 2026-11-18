@@ -10,7 +10,7 @@ export type RowMenuItem =
  * A small actions menu behind a three-dot button. Keyboard: Enter/Space opens and focuses the first
  * item, arrow keys move, Escape closes and puts focus back on the button; a click outside closes.
  */
-export function RowMenu({ label, items }: { label: string; items: RowMenuItem[] }) {
+export function RowMenu({ label, items, disabled = false }: { label: string; items: RowMenuItem[]; disabled?: boolean }) {
   const [open, setOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -63,8 +63,9 @@ export function RowMenu({ label, items }: { label: string; items: RowMenuItem[] 
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
+        disabled={disabled}
         onClick={() => setOpen((o) => !o)}
-        className="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-surface hover:text-ink"
+        className="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-surface hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
       >
         <MoreVertical size={18} aria-hidden="true" />
       </button>
@@ -89,7 +90,9 @@ export function RowMenu({ label, items }: { label: string; items: RowMenuItem[] 
                 role="menuitem"
                 className={itemClass(item.danger)}
                 onClick={() => {
-                  setOpen(false);
+                  // Focus goes back to the button first: a dialog this opens remembers what had
+                  // focus, and this item is about to disappear.
+                  close(true);
                   item.onSelect?.();
                 }}
               >

@@ -2510,8 +2510,8 @@ describe('typing a search', () => {
 
     await act(async () => { await jest.advanceTimersByTimeAsync(1); });
     expect(titleRenders).toHaveBeenCalled();
-    expect(transactions.search).toHaveBeenCalledTimes(1);
-    expect(transactions.search).toHaveBeenCalledWith(expect.objectContaining({ keyword: 'gro' }));
+    // One search for what was typed, not one per keystroke: the list's page and the card's totals.
+    expect(transactions.search.mock.calls.map(([f]) => [f.keyword, f.size])).toEqual([['gro', LEDGER_PAGE_SIZE], ['gro', 100]]);
     titleRenders.mockRestore();
   });
 
@@ -2526,7 +2526,9 @@ describe('typing a search', () => {
     await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(expect.objectContaining({ keyword: 'rent' })));
 
     expect(screen.getByText('Grocery run')).toBeTruthy();
-    expect(screen.queryAllByLabelText('Loading')).toHaveLength(0);
+    // The list keeps its rows rather than dropping to its loading state. Only the totals card waits.
+    expect(screen.queryByTestId('ledger-state-card')).toBeNull();
+    expect(within(screen.getByTestId('ledger-filtered-card')).getByLabelText('Loading')).toBeTruthy();
     // The kept rows' count belongs to the previous search, so the count waits for the new one.
     expect(screen.queryByText('1 transaction')).toBeNull();
 
@@ -2612,5 +2614,161 @@ describe('differsOnlyInKeyword', () => {
     expect(differsOnlyInKeyword(base, { ...base, type: 'INCOME' })).toBe(false);
     expect(differsOnlyInKeyword(base, { ...base, categoryId: 'c-1' })).toBe(false);
     expect(differsOnlyInKeyword({ ...base, dateFrom: '2026-10-01' }, base)).toBe(false);
+  });
+});
+
+// Found 2026-11-18 following a budget's "See transactions": the chip said "Shopping · Nov 26" and
+// the list held that category's 2 rows (₹8,400), while Expenses still said ₹22,700, the whole
+// month. The card read the dashboard's month figures, which no filter on this screen reaches.
+describe('LedgerScreen summary card follows the filters', () => {
+  const MONTH_SUMMARY = {
+    monthlyIncome: 90000, monthlyExpense: 22700, incomeDeltaPct: null, expenseDeltaPct: null,
+    netCashFlow: 67300, netDeltaPct: null, savingsRatePct: 75, currentBalance: 50000,
+    reportingMonth: '2026-11', reportingMonthIsCurrent: true,
+  };
+  const shopping = [
+    txn({ id: 's1', date: '2026-11-05', description: 'Shoes', amount: 5000, categoryId: 'c-1' }),
+    txn({ id: 's2', date: '2026-11-09', description: 'Jacket', amount: 3400, categoryId: 'c-1' }),
+  ];
+  const everything = [
+    ...shopping,
+    txn({ id: 'o1', date: '2026-11-03', description: 'Rent', amount: 14300, categoryId: 'c-2' }),
+    txn({ id: 'o2', date: '2026-11-01', description: 'Salary', amount: 90000, type: 'INCOME', categoryId: 'c-2' }),
+  ];
+  const shoppingLink: LedgerDrillThroughFilters = {
+    categoryId: 'c-1', dateFrom: '2026-11-01', dateTo: '2026-11-30', label: 'Shopping · Nov 26', nonce: 1,
+  };
+
+  beforeEach(() => {
+    dashboard.summary.mockResolvedValue(MONTH_SUMMARY as never);
+    // Answers like the server: a category narrows the rows, and the count is the narrowed one.
+    transactions.search.mockImplementation((f) => {
+      const rows = f.categoryId ? everything.filter((t) => t.categoryId === f.categoryId) : everything;
+      return Promise.resolve(page(rows)) as never;
+    });
+  });
+
+  it('shows the filtered rows\' totals, not the whole month\'s, after a budget link', async () => {
+    mockRouteParams = { filters: shoppingLink };
+    renderScreen();
+
+    expect(await screen.findByTestId('filtered-money-out')).toHaveTextContent('₹8,400');
+    expect(screen.getByTestId('filtered-money-in')).toHaveTextContent('₹0');
+    expect(screen.queryByTestId('ledger-month-card')).toBeNull();
+    expect(screen.queryByTestId('kpi-Expenses')).toBeNull();
+  });
+
+  it('keeps the month card when no filter is on', async () => {
+    renderScreen();
+
+    expect(await screen.findByTestId('ledger-month-card')).toBeTruthy();
+    expect(screen.queryByTestId('ledger-filtered-card')).toBeNull();
+    // The list's own request is the only one: nothing is added up for a card that is not shown.
+    await screen.findByText('Shoes');
+    expect(transactions.search.mock.calls.every(([f]) => f.size === LEDGER_PAGE_SIZE)).toBe(true);
+  });
+
+  it('goes back to the month card when the filter is cleared', async () => {
+    mockRouteParams = { filters: shoppingLink };
+    renderScreen();
+    await screen.findByTestId('filtered-money-out');
+
+    fireEvent.press(screen.getByLabelText('Clear filter: Shopping · Nov 26'));
+
+    expect(await screen.findByTestId('ledger-month-card')).toBeTruthy();
+    expect(screen.queryByTestId('ledger-filtered-card')).toBeNull();
+  });
+
+  it('follows a filter chosen on this screen too', async () => {
+    renderScreen();
+    await screen.findByTestId('ledger-month-card');
+
+    fireEvent.press(screen.getByLabelText('Filter: income'));
+
+    expect(await screen.findByTestId('ledger-filtered-card')).toBeTruthy();
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'INCOME', size: 100 })));
+  });
+
+  it('adds up every matching row, not only the page the list has loaded', async () => {
+    const many = Array.from({ length: 250 }, (_, i) => txn({ id: `m${i}`, date: '2026-11-15', amount: 100, categoryId: 'c-1' }));
+    transactions.search.mockImplementation((f) => {
+      const start = f.after ? many.findIndex((t) => t.id === f.after) + 1 : 0;
+      const rest = many.slice(start);
+      const size = Math.min(f.size ?? 20, 100);
+      return Promise.resolve(page(rest.slice(0, size), { size, totalElements: rest.length, totalPages: Math.ceil(rest.length / size) })) as never;
+    });
+    mockRouteParams = { filters: shoppingLink };
+    renderScreen();
+
+    await waitFor(() => expect(screen.getByTestId('filtered-money-out')).toHaveTextContent('₹25,000'));
+  });
+
+  it('shows a placeholder, never the month\'s figures, while the totals load', async () => {
+    transactions.search.mockImplementation((f) => (f.size === 100 ? never() : Promise.resolve(page(shopping))) as never);
+    mockRouteParams = { filters: shoppingLink };
+    renderScreen();
+
+    expect(await screen.findByTestId('ledger-filtered-card')).toBeTruthy();
+    await screen.findByText('Shoes');
+    expect(screen.queryByTestId('ledger-month-card')).toBeNull();
+    expect(screen.queryByTestId('filtered-money-out')).toBeNull();
+  });
+
+  it('holds the placeholder while a linked category name waits for the category list', async () => {
+    categories.list.mockReturnValue(never());
+    mockRouteParams = { filters: { categoryName: 'Food', dateFrom: '2026-11-01', label: 'Food · Nov 26', nonce: 2 } };
+    renderScreen();
+
+    expect(await screen.findByTestId('ledger-filtered-card')).toBeTruthy();
+    expect(screen.queryByTestId('ledger-month-card')).toBeNull();
+    expect(transactions.search).not.toHaveBeenCalled();
+  });
+
+  it('does not show totals cached for the same dates while a linked category is still resolving', async () => {
+    categories.list.mockReturnValue(never());
+    mockRouteParams = { filters: { dateFrom: '2026-11-01', dateTo: '2026-11-30', label: 'Nov 26', nonce: 3 } };
+    renderScreen();
+    expect(await screen.findByTestId('filtered-money-out')).toHaveTextContent('₹22,700');
+
+    // The same dates, now with a category that cannot be resolved yet: until it is, those totals
+    // are the whole month's, not the category's. Scrolling renders the screen with the new link.
+    mockRouteParams = { filters: { categoryName: 'Food', dateFrom: '2026-11-01', dateTo: '2026-11-30', label: 'Food · Nov 26', nonce: 4 } };
+    scrollListTo(500);
+
+    await waitFor(() => expect(screen.queryByTestId('filtered-money-out')).toBeNull());
+    expect(within(screen.getByTestId('ledger-filtered-card')).getByLabelText('Loading')).toBeTruthy();
+  });
+
+  it('says the totals failed rather than showing zero, and the retry asks again', async () => {
+    let totalsUp = false;
+    transactions.search.mockImplementation((f) => {
+      if (f.size === 100 && !totalsUp) return Promise.reject(new Error('down')) as never;
+      return Promise.resolve(page(shopping)) as never;
+    });
+    mockRouteParams = { filters: shoppingLink };
+    renderScreen();
+
+    expect(await screen.findByText("Couldn't add these up.")).toBeTruthy();
+    expect(screen.queryByTestId('filtered-money-out')).toBeNull();
+
+    totalsUp = true;
+    fireEvent.press(within(screen.getByTestId('ledger-filtered-card')).getByRole('button', { name: 'Try again' }));
+
+    await waitFor(() => expect(screen.getByTestId('filtered-money-out')).toHaveTextContent('₹8,400'));
+  });
+
+  it('asks for the totals again on pull to refresh', async () => {
+    mockRouteParams = { filters: shoppingLink };
+    renderScreen();
+    await screen.findByTestId('filtered-money-out');
+    const totalsRequests = () => transactions.search.mock.calls.filter(([f]) => f.size === 100).length;
+    const before = totalsRequests();
+
+    await act(async () => {
+      screen.UNSAFE_getByType(RefreshControl).props.onRefresh();
+    });
+
+    await waitFor(() => expect(totalsRequests()).toBeGreaterThan(before));
   });
 });

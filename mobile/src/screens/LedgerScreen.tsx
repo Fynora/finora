@@ -24,6 +24,7 @@ import { TransactionSourceModal } from '../components/TransactionSourceModal';
 import { SkeletonGroup, SkeletonTransactionRow } from '../components/skeletons/Skeletons';
 import { LedgerControls, type ActiveFilterChip, type TypeFilter } from '../components/ledger/LedgerControls';
 import { LedgerDayCard } from '../components/ledger/LedgerDayCard';
+import { LedgerFilteredCard } from '../components/ledger/LedgerFilteredCard';
 import { LedgerFiltersSheet, statusFilterLabel, type StatusFilter } from '../components/ledger/LedgerFiltersSheet';
 import { LedgerMonthCard } from '../components/ledger/LedgerMonthCard';
 import { LedgerPinnedBar, LedgerTitleBlock, PINNED_BAR_SHOWN_AFTER } from '../components/ledger/LedgerTitleBar';
@@ -37,6 +38,7 @@ import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { hapticError, hapticImpact, hapticSuccess } from '../lib/haptics';
 import { useDashboardKpis } from '../lib/useDashboardKpis';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
+import { fetchLedgerFilterTotals, isNarrowedLedger } from '../lib/ledgerFilterTotals';
 import { buildDayPieces, mergePagesById, rowTitle, type DayPiece } from '../lib/ledgerRows';
 import { useToast } from '../context/ToastContext';
 import { trackNavigation } from '../lib/trackNavigation';
@@ -373,6 +375,17 @@ export function LedgerScreen() {
     getNextPageParam: getLedgerNextPageParam,
   });
 
+  // The month card's figures are the dashboard's, which no filter here reaches, so a narrowed list
+  // gets the totals of its own rows instead. Still narrowed while a linked category is being
+  // resolved: the month's figures must not stand beside a list that is about to be one category's.
+  // Under 'transactions' so every write and another device's change refreshes it with the list.
+  const listNarrowed = isNarrowedLedger(filters) || waitingForCategory;
+  const filterTotals = useQuery({
+    queryKey: ['transactions', 'filter-totals', filters],
+    queryFn: () => fetchLedgerFilterTotals(filters, transactionsApi.search),
+    enabled: listNarrowed && !waitingForCategory,
+  });
+
   // Each transaction once: the server has returned the same row on two pages (see mergePagesById).
   // Memoized on `data` itself, which is stable across renders where the query result has not
   // changed, so `pieces` below is not rebuilt by an unrelated render either.
@@ -629,12 +642,30 @@ export function LedgerScreen() {
           if (hasNextPage && !isFetchingNextPage && !isPlaceholderData) void fetchNextPage();
         }}
         onEndReachedThreshold={0.4}
-        refreshControl={<AppRefreshControl refreshing={isFetching && !isFetchingNextPage} onRefresh={() => void refetch()} tintColor={c.primary} />}
+        refreshControl={(
+          <AppRefreshControl
+            refreshing={isFetching && !isFetchingNextPage}
+            onRefresh={() => {
+              void refetch();
+              if (listNarrowed && !waitingForCategory) void filterTotals.refetch();
+            }}
+            tintColor={c.primary}
+          />
+        )}
         contentContainerStyle={padForTabBar(styles.listContent, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
         ListHeaderComponent={
           <View style={styles.header}>
             <LedgerTitleBlock countLabel={countLabel} onAdd={() => setAddingTransaction(true)} />
-            {summary ? (
+            {listNarrowed ? (
+              <LedgerFilteredCard
+                // While a linked category resolves, anything cached under these filters is the
+                // period without that category: the same wrong answer the list holds back above.
+                totals={waitingForCategory ? undefined : filterTotals.data}
+                failed={!waitingForCategory && filterTotals.isError}
+                onRetry={() => void filterTotals.refetch()}
+                stacked={largeText}
+              />
+            ) : summary ? (
               <LedgerMonthCard
                 kpis={snapshotKpis}
                 title={periodTitle}

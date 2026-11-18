@@ -25,7 +25,7 @@ export type GroupedRow =
 // aggregate the backend never computes. TRANSFER/REFUND/REVERSAL/INVESTMENT_TRANSFER stay included
 // on purpose -- unlike these two, they represent real money that genuinely moved on this account
 // today, the same convention Account.balance itself uses (see RefundNetting's own class doc).
-const SUBTOTAL_EXCLUDED_STATUSES: ReadonlySet<ReconciliationStatus> = new Set(['DUPLICATE', 'SUPERSEDED']);
+export const SUBTOTAL_EXCLUDED_STATUSES: ReadonlySet<ReconciliationStatus> = new Set(['DUPLICATE', 'SUPERSEDED']);
 
 /**
  * Groups a merged list of transactions into day sections with a per-day net subtotal (income

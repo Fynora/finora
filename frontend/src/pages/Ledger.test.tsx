@@ -1596,6 +1596,27 @@ describe('Ledger — a link from Reports (category and date range)', () => {
       expect.objectContaining({ categoryId: 'cat-food', dateFrom: '2026-09-01', dateTo: '2026-09-30' })));
   });
 
+  it('drops the previous category when the next link names one that does not exist', async () => {
+    function NextLink() {
+      const navigate = useNavigate();
+      return <button type="button" onClick={() => void navigate('/app/transactions?category=Uncategorized&from=2026-10-01&to=2026-10-31')}>next link</button>;
+    }
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/app/transactions?category=Food%20%26%20Dining&from=2026-09-01&to=2026-09-30']}>
+          <NextLink />
+          <Ledger />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(searched()).toContainEqual(expect.objectContaining({ categoryId: 'cat-food', size: 10 })));
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'next link' }));
+    await waitFor(() => expect(searched()).toContainEqual(expect.objectContaining({ dateFrom: '2026-10-01', size: 10 })));
+    expect(searched().filter((r) => r.dateFrom === '2026-10-01').every((r) => r.categoryId === undefined)).toBe(true);
+  });
+
   it('asks for the date range on the very first request, not after an unfiltered one', async () => {
     renderLedger('/app/transactions?category=Food%20%26%20Dining&from=2026-09-01&to=2026-09-30');
 
@@ -1603,7 +1624,7 @@ describe('Ledger — a link from Reports (category and date range)', () => {
     expect(searched()[0]).toMatchObject({ dateFrom: '2026-09-01', dateTo: '2026-09-30' });
   });
 
-  // The list is the 10-row page; the KPI row's own request is the big unfiltered-by-category one.
+  // The list is the 10-row page; the KPI row and chips read in pages of 100.
   const listRequests = () => searched().filter((r) => r.size === 10);
 
   it('never asks for the month without its category, so the wrong list does not flash first', async () => {
@@ -1794,8 +1815,7 @@ describe('Ledger — summary cards follow the category filter', () => {
     expect(kpiValue('Top Category')).toBe('Travel');
   });
 
-  it('counts the selected category while its own list request is still out, not the previous list', async () => {
-    // The list's request with the category never answers, so the table keeps the month's page.
+  it('shows a skeleton, not the previous figures, while a chosen category is being added up', async () => {
     vi.mocked(transactionsApi.search).mockImplementation((filters: any) => (filters.categoryId
       ? new Promise(() => {})
       : Promise.resolve({ content: month, page: 0, size: filters.size ?? 10, totalElements: month.length, totalPages: 1 })));
@@ -1803,8 +1823,8 @@ describe('Ledger — summary cards follow the category filter', () => {
     renderLedger();
 
     await user.click(await screen.findByRole('button', { name: /food and dining\s*3/i }));
-    await waitFor(() => expect(kpiValue('Total Spent (filtered)')).toBe('₹7,200'));
-    expect(kpiValue('Transactions')).toBe('3');
+    expect(await screen.findByText('Loading transaction summary')).toBeInTheDocument();
+    expect(screen.queryByText('₹22,700')).not.toBeInTheDocument();
   });
 
   it('shows nothing spent and no transactions for a category with no rows in the range', async () => {
@@ -1818,6 +1838,63 @@ describe('Ledger — summary cards follow the category filter', () => {
     expect(screen.getByRole('button', { name: /gifts\s*0/i })).toHaveAttribute('class', expect.stringContaining('bg-primary'));
   });
 
+  // The server returns at most 100 rows a request, newest first: a category last used long ago has
+  // no rows among the newest 100 of the range, and a busy month has more than 100.
+  it('totals a category whose rows are all older than the newest 100 rows', async () => {
+    const newest = Array.from({ length: 100 }, (_, i) => txn({ id: `n${i}`, date: '2026-11-20', categoryId: 'cat-travel', categoryName: 'Travel', amount: 10 }));
+    const old = txn({ id: 'o1', date: '2026-01-05', categoryId: 'cat-food', categoryName: 'Food and dining', amount: 4000 });
+    vi.mocked(transactionsApi.search).mockReset().mockImplementation((filters: any) => {
+      const all = [...newest, old];
+      const matching = filters.categoryId ? all.filter((t) => t.categoryId === filters.categoryId) : all;
+      const start = filters.after ? matching.findIndex((t) => t.id === filters.after) + 1 : 0;
+      const rest = matching.slice(start);
+      return Promise.resolve({ content: rest.slice(0, Math.min(filters.size, 100)), page: 0, size: 100, totalElements: rest.length, totalPages: 1 });
+    });
+    renderLedger('/app/transactions?category=Food%20and%20dining');
+
+    await waitFor(() => expect(kpiValue('Total Spent (filtered)')).toBe('₹4,000'));
+    expect(kpiValue('Transactions')).toBe('1');
+    expect(kpiValue('Top Category')).toBe('Food and dining');
+    expect(await screen.findByRole('button', { name: /food and dining\s*1/i })).toBeInTheDocument();
+  });
+
+  it('adds up every row of a range longer than one server page', async () => {
+    const rows = Array.from({ length: 250 }, (_, i) => txn({ id: `b${i}`, date: '2026-11-15', categoryId: 'cat-travel', categoryName: 'Travel', amount: 100 }));
+    vi.mocked(transactionsApi.search).mockReset().mockImplementation((filters: any) => {
+      const start = filters.after ? rows.findIndex((t) => t.id === filters.after) + 1 : 0;
+      const rest = rows.slice(start);
+      return Promise.resolve({ content: rest.slice(0, Math.min(filters.size, 100)), page: 0, size: 100, totalElements: rest.length, totalPages: 1 });
+    });
+    renderLedger();
+
+    await waitFor(() => expect(kpiValue('Total Spent')).toBe('₹25,000'));
+    expect(kpiValue('Transactions')).toBe('250');
+    expect(await screen.findByRole('button', { name: /travel\s*250/i })).toBeInTheDocument();
+  });
+
+  it('says the total covers only the newest rows when a history is too long to read in full', async () => {
+    const rows = Array.from({ length: 5100 }, (_, i) => txn({ id: `h${i}`, date: '2026-11-15', categoryId: 'cat-travel', categoryName: 'Travel', amount: 1 }));
+    vi.mocked(transactionsApi.search).mockReset().mockImplementation((filters: any) => {
+      const start = filters.after ? Number(filters.after.slice(1)) + 1 : 0;
+      return Promise.resolve({ content: rows.slice(start, start + Math.min(filters.size, 100)), page: 0, size: 100, totalElements: rows.length - start, totalPages: 1 });
+    });
+    renderLedger();
+
+    expect(await screen.findByText('Newest 5,000 of 5,100')).toBeInTheDocument();
+    expect(kpiValue('Transactions')).toBe('5,100');
+  });
+
+  it('says the summary could not load instead of showing nothing spent', async () => {
+    vi.mocked(transactionsApi.search).mockReset().mockImplementation((filters: any) => (filters.size === 100
+      ? Promise.reject(new Error('down'))
+      : Promise.resolve({ content: month.slice(0, 3), page: 0, size: 10, totalElements: 3, totalPages: 1 })));
+    renderLedger('/app/transactions?category=Food%20and%20dining');
+
+    expect(await screen.findByText('Could not load')).toBeInTheDocument();
+    expect(kpiValue('Total Spent (filtered)')).toBe('—');
+    expect(kpiValue('Transactions')).toBe('—');
+  });
+
   it('keeps the summary as a loading skeleton while a linked category waits for the categories', async () => {
     let resolveCategories!: (v: never[]) => void;
     vi.mocked(categoriesApi.list).mockReset().mockReturnValue(new Promise((res) => { resolveCategories = res as never; }));
@@ -1825,7 +1902,7 @@ describe('Ledger — summary cards follow the category filter', () => {
 
     // The month's stats have arrived, but the category is not applied yet: showing them would be
     // the whole month's totals flashing before the category's.
-    await waitFor(() => expect(transactionsApi.search).toHaveBeenCalledWith(expect.objectContaining({ size: 500 })));
+    await waitFor(() => expect(transactionsApi.search).toHaveBeenCalledWith(expect.objectContaining({ size: 100 })));
     expect(screen.getByText('Loading transaction summary')).toBeInTheDocument();
     expect(screen.queryByText('₹22,700')).not.toBeInTheDocument();
 

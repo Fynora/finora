@@ -22,13 +22,15 @@ export interface StatDelta {
  * four daily tiles have a "vs yesterday" figure to show.
  */
 export function StatCard({
-  icon: Icon, label, value, tone = 'default', delta,
+  icon: Icon, label, value, tone = 'default', delta, hint,
 }: {
   icon: LucideIcon;
   label: string;
   value: string | number;
   tone?: 'default' | 'success' | 'warning';
   delta?: StatDelta;
+  /** A short muted line under the value, for context such as what the figure is out of. */
+  hint?: string;
 }) {
   const toneClass = tone === 'success' ? 'text-success' : tone === 'warning' ? 'text-warning' : 'text-ink';
   const deltaClass = !delta || delta.direction === 'flat' ? 'text-muted' : delta.isGood ? 'text-success' : 'text-danger';
@@ -46,6 +48,7 @@ export function StatCard({
           {delta.label}
         </p>
       )}
+      {hint && <p className="text-xs mt-1 text-muted">{hint}</p>}
     </div>
   );
 }

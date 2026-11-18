@@ -84,11 +84,4 @@ public interface MerchantLearningAuditRepository extends JpaRepository<MerchantL
     @Query("UPDATE MerchantLearningAudit a SET a.newCategoryId = NULL "
             + "WHERE a.userId = :userId AND a.newCategoryId = :categoryId")
     int clearNewCategoryReferences(@Param("userId") UUID userId, @Param("categoryId") UUID categoryId);
-
-    // Admin Portal, Learning Engine module -- platform-wide action counts for the aggregate
-    // stats tile. Cheap grouped COUNT, same "simple indexed counts, not a new reporting
-    // subsystem" discipline as AdminStatsService. See AdminLearningStatsService for how the
-    // rows (Action enum, count) get turned into the DTO's named fields.
-    @Query("SELECT a.action, COUNT(a) FROM MerchantLearningAudit a GROUP BY a.action")
-    List<Object[]> platformActionCounts();
 }

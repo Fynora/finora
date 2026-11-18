@@ -345,21 +345,59 @@ public class AdminDtos {
 
     // --- Learning Engine (AdminLearningStatsService / AdminUserLearningController) ---
 
-    /** Platform-wide aggregate for the admin Learning Engine page. learnedMerchantPairs is a
-     *  live COUNT of MerchantCategoryLearning rows (current state, across every user) --
-     *  totalConfirmations/correctedCount/resetCount are lifetime counts off the audit trail
-     *  (history), same "these two views can legitimately disagree" relationship documented on
-     *  MerchantLearningService.summary() for the per-user version of this same distinction.
-     *  trend reuses AnalyticsDto.LearningGrowthPoint's exact shape (month, learnedCount,
-     *  correctedCount) rather than inventing a platform-only variant -- same x-axis convention,
-     *  just summed across every user instead of one. */
+    /** Platform-wide aggregate for the admin Learning Engine page, over customer accounts only
+     *  (internal and admin accounts are left out, as on the activation and reading quality pages).
+     *  learnedMerchantPairs is the live count of learned (merchant, category) pairs with at least
+     *  one confirmation (current state); the action counts are lifetime counts off the audit trail
+     *  (history), so the two can legitimately disagree -- see MerchantLearningService.summary().
+     *  totalConfirmations is LEARNED + CORRECTED. See AdminLearningStatsService for each field. */
     public record LearningPlatformStatsDto(
             long learnedMerchantPairs,
             long totalConfirmations,
             long correctedCount,
             long resetCount,
-            List<AnalyticsDto.LearningGrowthPoint> trend
+            long undoneCount,
+            long usersWithLearning,
+            double medianPairsPerUser,
+            LearningWindow last30Days,
+            LearningWindow previous30Days,
+            List<LearningTrendPoint> trend,
+            List<LearningCategorySourceCount> categorySources,
+            List<LearningCorrectedMerchant> topCorrectedMerchants,
+            List<LearningCategoryChange> topCategoryChanges
     ) {}
+
+    /** Confirmations in one 30-day window. firstTime had no category to check against (the merchant
+     *  was new to the engine); kept agreed with the category the engine already had; corrected
+     *  changed it. The correction rate is corrected / (kept + corrected), and has no value when
+     *  both are zero: a first confirmation cannot show the engine was right or wrong. */
+    public record LearningWindow(long firstTime, long kept, long corrected) {}
+
+    /** One calendar month in India time ("YYYY-MM") of learning events, every month from the first
+     *  to the last with any event, quiet months as zeros. firstTime, kept and corrected as on
+     *  {@link LearningWindow}. */
+    public record LearningTrendPoint(String month, long firstTime, long kept, long corrected,
+                                     long undone, long reset) {}
+
+    /** How many transactions added in the last 30 days, on accounts that still exist, took their
+     *  category from this source (Transaction.DecisionSource name; MANUAL is set or changed by hand). */
+    public record LearningCategorySourceCount(String source, long transactions) {}
+
+    /** A merchant name (grouped across accounts, ignoring case and outer spaces) whose learned
+     *  category was overridden. usualFrom/usualTo is its most common change, null when no
+     *  correction of it still has both categories. */
+    public record LearningCorrectedMerchant(String merchant, long corrections, long users,
+                                            String usualFrom, String usualTo) {}
+
+    /** A from-category to to-category change made by corrections, by category name across accounts,
+     *  ignoring case and outer spaces. */
+    public record LearningCategoryChange(String fromCategory, String toCategory, long count) {}
+
+    /** One learning event for the admin Learning Engine page's recent events list. Category names
+     *  are null when the event had none (a first confirmation has no "from"; a reset has no "to")
+     *  or the category was deleted since. */
+    public record LearningEventRow(UUID id, Instant createdAt, UUID userId, String userEmail,
+                                   String action, String merchant, String fromCategory, String toCategory) {}
 
     // --- Reconciliation Monitor (AdminReconciliationStatsService / AdminUserWorkspaceController) ---
 

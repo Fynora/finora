@@ -60,6 +60,14 @@ describe('PortfolioCard', () => {
     expect(screen.getByText('₹6,40,000 · 46%')).toBeTruthy();
   });
 
+  // At the largest text size "₹13,77,000" broke into "₹13,77," and "000" on an iPhone Air simulator.
+  it('keeps the total on one line at large text', () => {
+    render(<PortfolioCard summary={summarizeHoldings(SAMPLE)} subtitle={null} money={money} />);
+
+    expect(screen.getByText('₹14,00,000').props.numberOfLines).toBe(1);
+    expect(screen.getByText('₹14,00,000').props.adjustsFontSizeToFit).toBe(true);
+  });
+
   it('draws no mix when the holdings total nothing', () => {
     render(<PortfolioCard summary={summarizeHoldings([holding({ balance: 0 })])} subtitle={null} money={money} />);
 
@@ -102,6 +110,7 @@ describe('MoneyGoingInCard', () => {
     const onSeePayments = renderCard();
 
     expect(await screen.findByText('₹1,44,000')).toBeTruthy();
+    expect(screen.getByText('₹1,44,000').props.numberOfLines).toBe(1);
     expect(screen.getByText('About ₹12,000 a month · 2 payments')).toBeTruthy();
     expect(transactions.search).toHaveBeenCalledWith(expect.objectContaining({
       categoryId: 'cat-inv', type: 'EXPENSE', dateFrom: '2025-12-01', dateTo: '2026-11-18',
@@ -160,7 +169,7 @@ describe('NetWorthCard', () => {
   it('shows net worth, assets and liabilities', () => {
     render(<NetWorthCard netWorth={netWorth()} failed={false} money={money} />);
 
-    expect(screen.getByText('₹16,20,000')).toBeTruthy();
+    expect(screen.getByText('₹16,20,000').props.numberOfLines).toBe(1);
     expect(screen.getByText('₹18,40,000 assets · ₹2,20,000 liabilities')).toBeTruthy();
   });
 

@@ -66,7 +66,7 @@ export function HoldingsCard({ summary, today, money, onMore }: {
 const styles = StyleSheet.create({
   groupHeading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: spacing.sm, paddingTop: spacing.md, paddingBottom: spacing.xs },
   groupName: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexShrink: 1 },
-  dot: { width: 8, height: 8, borderRadius: 4 },
+  dot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
   shrink: { flexShrink: 1 },
   row: { flexDirection: 'row', alignItems: 'center', borderTopWidth: StyleSheet.hairlineWidth, paddingVertical: spacing.xs },
   rowBody: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },

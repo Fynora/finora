@@ -350,8 +350,10 @@ describe('InvestmentsScreen: delete holding', () => {
     await chooseDelete('Index fund');
     accounts.list.mockRejectedValue(new Error('offline'));
     await act(async () => { alertSpy.mock.calls[0][2]!.find((b) => b.text === 'Delete')!.onPress!(); });
+    // React Query tells the screen on a timer; waitFor alone did not always flush that update.
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
 
-    await waitFor(() => expect(screen.queryByLabelText('More actions for Index fund')).toBeNull());
+    expect(screen.queryByLabelText('More actions for Index fund')).toBeNull();
     expect(screen.getByLabelText('More actions for Fixed Deposit')).toBeTruthy();
     alertSpy.mockRestore();
   });

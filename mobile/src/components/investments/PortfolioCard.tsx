@@ -13,7 +13,10 @@ export function PortfolioCard<T extends HoldingLike>({ summary, subtitle, money 
   return (
     <Card style={styles.card}>
       <Text style={[typography.labelS, { color: c.mutedInk }]}>Total value</Text>
-      <Text style={[typography.numberL, { color: c.ink }]}>{money(summary.total)}</Text>
+      {/* One line at any text size: a wrapped amount breaks at a comma and reads as two numbers. */}
+      <Text style={[typography.numberL, { color: c.ink }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.5}>
+        {money(summary.total)}
+      </Text>
       {subtitle ? <Text style={[typography.bodyS, { color: c.mutedInk }]}>{subtitle}</Text> : null}
       {summary.mix.length > 0 ? (
         <>
@@ -43,5 +46,5 @@ const styles = StyleSheet.create({
   legendRow: { flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: spacing.sm },
   legendName: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexShrink: 1 },
   flexShrink: { flexShrink: 1 },
-  dot: { width: 8, height: 8, borderRadius: 4 },
+  dot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
 });

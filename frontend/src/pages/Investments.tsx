@@ -165,7 +165,7 @@ export default function Investments() {
             <PortfolioCard summary={summary} money={fmt} />
           )}
 
-          <div className={`grid items-start gap-5 ${upcoming.length > 0 ? 'lg:grid-cols-2' : ''}`}>
+          <div className={`grid gap-5 ${upcoming.length > 0 ? 'lg:grid-cols-2' : ''}`}>
             <ComingUpCard rows={upcoming} money={fmt} />
             <MoneyGoingInCard today={today} />
           </div>

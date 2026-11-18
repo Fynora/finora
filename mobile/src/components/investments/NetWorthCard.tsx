@@ -21,7 +21,14 @@ export function NetWorthCard({ netWorth, failed, money }: { netWorth: NetWorthDa
   return (
     <Card testID="net-worth-card" style={styles.card}>
       <Text style={[typography.labelS, { color: c.mutedInk }]}>Net worth</Text>
-      <Text style={[typography.numberM, { color: netWorth.netWorth < 0 ? c.dangerInk : c.ink }]}>{money(netWorth.netWorth)}</Text>
+      <Text
+        style={[typography.numberM, { color: netWorth.netWorth < 0 ? c.dangerInk : c.ink }]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.5}
+      >
+        {money(netWorth.netWorth)}
+      </Text>
       <Text style={[typography.bodyS, { color: c.mutedInk }]}>{`${money(netWorth.totalAssets)} assets · ${money(netWorth.totalLiabilities)} liabilities`}</Text>
       {note ? <Text style={[typography.bodyS, { color: c.mutedInk }]}>{note}</Text> : null}
       {netWorth.history.length >= 2 ? (

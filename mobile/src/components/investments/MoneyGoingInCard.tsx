@@ -74,7 +74,9 @@ export function MoneyGoingInCard({ today, onSeePayments }: {
         <Text style={[typography.bodyS, { color: c.mutedInk }]}>No SIPs or broker payments found in your statements yet.</Text>
       ) : (
         <>
-          <Text style={[typography.numberM, { color: c.ink }]}>{`${q.data?.truncated ? 'At least ' : ''}${total}`}</Text>
+          <Text style={[typography.numberM, { color: c.ink }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.5}>
+            {`${q.data?.truncated ? 'At least ' : ''}${total}`}
+          </Text>
           <Text style={[typography.bodyS, { color: c.mutedInk }]}>
             {`About ${average} a month · ${summary.count} ${summary.count === 1 ? 'payment' : 'payments'}`}
           </Text>

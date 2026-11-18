@@ -247,7 +247,7 @@ export function CategoryCombobox({
               ref={searchRef}
               aria-label="Search categories"
               placeholder="Search categories"
-              className="bg-card text-ink border border-border rounded-lg px-2.5 py-1.5 text-sm w-full"
+              className="bg-card text-ink border border-border rounded-lg px-2.5 py-1.5 text-sm w-full max-sm:text-base"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />

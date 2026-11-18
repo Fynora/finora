@@ -75,7 +75,7 @@ export function NewBudgetDialog({ budgets, money, onClose, onSave }: {
                 value={limitText}
                 onChange={(e) => { setLimitText(e.target.value); setError(null); }}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void save(); } }}
-                className="w-full bg-transparent text-sm text-ink focus:outline-none"
+                className="w-full bg-transparent text-sm text-ink focus:outline-none max-sm:text-base"
               />
             </div>
           </div>

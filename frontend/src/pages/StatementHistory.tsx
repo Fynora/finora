@@ -630,7 +630,8 @@ function StatCard({
     <FinoraCard className="transition-[transform,box-shadow] duration-150 hover:-translate-y-0.5 hover:shadow-soft">
       <div className="flex items-start justify-between mb-4">
         <p className="text-sm font-semibold text-muted">{label}</p>
-        <div className={`w-11 h-11 rounded-xl ${iconBg} flex items-center justify-center flex-shrink-0`}>
+        {/* Two of these share a phone's width, which leaves no room for the icon beside the label. */}
+        <div className={`w-11 h-11 rounded-xl ${iconBg} flex items-center justify-center flex-shrink-0 max-sm:hidden`}>
           <Icon size={22} className={iconColor} />
         </div>
       </div>

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -256,5 +256,94 @@ describe('Sidebar — Insights dot', () => {
     vi.mocked(aiInsightsApi.lookAt).mockResolvedValue({ rows: [high], orderedByAi: false });
     renderSidebar();
     expect(await screen.findByTestId('insights-dot')).toBeInTheDocument();
+  });
+});
+
+describe('Sidebar — phone drawer', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    document.body.style.overflow = '';
+  });
+
+  function renderDrawer(onClose = vi.fn()) {
+    render(withProviders(<Sidebar drawerOpen onDrawerClose={onClose} />));
+    return { onClose, drawer: screen.getByRole('dialog', { name: 'Menu' }) };
+  }
+
+  it('is not on the page until it is opened', () => {
+    renderSidebar();
+    expect(screen.queryByRole('dialog', { name: 'Menu' })).not.toBeInTheDocument();
+  });
+
+  it('shows the labels even when the desktop sidebar was saved as collapsed', () => {
+    localStorage.setItem('finora_sidebar_collapsed', 'true');
+    const { drawer } = renderDrawer();
+    expect(within(drawer).getByRole('link', { name: 'Budgets' })).toHaveTextContent('Budgets');
+    expect(within(drawer).queryByRole('button', { name: /collapse sidebar|expand sidebar/i })).not.toBeInTheDocument();
+  });
+
+  it('closes from its close button, the backdrop and Escape', async () => {
+    const user = userEvent.setup();
+    const { onClose, drawer } = renderDrawer();
+
+    await user.click(within(drawer).getByRole('button', { name: 'Close menu' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByTestId('sidebar-drawer-backdrop'));
+    expect(onClose).toHaveBeenCalledTimes(2);
+
+    await user.keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalledTimes(3);
+  });
+
+  // Tapping the link for the page already showing changes no route, so only the click can close it.
+  it('closes when a link is tapped, including the page already showing', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(withProviders(<Sidebar drawerOpen onDrawerClose={onClose} />, ['/app/budgets']));
+
+    await user.click(within(screen.getByRole('dialog', { name: 'Menu' })).getByRole('link', { name: 'Budgets' }));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes from the account menu links', async () => {
+    const user = userEvent.setup();
+    const { onClose, drawer } = renderDrawer();
+
+    await user.click(within(drawer).getByRole('button', { name: 'Account menu' }));
+    await user.click(within(drawer).getByRole('link', { name: 'Settings' }));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops the page behind it scrolling, and gives that back when it closes', () => {
+    document.body.style.overflow = 'auto';
+    const { unmount } = render(withProviders(<Sidebar drawerOpen onDrawerClose={vi.fn()} />));
+    expect(document.body.style.overflow).toBe('hidden');
+
+    unmount();
+
+    expect(document.body.style.overflow).toBe('auto');
+  });
+
+  it('closes when the window grows to desktop width, and not when it stays narrow', () => {
+    let onChange: ((e: { matches: boolean }) => void) | undefined;
+    const matchMedia = vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      addEventListener: (_: string, listener: (e: { matches: boolean }) => void) => { onChange = listener; },
+      removeEventListener: () => {},
+    }) as unknown as MediaQueryList);
+
+    try {
+      const { onClose } = renderDrawer();
+      act(() => onChange?.({ matches: false }));
+      expect(onClose).not.toHaveBeenCalled();
+      act(() => onChange?.({ matches: true }));
+      expect(onClose).toHaveBeenCalledTimes(1);
+    } finally {
+      matchMedia.mockRestore();
+    }
   });
 });

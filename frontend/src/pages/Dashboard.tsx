@@ -881,7 +881,7 @@ export default function Dashboard() {
             {/* Gauge + range legend: ~40% of this card's visual weight, factor cards below take the
                 rest -- an unfamiliar "51/100" needs the explanation more than it needs a bigger
                 gauge, since (unlike a credit score) this number has no meaning outside this app. */}
-            <div className="grid md:grid-cols-[auto_1fr] gap-6 items-center">
+            <div className="grid grid-cols-1 md:grid-cols-[auto_1fr] gap-6 items-center">
               <div className="flex flex-col items-center" data-testid="health-score-summary">
                 <HealthScoreGauge score={summary.healthScore!} />
                 <AnimatedHealthScoreNumber
@@ -1127,7 +1127,7 @@ export default function Dashboard() {
       )}
 
       {/* Cash flow + Spending breakdown */}
-      <div className="grid lg:grid-cols-[1.6fr_1fr] gap-6 mb-6">
+      <div className="grid grid-cols-1 lg:grid-cols-[1.6fr_1fr] gap-6 mb-6">
         <FinoraCard padding="lg">
           {/* Not SectionHeader -- the right side is a range filter, not a "View All" link. Same
               control the KPI cards above use -- one picker for both (under THIS_MONTH the chart
@@ -1361,7 +1361,7 @@ export default function Dashboard() {
       </div>
 
       {/* Accounts / Recent Transactions / Budget Progress / Goals */}
-      <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-6 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-6">
         <FinoraCard>
           <SectionHeader title="Accounts Overview" viewAllTo="/app/accounts" size="sm" />
           <div className="space-y-3">
@@ -1594,7 +1594,7 @@ export default function Dashboard() {
           user sees the section exists rather than it silently not being there. Quick Actions is
           new: a shortcut grid to the same destinations scattered across this page's own empty
           states and CTAs, gathered in one place the way the reference design has it. */}
-      <div className="grid lg:grid-cols-[1.6fr_1fr] gap-6 mb-6">
+      <div className="grid grid-cols-1 lg:grid-cols-[1.6fr_1fr] gap-6 mb-6">
         <FinoraCard padding="none" className="overflow-hidden">
           <div className="flex items-center justify-between px-6 pt-5 pb-4">
             <div className="flex items-center gap-2">
@@ -1819,7 +1819,7 @@ function DashboardSkeleton() {
         {Array.from({ length: 5 }).map((_, i) => <Skeleton.Card key={i} />)}
       </div>
       <Skeleton.Block className="h-40 rounded-xl2" />
-      <div className="grid lg:grid-cols-[1.6fr_1fr] gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-[1.6fr_1fr] gap-6">
         <Skeleton.Block className="h-72 rounded-xl2" />
         <Skeleton.Block className="h-72 rounded-xl2" />
       </div>

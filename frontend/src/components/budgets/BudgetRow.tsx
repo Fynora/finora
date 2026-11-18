@@ -60,8 +60,10 @@ export function BudgetRow({
       <Icon size={16} style={{ color }} aria-hidden="true" />
     </div>
   );
+  // On a phone the name keeps the first line to itself (the icon and its gap are 3rem): beside a
+  // seven-figure amount it was cut to a single letter.
   const name = (
-    <span data-testid="budget-name" className="min-w-0 flex-1 truncate font-medium text-ink xl:w-40 xl:flex-none">
+    <span data-testid="budget-name" className="min-w-0 flex-1 truncate font-medium text-ink max-sm:basis-[calc(100%-3rem)] xl:w-40 xl:flex-none">
       {budget.categoryName}
     </span>
   );
@@ -107,7 +109,7 @@ export function BudgetRow({
         group={pace.group}
         className="order-last w-full xl:order-none xl:w-auto xl:flex-1"
       />
-      <span className="flex-shrink-0 text-right xl:w-40">
+      <span className="flex-shrink-0 text-right max-sm:min-w-0 max-sm:flex-1 max-sm:text-left xl:w-40">
         <span className="font-semibold text-ink">{money(budget.spentThisMonth)}</span>
         <span className="text-muted"> / </span>
         {onSaveLimit ? (

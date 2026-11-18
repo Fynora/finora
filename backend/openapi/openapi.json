@@ -14761,6 +14761,26 @@
                     "admin-platform-analytics-controller"
                 ],
                 "operationId": "analytics",
+                "parameters": [
+                    {
+                        "name": "from",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "months",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int32",
+                            "default": 1
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -37000,42 +37020,85 @@
             "PlatformAnalyticsDto": {
                 "type": "object",
                 "properties": {
+                    "from": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "to": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "previousFrom": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "previousTo": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "minCustomers": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "summary": {
+                        "$ref": "#/components/schemas/PlatformSpendSummaryDto"
+                    },
+                    "previousSummary": {
+                        "$ref": "#/components/schemas/PlatformSpendSummaryDto"
+                    },
                     "topCategories": {
                         "type": "array",
                         "items": {
-                            "$ref": "#/components/schemas/PlatformCategorySpendDto"
+                            "$ref": "#/components/schemas/PlatformSpendRowDto"
                         }
                     },
                     "topMerchants": {
                         "type": "array",
                         "items": {
-                            "$ref": "#/components/schemas/PlatformMerchantSpendDto"
+                            "$ref": "#/components/schemas/PlatformSpendRowDto"
                         }
                     }
                 }
             },
-            "PlatformCategorySpendDto": {
+            "PlatformSpendRowDto": {
                 "type": "object",
                 "properties": {
-                    "categoryName": {
+                    "name": {
                         "type": "string"
                     },
+                    "customers": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
                     "totalSpend": {
+                        "type": "number"
+                    },
+                    "medianSpendPerCustomer": {
                         "type": "number"
                     },
                     "transactionCount": {
                         "type": "integer",
                         "format": "int64"
+                    },
+                    "previousMedianSpendPerCustomer": {
+                        "type": "number"
                     }
                 }
             },
-            "PlatformMerchantSpendDto": {
+            "PlatformSpendSummaryDto": {
                 "type": "object",
                 "properties": {
-                    "merchantName": {
-                        "type": "string"
+                    "customersWithSpend": {
+                        "type": "integer",
+                        "format": "int64"
                     },
                     "totalSpend": {
+                        "type": "number"
+                    },
+                    "medianSpendPerCustomer": {
+                        "type": "number"
+                    },
+                    "toSortSpend": {
                         "type": "number"
                     },
                     "transactionCount": {

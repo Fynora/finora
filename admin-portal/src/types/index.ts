@@ -1046,15 +1046,23 @@ export interface WorkspaceSummaryDto {
 
 // --- Platform Analytics (AdminPlatformAnalyticsController) ---
 
-export interface PlatformCategorySpendDto {
-  categoryName: string;
+/** One category or merchant name in a period, across customers. previousMedianSpendPerCustomer is
+ *  null when there is no comparison, or fewer than minCustomers customers spent there before. */
+export interface PlatformSpendRowDto {
+  name: string;
+  customers: number;
   totalSpend: number;
+  medianSpendPerCustomer: number;
   transactionCount: number;
+  previousMedianSpendPerCustomer: number | null;
 }
 
-export interface PlatformMerchantSpendDto {
-  merchantName: string;
-  totalSpend: number;
+/** The money figures are null when fewer than minCustomers customers spent in the period. */
+export interface PlatformSpendSummaryDto {
+  customersWithSpend: number;
+  totalSpend: number | null;
+  medianSpendPerCustomer: number | null;
+  toSortSpend: number | null;
   transactionCount: number;
 }
 
@@ -1066,9 +1074,17 @@ export interface SpendingTrackingBreakdown {
   methods: { method: string; count: number }[];
 }
 
+/** from..to inclusive (ISO dates); all null for all time, which has no comparison. */
 export interface PlatformAnalyticsDto {
-  topCategories: PlatformCategorySpendDto[];
-  topMerchants: PlatformMerchantSpendDto[];
+  from: string | null;
+  to: string | null;
+  previousFrom: string | null;
+  previousTo: string | null;
+  minCustomers: number;
+  summary: PlatformSpendSummaryDto;
+  previousSummary: PlatformSpendSummaryDto | null;
+  topCategories: PlatformSpendRowDto[];
+  topMerchants: PlatformSpendRowDto[];
 }
 
 // --- Global Search (AdminSearchController) ---

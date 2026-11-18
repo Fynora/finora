@@ -382,17 +382,23 @@ public class AdminDtos {
 
     // --- Platform Analytics (AdminPlatformAnalyticsService / AdminPlatformAnalyticsController) ---
 
-    /** Same exclusion rules as AnalyticsService.activeExpenseTransactions() (no duplicates, no
-     *  transfers, no REFUND-status income, EXPENSE rows only) but summed across every user's
-     *  transactions instead of one -- see AdminPlatformAnalyticsService's class comment for why
-     *  this needs a two-step (group-by-id-in-SQL, then resolve-and-re-group-by-name-in-Java)
-     *  aggregation rather than a single grouped query. */
-    public record PlatformCategorySpendDto(String categoryName, BigDecimal totalSpend, long transactionCount) {}
+    /** One category or merchant name for a period, across every customer whose own private row
+     *  carries that name (see AdminPlatformAnalyticsService's class comment). {@code customers} is
+     *  how many customers spent under it; {@code medianSpendPerCustomer} is the middle of their
+     *  period totals. {@code previousMedianSpendPerCustomer} is that middle figure in the comparison
+     *  period -- per customer, because a total rises whenever more customers join or import --
+     *  null when there is no comparison or fewer than the privacy floor of customers spent there. */
+    public record PlatformSpendRowDto(String name, long customers, BigDecimal totalSpend,
+                                      BigDecimal medianSpendPerCustomer, long transactionCount,
+                                      BigDecimal previousMedianSpendPerCustomer) {}
 
-    /** Same shape and reasoning as PlatformCategorySpendDto, grouped by merchant instead --
-     *  distinct from MerchantStatDto (data footprint: how many users/rows) in that this measures
-     *  actual platform-wide spend, which MerchantStatDto deliberately doesn't. */
-    public record PlatformMerchantSpendDto(String merchantName, BigDecimal totalSpend, long transactionCount) {}
+    /** Whole-period figures. The money figures are null when fewer customers than the privacy floor
+     *  spent in the period, since they would then describe one or two people. {@code toSortSpend}
+     *  is expense with no category or flagged needsCategoryReview -- the same flag the customer's
+     *  own "needs review" badge uses. */
+    public record PlatformSpendSummaryDto(long customersWithSpend, BigDecimal totalSpend,
+                                          BigDecimal medianSpendPerCustomer, BigDecimal toSortSpend,
+                                          long transactionCount) {}
 
     /** One answer to the required setup question "How do you keep track of your spending today?"
      *  and how many live consumer accounts gave it. */
@@ -403,9 +409,19 @@ public class AdminDtos {
     public record SpendingTrackingBreakdown(long answered, long notAnswered,
                                             List<SpendingTrackingMethodCount> methods) {}
 
+    /** Platform spend for one period ({@code from}..{@code to}, inclusive; both null for all time)
+     *  and, when there is one, the comparison period of the same length just before it. Rows from
+     *  fewer than {@code minCustomers} customers are left out. */
     public record PlatformAnalyticsDto(
-            List<PlatformCategorySpendDto> topCategories,
-            List<PlatformMerchantSpendDto> topMerchants
+            LocalDate from,
+            LocalDate to,
+            LocalDate previousFrom,
+            LocalDate previousTo,
+            int minCustomers,
+            PlatformSpendSummaryDto summary,
+            PlatformSpendSummaryDto previousSummary,
+            List<PlatformSpendRowDto> topCategories,
+            List<PlatformSpendRowDto> topMerchants
     ) {}
 
     /**

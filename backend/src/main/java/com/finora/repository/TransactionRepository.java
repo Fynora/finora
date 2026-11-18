@@ -935,24 +935,16 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
     @Query("SELECT COUNT(t) FROM Transaction t WHERE t.isRecurring = true")
     long countPlatformRecurring();
 
-    // Admin Portal, Platform Analytics module -- platform-wide EXPENSE spend grouped by
-    // categoryId/merchantId, same exclusion rules as AnalyticsService.activeExpenseTransactions()
-    // (no duplicates, no transfers, no REFUND-status income). Grouped by id here, not name --
-    // Transaction has no mapped association to Category/Merchant (just a plain UUID FK column),
-    // so there's no JPQL join path to their name field. AdminPlatformAnalyticsService resolves
-    // names and re-groups by name in Java as a second step (see its class comment for why that's
-    // the right place for it, not a bigger schema change).
-    @Query("SELECT t.categoryId, COUNT(t), SUM(t.amount) FROM Transaction t " +
-           "WHERE t.isDuplicateOf IS NULL AND t.isTransfer = false AND t.reconciliationStatus <> :refundStatus " +
-           "AND t.txnType = :expenseType AND t.categoryId IS NOT NULL GROUP BY t.categoryId")
-    List<Object[]> platformCategorySpendTotals(@Param("refundStatus") Transaction.ReconciliationStatus refundStatus,
-                                                @Param("expenseType") Transaction.Type expenseType);
-
-    @Query("SELECT t.merchantId, COUNT(t), SUM(t.amount) FROM Transaction t " +
-           "WHERE t.isDuplicateOf IS NULL AND t.isTransfer = false AND t.reconciliationStatus <> :refundStatus " +
-           "AND t.txnType = :expenseType AND t.merchantId IS NOT NULL GROUP BY t.merchantId")
-    List<Object[]> platformMerchantSpendTotals(@Param("refundStatus") Transaction.ReconciliationStatus refundStatus,
-                                                @Param("expenseType") Transaction.Type expenseType);
+    // Admin Portal, Platform Analytics module -- the customers (USER scope, not deleted, the same
+    // population the setup-answers count uses) with an expense row in the period. Only who to look
+    // at: what each one spent comes from AnalyticsService.customerSpendLines, because what counts
+    // as spend is decided by ReportRows and RefundNetting, which SQL cannot apply.
+    @Query("SELECT DISTINCT t.userId FROM Transaction t WHERE t.txnType = :expenseType " +
+           "AND t.txnDate BETWEEN :from AND :to " +
+           "AND t.userId IN (SELECT u.id FROM User u WHERE u.accountScope = 'USER' AND u.deletedAt IS NULL)")
+    List<UUID> platformCustomersWithExpense(@Param("expenseType") Transaction.Type expenseType,
+                                            @Param("from") LocalDate from,
+                                            @Param("to") LocalDate to);
 
     /**
      * AccountPurgeSweepService. Native, bypassing Hibernate's {@code @SQLDelete} entirely -- a

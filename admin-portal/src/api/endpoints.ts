@@ -962,7 +962,9 @@ export const adminActivationApi = {
 };
 
 export const adminPlatformAnalyticsApi = {
-  get: () => api.get<PlatformAnalyticsDto>('/admin/analytics/platform').then((r) => r.data),
+  /** from: first month as YYYY-MM, months: how many (1 to 12); no from means all time. */
+  get: (period?: { from: string; months: number }) =>
+    api.get<PlatformAnalyticsDto>('/admin/analytics/platform', { params: period }).then((r) => r.data),
   spendingTracking: () =>
     api.get<SpendingTrackingBreakdown>('/admin/analytics/spending-tracking').then((r) => r.data),
 };

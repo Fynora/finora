@@ -1317,16 +1317,18 @@ export default function Dashboard() {
               </div>
               <div className="space-y-2 flex-1">
                 {categoryEntries.slice(0, 6).map(([name, val], i) => (
-                  <div key={name} className="flex items-center justify-between text-xs">
-                    <span className="flex items-center gap-2 text-ink">
-                      <span className="w-2 h-2 rounded-full" style={{ background: donutColors[i % donutColors.length] }} />
-                      {name}
+                  <div key={name} className="flex items-center justify-between gap-2 text-xs">
+                    <span className="flex items-center gap-2 text-ink min-w-0">
+                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: donutColors[i % donutColors.length] }} />
+                      {/* Breaks anywhere: this card's grid column is at least as wide as the longest
+                          word in it, so one long category name could push the page sideways. */}
+                      <span className="min-w-0 [overflow-wrap:anywhere]">{name}</span>
                     </span>
                     {/* Bug 44. categoryEntries can be non-empty with every amount at zero, which
                         the length check above doesn't catch -- totalSpend is then 0 and val /
                         totalSpend is 0/0, rendering the literal string "NaN%". */}
-                    <span className="text-muted">{totalSpend > 0 ? ((val / totalSpend) * 100).toFixed(0) : '0'}%</span>
-                    <span className="font-medium text-ink">{fmt(val)}</span>
+                    <span className="text-muted flex-shrink-0">{totalSpend > 0 ? ((val / totalSpend) * 100).toFixed(0) : '0'}%</span>
+                    <span className="font-medium text-ink flex-shrink-0">{fmt(val)}</span>
                   </div>
                 ))}
               </div>

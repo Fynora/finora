@@ -1638,7 +1638,9 @@ export default function Import() {
                       <div key={account.id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
                         <BankLogo bank={account.bank} size={32} />
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-ink truncate">{account.name}</p>
+                          {/* max-w-48: this card's grid column grows to fit text that may not wrap, so
+                              without a cap a long name widened the page instead of being cut short. */}
+                          <p className="text-sm font-medium text-ink truncate max-w-48" title={account.name}>{account.name}</p>
                           <p className="text-xs text-muted"><MaskedAccountNumber value={account.accountNumberMasked} /></p>
                         </div>
                         <Button

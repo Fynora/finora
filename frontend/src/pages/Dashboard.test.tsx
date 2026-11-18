@@ -1469,6 +1469,20 @@ describe('Dashboard — per-section empty states', () => {
     expect(screen.getAllByText('0%')).toHaveLength(2);
   });
 
+  it('wraps a very long category name, so the breakdown cannot widen the page', async () => {
+    const longCategory = 'LongCategoryName'.repeat(5);
+    vi.mocked(dashboardApi.summary).mockReset().mockResolvedValue(
+      summary({ spendByCategory: { [longCategory]: 500 } })
+    );
+
+    renderDashboard();
+
+    // A word that cannot break sets the minimum width of the grid column this card sits in.
+    const name = await screen.findByText(longCategory);
+    expect(name).toHaveClass('[overflow-wrap:anywhere]');
+    expect(name).toHaveClass('min-w-0');
+  });
+
   it('still shows AI Insights and Quick Actions -- generic tips, not hidden entirely', async () => {
     renderDashboard();
     await screen.findByText('No transactions yet');

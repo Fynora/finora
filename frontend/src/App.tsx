@@ -91,9 +91,9 @@ function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-bg flex">
       <Sidebar drawerOpen={menuOpen} onDrawerClose={closeMenu} />
-      {/* min-w-0 below `lg`: a flex child otherwise refuses to get narrower than its widest
-          content, which pushes the whole page sideways on a phone. */}
-      <main className="flex-1 p-8 max-w-[1600px] max-lg:min-w-0 max-lg:p-4">
+      {/* min-w-0: a flex item will not shrink below its content by default, so one wide table would
+          push the whole page past the window instead of scrolling inside its own card. */}
+      <main className="flex-1 min-w-0 p-8 max-w-[1600px] max-lg:p-4">
         <TopBar onOpenMenu={() => setMenuOpen(true)} />
         {/* Inside the shell, not around it: a page that throws is contained to the content area
             while the sidebar and top bar keep rendering, so the user can navigate away instead of

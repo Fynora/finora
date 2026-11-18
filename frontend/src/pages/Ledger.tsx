@@ -937,15 +937,20 @@ export default function Ledger() {
                       <p className="text-2xs text-muted leading-tight">{monthYear}</p>
                     </td>
                     <td className="p-3">
-                      <div className="flex items-start gap-2">
+                      {/* These lines wrap rather than truncate. In a table a cell that may not wrap
+                          is as wide as its longest line, so one long narration stretched the column
+                          to thousands of pixels and pushed Amount and Status out of view. `anywhere`
+                          also breaks a narration with no spaces in it; min-w-56 stops that from
+                          squeezing the column to a sliver when the table is short of room. */}
+                      <div className="flex items-start gap-2 min-w-56">
                         <MerchantLogo merchant={t.merchant} domain={t.logoDomain} size={28} />
                         <div className="min-w-0">
-                          <p className="text-ink font-medium truncate">{rowTitle(t)}</p>
-                          <p className="text-muted text-xs truncate">
+                          <p className="text-ink font-medium [overflow-wrap:anywhere]">{rowTitle(t)}</p>
+                          <p className="text-muted text-xs [overflow-wrap:anywhere]">
                             {t.description && t.description !== t.merchant ? t.description : null}
                           </p>
                           {t.referenceNumber && (
-                            <p className="text-muted text-2xs truncate" title="Reference number from your bank">
+                            <p className="text-muted text-2xs [overflow-wrap:anywhere]" title="Reference number from your bank">
                               Ref {t.referenceNumber}
                             </p>
                           )}
@@ -971,32 +976,34 @@ export default function Ledger() {
                       </div>
                     </td>
                     <td className="p-3 text-muted">
-                      {t.categoryName}
-                      <span
-                        className={`text-2xs uppercase ml-1.5 px-1 py-0.5 rounded ${t.categoryManuallySet ? 'bg-primary/15 text-primary' : 'bg-surface text-muted'}`}
-                        title={t.categoryManuallySet ? 'You set this category' : 'Automatically assigned by Fynora'}
-                      >
-                        {t.categoryManuallySet ? 'Manual' : 'Auto'}
-                      </span>
-                      <motion.button
-                        type="button"
-                        whileTap={prefersReducedMotion ? undefined : { scale: 0.85 }}
-                        title="Why this category?"
-                        onClick={() => setExplaining(t)}
-                        className="inline-flex items-center justify-center w-4 h-4 ml-1 text-muted hover:text-ink align-middle"
-                      >
-                        <HelpCircle size={12} />
-                      </motion.button>
+                      <div className="min-w-24">
+                        <span className="[overflow-wrap:anywhere]">{t.categoryName}</span>
+                        <span
+                          className={`text-2xs uppercase ml-1.5 px-1 py-0.5 rounded ${t.categoryManuallySet ? 'bg-primary/15 text-primary' : 'bg-surface text-muted'}`}
+                          title={t.categoryManuallySet ? 'You set this category' : 'Automatically assigned by Fynora'}
+                        >
+                          {t.categoryManuallySet ? 'Manual' : 'Auto'}
+                        </span>
+                        <motion.button
+                          type="button"
+                          whileTap={prefersReducedMotion ? undefined : { scale: 0.85 }}
+                          title="Why this category?"
+                          onClick={() => setExplaining(t)}
+                          className="inline-flex items-center justify-center w-4 h-4 ml-1 text-muted hover:text-ink align-middle"
+                        >
+                          <HelpCircle size={12} />
+                        </motion.button>
+                      </div>
                     </td>
                     <td className="p-3">
                       {account ? (
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 min-w-36">
                           <BankLogo bank={account.bank} size={20} />
                           <div className="min-w-0">
                             {/* The account's own name ("HDFC Savings"): the bank's short name alone read
                                 "Bank" for every account with no bank set, and could not tell two
                                 accounts at one bank apart. */}
-                            <p className="text-ink text-xs font-medium truncate">{account.name || account.bank.shortName}</p>
+                            <p className="text-ink text-xs font-medium [overflow-wrap:anywhere]">{account.name || account.bank.shortName}</p>
                             {/* accountNumberMasked is already the safe form to show outright --
                                 CsvParser.maskAccountNumber produces "••••" + only the last 4 real
                                 digits (fewer if the source number itself was shorter); there's no
@@ -1004,7 +1011,7 @@ export default function Ledger() {
                                 hiding it behind one more click (MaskedAccountNumber's generic
                                 "•••• ••••" placeholder) added a step without adding any privacy. */}
                             {account.accountNumberMasked && (
-                              <p className="text-muted text-2xs truncate">{account.accountNumberMasked}</p>
+                              <p className="text-muted text-2xs [overflow-wrap:anywhere]">{account.accountNumberMasked}</p>
                             )}
                           </div>
                         </div>

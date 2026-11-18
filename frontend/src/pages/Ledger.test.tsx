@@ -398,6 +398,43 @@ describe('Ledger — what the statement printed beside a row', () => {
   });
 });
 
+describe('Ledger — a very long narration', () => {
+  // A single unbroken run, the hard case: nothing in it gives the browser a place to break a line.
+  // Mixed case because rowTitle softens a word printed entirely in capitals.
+  const LONG = 'UpiPaymentExampleMerchant'.repeat(12);
+
+  it.each([
+    ['the narration', { description: LONG, merchant: 'Amazon' }],
+    ['the row title', { description: 'AMAZON PAY', merchant: LONG }],
+    ['the bank reference', { referenceNumber: LONG }],
+  ])('wraps %s in full, so it cannot widen the table or be cut off', async (_label, overrides) => {
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [txn(overrides)], page: 0, size: 10, totalElements: 1, totalPages: 1,
+    });
+    renderLedger();
+
+    const text = await screen.findByText((content) => content.includes(LONG));
+
+    // Every character is on the page. `truncate` is what forced the column to the text's full
+    // width: a table cell that may not wrap cannot be narrower than its longest line.
+    expect(text.textContent).toContain(LONG);
+    expect(text).not.toHaveClass('truncate');
+    expect(text).toHaveClass('[overflow-wrap:anywhere]');
+  });
+
+  it('keeps the description column readable when the table is squeezed', async () => {
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [txn({ description: LONG })], page: 0, size: 10, totalElements: 1, totalPages: 1,
+    });
+    renderLedger();
+
+    const text = await screen.findByText(LONG);
+
+    // `anywhere` lets the column shrink to one character wide, so it needs a floor of its own.
+    expect(text.closest('td')!.firstElementChild).toHaveClass('min-w-56');
+  });
+});
+
 describe('Ledger — search bar', () => {
   it('tells the user category is one of the things it searches', async () => {
     vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
@@ -1134,6 +1171,40 @@ describe('Ledger — account column', () => {
     expect(await screen.findByText('My HDFC')).toBeInTheDocument();
     // Shown directly, no click needed -- see the describe block's own comment for why.
     expect(screen.getByText('••••4582')).toBeInTheDocument();
+  });
+
+  it('wraps a very long account name and category instead of widening the table', async () => {
+    const longAccount = 'LongAccountName'.repeat(8);
+    const longCategory = 'LongCategoryName'.repeat(5);
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [txn({ accountId: 'acc-1', categoryName: longCategory })], page: 0, size: 10, totalElements: 1, totalPages: 1,
+    });
+    vi.mocked(transactionsApi.needsReview).mockReset().mockResolvedValue([]);
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(accountsApi.list).mockReset().mockResolvedValue([
+      {
+        id: 'acc-1', name: longAccount, accountType: 'SAVINGS', balance: 1000,
+        accountNumberMasked: '••••4582',
+        bank: {
+          id: 'hdfc', officialName: 'HDFC Bank', shortName: 'HDFC Bank', colorHex: '#004C8F',
+          initials: 'HD', logoPath: '/assets/banks/hdfc.svg', category: 'PRIVATE',
+          websiteUrl: null, ifscPrefix: 'HDFC', supportedAccountTypes: ['SAVINGS'],
+        },
+        lastImportedAt: null, lastStatementPeriodStart: null, lastStatementPeriodEnd: null,
+        statementsCount: 0, transactionsCount: 1, status: 'ACTIVE', primarySource: 'MANUAL',
+        aaSyncStale: false,
+      },
+    ]);
+    renderLedger();
+
+    const account = await screen.findByText(longAccount);
+    expect(account).not.toHaveClass('truncate');
+    expect(account).toHaveClass('[overflow-wrap:anywhere]');
+    // Scoped to the row: the category chips above the table carry the same name.
+    const category = within(account.closest('tr')!).getByText(longCategory);
+    expect(category).toHaveClass('[overflow-wrap:anywhere]');
+    // Only the name may break mid-word: the Auto/Manual label beside it stays whole.
+    expect(within(category.closest('td')!).getByText('Auto').closest('[class*="overflow-wrap"]')).toBeNull();
   });
 });
 

@@ -4214,6 +4214,18 @@ describe('Import — redesigned upload-step chrome', () => {
     clickSpy.mockRestore();
   });
 
+  it('caps a very long account name, so the account list cannot widen the page', async () => {
+    const longName = 'LongAccountName'.repeat(8);
+    vi.mocked(accountsApi.list).mockResolvedValue([existingAccount({ name: longName })]);
+    renderImport();
+
+    // truncate alone cannot shorten text here: the grid column grows to fit it first.
+    const name = await screen.findByText(longName);
+    expect(name).toHaveClass('truncate', 'max-w-48');
+    // Cut short on screen, so the whole name stays available on hover.
+    expect(name).toHaveAttribute('title', longName);
+  });
+
   it('shows an empty-state message when the user has no connected accounts yet', async () => {
     renderImport();
 

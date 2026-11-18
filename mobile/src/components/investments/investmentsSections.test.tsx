@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, within } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
+import type { ReactTestInstance } from 'react-test-renderer';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { categoriesApi, transactionsApi, type NetWorthData } from '../../api/endpoints';
 import { comingUp, summarizeHoldings } from '../../lib/investmentSummary';
@@ -68,6 +69,16 @@ describe('PortfolioCard', () => {
     expect(screen.getByText('₹14,00,000').props.adjustsFontSizeToFit).toBe(true);
   });
 
+  // The bar has gaps between its parts. Percent widths add up to 100% plus those gaps, and phone
+  // layouts don't shrink by default, so the last part was cut off.
+  it('sizes the mix parts by share so the gaps cannot push the last one out', () => {
+    render(<PortfolioCard summary={summarizeHoldings(SAMPLE)} subtitle={null} money={money} />);
+
+    const parts = screen.getByTestId('portfolio-mix').children.map((part) => StyleSheet.flatten((part as ReactTestInstance).props.style));
+    expect(parts.map((part) => part.width)).toEqual([undefined, undefined, undefined, undefined]);
+    expect(parts.map((part) => Math.round(part.flex * 100))).toEqual([46, 25, 15, 14]);
+  });
+
   it('draws no mix when the holdings total nothing', () => {
     render(<PortfolioCard summary={summarizeHoldings([holding({ balance: 0 })])} subtitle={null} money={money} />);
 
@@ -126,6 +137,7 @@ describe('MoneyGoingInCard', () => {
     renderCard();
 
     expect(await screen.findByText('At least ₹10,000')).toBeTruthy();
+    expect(screen.getByLabelText('Last 12 months: At least ₹10,000, about ₹833 a month')).toBeTruthy();
     expect(transactions.search).toHaveBeenCalledTimes(10);
   });
 

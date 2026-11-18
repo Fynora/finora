@@ -47,7 +47,11 @@ export function HoldingsCard({ summary, today, money, onUpdate, onDelete, busyId
                   </div>
                   <div className="hidden w-40 flex-shrink-0 items-center gap-2.5 md:flex">
                     <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface">
-                      <div className="h-full rounded-full" style={{ width: `${Math.min(100, share * 100)}%`, backgroundColor: GROUP_COLOR[group.key] }} />
+                      <div
+                        data-testid="holding-share-bar"
+                        className="h-full rounded-full"
+                        style={{ width: `${Math.max(0, Math.min(100, share * 100))}%`, backgroundColor: GROUP_COLOR[group.key] }}
+                      />
                     </div>
                     <span className="w-9 text-right text-[13px] text-muted">{percent}</span>
                   </div>

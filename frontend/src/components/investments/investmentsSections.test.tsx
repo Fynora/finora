@@ -82,6 +82,13 @@ describe('ComingUpCard', () => {
     expect(screen.getByText('12 of 24 paid')).toBeInTheDocument();
     expect(screen.getByRole('progressbar', { name: 'Recurring deposit: 12 of 24 paid' })).toHaveAttribute('aria-valuenow', '50');
   });
+
+  it('lets a long unbroken name wrap inside the card', () => {
+    render(<ComingUpCard rows={comingUp(SAMPLE, TODAY)} money={money} />);
+
+    expect(screen.getByText('Bank FD matures')).toHaveClass('break-words');
+    expect(screen.getByText('Recurring deposit')).toHaveClass('break-words');
+  });
 });
 
 describe('MoneyGoingInCard', () => {
@@ -119,6 +126,7 @@ describe('MoneyGoingInCard', () => {
     renderCard();
 
     expect(await screen.findByText('At least ₹10,000')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Last 12 months: At least ₹10,000, about ₹833 a month' })).toBeInTheDocument();
     expect(transactionsApi.search).toHaveBeenCalledTimes(10);
   });
 
@@ -154,6 +162,14 @@ describe('HoldingsCard', () => {
     expect(within(row).getByText('21%')).toBeInTheDocument();
     expect(within(row).getByText('7.2% a year · matures 12 Jan 2027 · ₹3,21,600 at maturity')).toBeInTheDocument();
     expect(within(row).getByText('₹3,00,000')).toBeInTheDocument();
+  });
+
+  // The server accepts a negative balance. A negative width is invalid CSS, so the bar drew full.
+  it('draws an empty share bar for a holding with a negative value', () => {
+    renderCard([holding({ id: 'up', name: 'Up', balance: 1000 }), holding({ id: 'down', name: 'Down', balance: -200 })]);
+
+    expect(within(screen.getByRole('group', { name: /^Down/ })).getByTestId('holding-share-bar')).toHaveStyle({ width: '0%' });
+    expect(within(screen.getByRole('group', { name: /^Up/ })).getByTestId('holding-share-bar')).toHaveStyle({ width: '100%' });
   });
 
   it('the row menu offers Update value and Delete holding', async () => {

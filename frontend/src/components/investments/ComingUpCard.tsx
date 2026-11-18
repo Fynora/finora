@@ -15,7 +15,7 @@ export function ComingUpCard<T extends HoldingLike>({ rows, money }: { rows: Com
               {row.dateLabel ? (
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-ink">{`${row.holding.name} matures`}</p>
+                    <p className="break-words text-sm font-medium text-ink">{`${row.holding.name} matures`}</p>
                     <p className="text-[13px] text-muted">{[row.dateLabel, row.whenLabel, paidLabel].filter(Boolean).join(' · ')}</p>
                   </div>
                   {row.amount !== null && <p className="flex-shrink-0 text-sm font-semibold text-ink">{money(row.amount)}</p>}
@@ -23,7 +23,7 @@ export function ComingUpCard<T extends HoldingLike>({ rows, money }: { rows: Com
               ) : (
                 <>
                   <div className="flex items-center justify-between gap-3">
-                    <p className="min-w-0 text-sm font-medium text-ink">{row.holding.name}</p>
+                    <p className="min-w-0 break-words text-sm font-medium text-ink">{row.holding.name}</p>
                     <p className="flex-shrink-0 text-[13px] text-muted">{paidLabel}</p>
                   </div>
                   <div

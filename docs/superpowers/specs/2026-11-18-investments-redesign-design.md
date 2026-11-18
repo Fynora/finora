@@ -1,7 +1,7 @@
 # Investments redesign (web + mobile) — design
 
 Date: 2026-11-18
-Status: draft, waiting for Sid's approval
+Status: approved by Sid on 2026-11-18
 Figma: https://www.figma.com/design/NdqLc0fe006GT3maC7qJUo?node-id=12-27
 (page "Investments", frames: "Web · Investments", "Web · states", "Mobile · Investments",
 "Mobile · states")

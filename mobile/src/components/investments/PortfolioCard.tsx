@@ -22,7 +22,7 @@ export function PortfolioCard<T extends HoldingLike>({ summary, subtitle, money 
         <>
           <View testID="portfolio-mix" accessible accessibilityRole="image" accessibilityLabel={mixLabel} style={styles.bar}>
             {summary.mix.map((m) => (
-              <View key={m.key} style={{ width: `${m.share * 100}%`, backgroundColor: GROUP_COLOR[m.key] }} />
+              <View key={m.key} style={{ flex: m.share, backgroundColor: GROUP_COLOR[m.key] }} />
             ))}
           </View>
           {summary.mix.map((m) => (

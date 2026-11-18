@@ -60,7 +60,7 @@ export function MoneyGoingInCard({ today }: { today: Date }) {
       .finally(() => { if (isCurrent()) setLoading(false); });
   }, [beginRequest, dateFrom, dateTo]);
 
-  const total = summary ? fmt(summary.total) : '';
+  const total = summary ? `${summary.truncated ? 'At least ' : ''}${fmt(summary.total)}` : '';
   const average = summary ? fmt(summary.monthlyAverage) : '';
   return (
     <FinoraCard padding="lg">
@@ -78,7 +78,7 @@ export function MoneyGoingInCard({ today }: { today: Date }) {
         <p className="mt-3 text-sm text-muted">No SIPs or broker payments found in your statements yet.</p>
       ) : (
         <>
-          <p className="mt-2 font-display text-2xl font-extrabold tracking-tight text-ink">{`${summary.truncated ? 'At least ' : ''}${total}`}</p>
+          <p className="mt-2 font-display text-2xl font-extrabold tracking-tight text-ink">{total}</p>
           <p className="text-[13px] text-muted">{`About ${average} a month · ${summary.count} ${summary.count === 1 ? 'payment' : 'payments'}`}</p>
           <div role="img" aria-label={`Last 12 months: ${total}, about ${average} a month`} className="mt-3 flex gap-1.5">
             {summary.months.map((m) => (

@@ -1003,39 +1003,6 @@ describe('Ledger — KPI row and category chips', () => {
     expect(screen.queryByText('₹9,000')).not.toBeInTheDocument();
   });
 
-  // Bug fix: the KPI stats query (statsFilters) never includes categoryId -- a chip's own count
-  // must answer "how many rows in each category," which only works if selecting one doesn't
-  // change what the others are counted against. The label must stay honest about that: it must
-  // NOT claim "(filtered)" when the ONLY active filter is a category chip, since the number next
-  // to it doesn't actually change. (It previously did claim this -- the value and label disagreed.)
-  it('does not relabel the Total Spent KPI "(filtered)" when only a category chip is selected', async () => {
-    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
-      content: [
-        txn({ id: 't1', categoryId: 'cat-1', categoryName: 'Shopping', amount: 1000, type: 'EXPENSE' }),
-        txn({ id: 't2', categoryId: 'cat-2', categoryName: 'Travel', amount: 200, type: 'EXPENSE' }),
-      ],
-      page: 0, size: 10, totalElements: 2, totalPages: 1,
-    });
-    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([
-      { id: 'cat-1', name: 'Shopping', isSystem: false, icon: 'shopping-bag', color: 'blue' },
-      { id: 'cat-2', name: 'Travel', isSystem: false, icon: 'plane', color: 'green' },
-    ]);
-    const user = userEvent.setup();
-    renderLedger();
-
-    expect(await screen.findByText('Total Spent')).toBeInTheDocument();
-    expect(screen.queryByText('Total Spent (filtered)')).not.toBeInTheDocument();
-
-    await user.click(await screen.findByRole('button', { name: /travel\s*1/i }));
-
-    // The label must still read plain "Total Spent" -- and the value must still be the
-    // all-categories total (₹1,200), matching what the (unchanged) label promises -- since
-    // selecting a category chip alone doesn't change either.
-    await waitFor(() => expect(screen.getByText('Total Spent')).toBeInTheDocument());
-    expect(screen.queryByText('Total Spent (filtered)')).not.toBeInTheDocument();
-    expect(screen.getByText('₹1,200')).toBeInTheDocument();
-  });
-
   // KPI polish: Total Spent/Transactions get a real (not fabricated) daily-trend sparkline, and
   // Top Category gets a real per-category bar chart -- both built from the same statsFilters
   // window the cards' own big numbers already summarize, never a "vs last month" guess.
@@ -1629,6 +1596,27 @@ describe('Ledger — a link from Reports (category and date range)', () => {
       expect.objectContaining({ categoryId: 'cat-food', dateFrom: '2026-09-01', dateTo: '2026-09-30' })));
   });
 
+  it('drops the previous category when the next link names one that does not exist', async () => {
+    function NextLink() {
+      const navigate = useNavigate();
+      return <button type="button" onClick={() => void navigate('/app/transactions?category=Uncategorized&from=2026-10-01&to=2026-10-31')}>next link</button>;
+    }
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/app/transactions?category=Food%20%26%20Dining&from=2026-09-01&to=2026-09-30']}>
+          <NextLink />
+          <Ledger />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(searched()).toContainEqual(expect.objectContaining({ categoryId: 'cat-food', size: 10 })));
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'next link' }));
+    await waitFor(() => expect(searched()).toContainEqual(expect.objectContaining({ dateFrom: '2026-10-01', size: 10 })));
+    expect(searched().filter((r) => r.dateFrom === '2026-10-01').every((r) => r.categoryId === undefined)).toBe(true);
+  });
+
   it('asks for the date range on the very first request, not after an unfiltered one', async () => {
     renderLedger('/app/transactions?category=Food%20%26%20Dining&from=2026-09-01&to=2026-09-30');
 
@@ -1636,7 +1624,7 @@ describe('Ledger — a link from Reports (category and date range)', () => {
     expect(searched()[0]).toMatchObject({ dateFrom: '2026-09-01', dateTo: '2026-09-30' });
   });
 
-  // The list is the 10-row page; the KPI row's own request is the big unfiltered-by-category one.
+  // The list is the 10-row page; the KPI row and chips read in pages of 100.
   const listRequests = () => searched().filter((r) => r.size === 10);
 
   it('never asks for the month without its category, so the wrong list does not flash first', async () => {
@@ -1762,5 +1750,163 @@ describe('Ledger — money with people', () => {
     renderWithWhere();
     await screen.findByText('Amazon Pay');
     expect(screen.queryByRole('button', { name: /^Money with people/ })).toBeNull();
+  });
+});
+
+// Found 2026-11-17 following a Budgets "See transactions" link: the list showed the 3 rows of one
+// category for the month, while Total Spent and Transactions still showed the whole month (all 9
+// rows). The summary cards must describe the rows on screen, however the category was chosen.
+describe('Ledger — summary cards follow the category filter', () => {
+  const food = { id: 'cat-food', name: 'Food and dining', isSystem: false, icon: 'utensils', color: 'orange' } as never;
+  const travel = { id: 'cat-travel', name: 'Travel', isSystem: false, icon: 'plane', color: 'green' } as never;
+  const month = [
+    txn({ id: 'f1', date: '2026-11-03', categoryId: 'cat-food', categoryName: 'Food and dining', amount: 2000 }),
+    txn({ id: 'f2', date: '2026-11-05', categoryId: 'cat-food', categoryName: 'Food and dining', amount: 2500 }),
+    txn({ id: 'f3', date: '2026-11-09', categoryId: 'cat-food', categoryName: 'Food and dining', amount: 2700 }),
+    txn({ id: 'r1', date: '2026-11-02', categoryId: 'cat-travel', categoryName: 'Travel', amount: 4000 }),
+    txn({ id: 'r2', date: '2026-11-04', categoryId: 'cat-travel', categoryName: 'Travel', amount: 3000 }),
+    txn({ id: 'r3', date: '2026-11-06', categoryId: 'cat-travel', categoryName: 'Travel', amount: 2500 }),
+    txn({ id: 'r4', date: '2026-11-07', categoryId: 'cat-travel', categoryName: 'Travel', amount: 2000 }),
+    txn({ id: 'r5', date: '2026-11-08', categoryId: 'cat-travel', categoryName: 'Travel', amount: 2000 }),
+    txn({ id: 'r6', date: '2026-11-10', categoryId: 'cat-travel', categoryName: 'Travel', amount: 2000 }),
+  ];
+  // The big number on a KPI card: the label's header row is followed by the value. The selector
+  // keeps the page heading's "Transactions" eyebrow out of it.
+  const kpiValue = (label: string) =>
+    screen.getByText(label, { selector: 'p.text-sm.font-semibold' }).parentElement!.nextElementSibling!.textContent;
+
+  beforeEach(() => {
+    vi.mocked(transactionsApi.needsReview).mockReset().mockResolvedValue([]);
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([food, travel]);
+    // Answers like the server: a categoryId narrows the rows, and the count is the narrowed one.
+    vi.mocked(transactionsApi.search).mockReset().mockImplementation((filters: any) => {
+      const content = filters.categoryId ? month.filter((t) => t.categoryId === filters.categoryId) : month;
+      return Promise.resolve({ content, page: 0, size: filters.size ?? 10, totalElements: content.length, totalPages: 1 });
+    });
+  });
+
+  it('shows the linked category\'s spend and count, not the whole month\'s', async () => {
+    renderLedger('/app/transactions?category=Food%20and%20dining&from=2026-11-01&to=2026-11-30');
+
+    await waitFor(() => expect(kpiValue('Total Spent (filtered)')).toBe('₹7,200'));
+    expect(kpiValue('Transactions')).toBe('3');
+    expect(kpiValue('Top Category')).toBe('Food and dining');
+    // The chips still count every category, so the others stay one click away with their sizes.
+    expect(screen.getByRole('button', { name: /travel\s*6/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^all\s*9/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /food and dining\s*3/i })).toHaveAttribute('class', expect.stringContaining('bg-primary'));
+  });
+
+  it('does the same when the category chip is clicked by hand, and goes back to the whole list on All', async () => {
+    const user = userEvent.setup();
+    renderLedger();
+
+    await waitFor(() => expect(kpiValue('Total Spent')).toBe('₹22,700'));
+    expect(kpiValue('Transactions')).toBe('9');
+
+    await user.click(await screen.findByRole('button', { name: /food and dining\s*3/i }));
+    await waitFor(() => expect(kpiValue('Total Spent (filtered)')).toBe('₹7,200'));
+    expect(kpiValue('Transactions')).toBe('3');
+    expect(kpiValue('Top Category')).toBe('Food and dining');
+
+    await user.click(screen.getByRole('button', { name: /^all\s*9/i }));
+    await waitFor(() => expect(kpiValue('Total Spent')).toBe('₹22,700'));
+    expect(kpiValue('Transactions')).toBe('9');
+    expect(kpiValue('Top Category')).toBe('Travel');
+  });
+
+  it('shows a skeleton, not the previous figures, while a chosen category is being added up', async () => {
+    vi.mocked(transactionsApi.search).mockImplementation((filters: any) => (filters.categoryId
+      ? new Promise(() => {})
+      : Promise.resolve({ content: month, page: 0, size: filters.size ?? 10, totalElements: month.length, totalPages: 1 })));
+    const user = userEvent.setup();
+    renderLedger();
+
+    await user.click(await screen.findByRole('button', { name: /food and dining\s*3/i }));
+    expect(await screen.findByText('Loading transaction summary')).toBeInTheDocument();
+    expect(screen.queryByText('₹22,700')).not.toBeInTheDocument();
+  });
+
+  it('shows nothing spent and no transactions for a category with no rows in the range', async () => {
+    const empty = { id: 'cat-gifts', name: 'Gifts', isSystem: false, icon: 'gift', color: 'pink' } as never;
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([food, travel, empty]);
+    renderLedger('/app/transactions?category=Gifts&from=2026-11-01&to=2026-11-30');
+
+    await waitFor(() => expect(kpiValue('Total Spent (filtered)')).toBe('₹0'));
+    expect(kpiValue('Transactions')).toBe('0');
+    expect(kpiValue('Top Category')).toBe('—');
+    expect(screen.getByRole('button', { name: /gifts\s*0/i })).toHaveAttribute('class', expect.stringContaining('bg-primary'));
+  });
+
+  // The server returns at most 100 rows a request, newest first: a category last used long ago has
+  // no rows among the newest 100 of the range, and a busy month has more than 100.
+  it('totals a category whose rows are all older than the newest 100 rows', async () => {
+    const newest = Array.from({ length: 100 }, (_, i) => txn({ id: `n${i}`, date: '2026-11-20', categoryId: 'cat-travel', categoryName: 'Travel', amount: 10 }));
+    const old = txn({ id: 'o1', date: '2026-01-05', categoryId: 'cat-food', categoryName: 'Food and dining', amount: 4000 });
+    vi.mocked(transactionsApi.search).mockReset().mockImplementation((filters: any) => {
+      const all = [...newest, old];
+      const matching = filters.categoryId ? all.filter((t) => t.categoryId === filters.categoryId) : all;
+      const start = filters.after ? matching.findIndex((t) => t.id === filters.after) + 1 : 0;
+      const rest = matching.slice(start);
+      return Promise.resolve({ content: rest.slice(0, Math.min(filters.size, 100)), page: 0, size: 100, totalElements: rest.length, totalPages: 1 });
+    });
+    renderLedger('/app/transactions?category=Food%20and%20dining');
+
+    await waitFor(() => expect(kpiValue('Total Spent (filtered)')).toBe('₹4,000'));
+    expect(kpiValue('Transactions')).toBe('1');
+    expect(kpiValue('Top Category')).toBe('Food and dining');
+    expect(await screen.findByRole('button', { name: /food and dining\s*1/i })).toBeInTheDocument();
+  });
+
+  it('adds up every row of a range longer than one server page', async () => {
+    const rows = Array.from({ length: 250 }, (_, i) => txn({ id: `b${i}`, date: '2026-11-15', categoryId: 'cat-travel', categoryName: 'Travel', amount: 100 }));
+    vi.mocked(transactionsApi.search).mockReset().mockImplementation((filters: any) => {
+      const start = filters.after ? rows.findIndex((t) => t.id === filters.after) + 1 : 0;
+      const rest = rows.slice(start);
+      return Promise.resolve({ content: rest.slice(0, Math.min(filters.size, 100)), page: 0, size: 100, totalElements: rest.length, totalPages: 1 });
+    });
+    renderLedger();
+
+    await waitFor(() => expect(kpiValue('Total Spent')).toBe('₹25,000'));
+    expect(kpiValue('Transactions')).toBe('250');
+    expect(await screen.findByRole('button', { name: /travel\s*250/i })).toBeInTheDocument();
+  });
+
+  it('says the total covers only the newest rows when a history is too long to read in full', async () => {
+    const rows = Array.from({ length: 5100 }, (_, i) => txn({ id: `h${i}`, date: '2026-11-15', categoryId: 'cat-travel', categoryName: 'Travel', amount: 1 }));
+    vi.mocked(transactionsApi.search).mockReset().mockImplementation((filters: any) => {
+      const start = filters.after ? Number(filters.after.slice(1)) + 1 : 0;
+      return Promise.resolve({ content: rows.slice(start, start + Math.min(filters.size, 100)), page: 0, size: 100, totalElements: rows.length - start, totalPages: 1 });
+    });
+    renderLedger();
+
+    expect(await screen.findByText('Newest 5,000 of 5,100')).toBeInTheDocument();
+    expect(kpiValue('Transactions')).toBe('5,100');
+  });
+
+  it('says the summary could not load instead of showing nothing spent', async () => {
+    vi.mocked(transactionsApi.search).mockReset().mockImplementation((filters: any) => (filters.size === 100
+      ? Promise.reject(new Error('down'))
+      : Promise.resolve({ content: month.slice(0, 3), page: 0, size: 10, totalElements: 3, totalPages: 1 })));
+    renderLedger('/app/transactions?category=Food%20and%20dining');
+
+    expect(await screen.findByText('Could not load')).toBeInTheDocument();
+    expect(kpiValue('Total Spent (filtered)')).toBe('—');
+    expect(kpiValue('Transactions')).toBe('—');
+  });
+
+  it('keeps the summary as a loading skeleton while a linked category waits for the categories', async () => {
+    let resolveCategories!: (v: never[]) => void;
+    vi.mocked(categoriesApi.list).mockReset().mockReturnValue(new Promise((res) => { resolveCategories = res as never; }));
+    renderLedger('/app/transactions?category=Food%20and%20dining&from=2026-11-01&to=2026-11-30');
+
+    // The month's stats have arrived, but the category is not applied yet: showing them would be
+    // the whole month's totals flashing before the category's.
+    await waitFor(() => expect(transactionsApi.search).toHaveBeenCalledWith(expect.objectContaining({ size: 100 })));
+    expect(screen.getByText('Loading transaction summary')).toBeInTheDocument();
+    expect(screen.queryByText('₹22,700')).not.toBeInTheDocument();
+
+    resolveCategories([food, travel] as never);
+    await waitFor(() => expect(kpiValue('Total Spent (filtered)')).toBe('₹7,200'));
   });
 });

@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Activation from './Activation';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { mockAdminAuthState } from '../test/mockAdminAuth';
-import { adminActivationApi } from '../api/endpoints';
+import { adminActivationApi, adminPlatformAnalyticsApi } from '../api/endpoints';
 import type { ActivationReport, ActivationWeekRow } from '../api/endpoints';
 
 // Same reasons as PlatformAnalytics.test.tsx: AdminLayout renders ThemeToggle and GlobalSearch.
@@ -15,8 +15,16 @@ vi.mock('../context/ThemeContext', () => ({
 vi.mock('../context/AdminAuthContext', () => ({ useAdminAuth: vi.fn() }));
 vi.mock('../api/endpoints', () => ({
   adminActivationApi: { report: vi.fn(), addMarker: vi.fn(), removeMarker: vi.fn() },
+  adminPlatformAnalyticsApi: { spendingTracking: vi.fn() },
   adminSearchApi: { search: vi.fn(() => new Promise(() => {})) },
 }));
+
+const NO_TRACKING_ANSWERS = {
+  answered: 0,
+  notAnswered: 0,
+  methods: ['NOT_TRACKED', 'IN_MY_HEAD', 'PAPER', 'SPREADSHEET', 'EXPENSE_APP', 'BANK_APP', 'OTHER']
+    .map((method) => ({ method, count: 0 })),
+};
 
 const STEPS = [
   'SIGNED_UP', 'OPENED_IMPORT', 'CHOSE_FILE', 'REFUSED', 'READ_FAILED', 'HELD',
@@ -125,6 +133,32 @@ function renderPage(permissions: string[] = ['PLATFORM_ANALYTICS_VIEW']) {
 describe('Activation', () => {
   beforeEach(() => {
     vi.mocked(adminActivationApi.report).mockReset().mockResolvedValue(report());
+    vi.mocked(adminPlatformAnalyticsApi.spendingTracking).mockReset().mockResolvedValue(NO_TRACKING_ANSWERS);
+  });
+
+  // Moved here from Platform Analytics, beside the same answers broken down by step.
+  it('showsHowUsersTrackedSpendingAsAShareOfAllAnswers', async () => {
+    vi.mocked(adminPlatformAnalyticsApi.spendingTracking).mockResolvedValue({
+      answered: 8,
+      notAnswered: 5,
+      methods: NO_TRACKING_ANSWERS.methods.map((m) =>
+        m.method === 'SPREADSHEET' ? { ...m, count: 2 } : m.method === 'IN_MY_HEAD' ? { ...m, count: 6 } : m),
+    });
+    renderPage();
+
+    await screen.findByText('Spreadsheet (Excel, Google Sheets)');
+    expect(screen.getByRole('heading', { name: 'How users tracked spending before Fynora' })).toBeInTheDocument();
+    expect(screen.getByText('25.0%')).toBeInTheDocument();
+    expect(screen.getByText('75.0%')).toBeInTheDocument();
+    expect(screen.getByText(/8 answered, 5 not yet asked or not yet answered/)).toBeInTheDocument();
+  });
+
+  it('showsADashNotAPercentageBeforeAnyoneHasAnsweredTheTrackingQuestion', async () => {
+    renderPage();
+
+    const answer = await screen.findByText("Don't really track it");
+    const table = answer.closest('table') as HTMLTableElement;
+    expect(within(table).getAllByText('—')).toHaveLength(7);
   });
 
   it('rendersStepColumnsInOrder', async () => {

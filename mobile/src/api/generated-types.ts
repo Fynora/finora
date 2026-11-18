@@ -5700,6 +5700,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/learning/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["events"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/learning-queue": {
         parameters: {
             query?: never;
@@ -13697,6 +13713,26 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        LearningCategoryChange: {
+            fromCategory?: string;
+            toCategory?: string;
+            /** Format: int64 */
+            count?: number;
+        };
+        LearningCategorySourceCount: {
+            source?: string;
+            /** Format: int64 */
+            transactions?: number;
+        };
+        LearningCorrectedMerchant: {
+            merchant?: string;
+            /** Format: int64 */
+            corrections?: number;
+            /** Format: int64 */
+            users?: number;
+            usualFrom?: string;
+            usualTo?: string;
+        };
         LearningPlatformStatsDto: {
             /** Format: int64 */
             learnedMerchantPairs?: number;
@@ -13706,7 +13742,75 @@ export interface components {
             correctedCount?: number;
             /** Format: int64 */
             resetCount?: number;
-            trend?: components["schemas"]["LearningGrowthPoint"][];
+            /** Format: int64 */
+            undoneCount?: number;
+            /** Format: int64 */
+            usersWithLearning?: number;
+            /** Format: double */
+            medianPairsPerUser?: number;
+            last30Days?: components["schemas"]["LearningWindow"];
+            previous30Days?: components["schemas"]["LearningWindow"];
+            trend?: components["schemas"]["LearningTrendPoint"][];
+            categorySources?: components["schemas"]["LearningCategorySourceCount"][];
+            topCorrectedMerchants?: components["schemas"]["LearningCorrectedMerchant"][];
+            topCategoryChanges?: components["schemas"]["LearningCategoryChange"][];
+        };
+        LearningTrendPoint: {
+            month?: string;
+            /** Format: int64 */
+            firstTime?: number;
+            /** Format: int64 */
+            kept?: number;
+            /** Format: int64 */
+            corrected?: number;
+            /** Format: int64 */
+            undone?: number;
+            /** Format: int64 */
+            reset?: number;
+        };
+        LearningWindow: {
+            /** Format: int64 */
+            firstTime?: number;
+            /** Format: int64 */
+            kept?: number;
+            /** Format: int64 */
+            corrected?: number;
+        };
+        ApiResponsePagedResponseLearningEventRow: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["PagedResponseLearningEventRow"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        LearningEventRow: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: date-time */
+            createdAt?: string;
+            /** Format: uuid */
+            userId?: string;
+            userEmail?: string;
+            action?: string;
+            merchant?: string;
+            fromCategory?: string;
+            toCategory?: string;
+        };
+        PagedResponseLearningEventRow: {
+            content?: components["schemas"]["LearningEventRow"][];
+            /** Format: int32 */
+            page?: number;
+            /** Format: int32 */
+            size?: number;
+            /** Format: int64 */
+            totalElements?: number;
+            /** Format: int32 */
+            totalPages?: number;
         };
         ApiResponsePagedResponseLearningQueueDto: {
             success?: boolean;
@@ -15064,18 +15168,37 @@ export interface components {
             };
         };
         PlatformAnalyticsDto: {
-            topCategories?: components["schemas"]["PlatformCategorySpendDto"][];
-            topMerchants?: components["schemas"]["PlatformMerchantSpendDto"][];
+            /** Format: date */
+            from?: string;
+            /** Format: date */
+            to?: string;
+            /** Format: date */
+            previousFrom?: string;
+            /** Format: date */
+            previousTo?: string;
+            /** Format: int32 */
+            minCustomers?: number;
+            summary?: components["schemas"]["PlatformSpendSummaryDto"];
+            previousSummary?: components["schemas"]["PlatformSpendSummaryDto"];
+            topCategories?: components["schemas"]["PlatformSpendRowDto"][];
+            topMerchants?: components["schemas"]["PlatformSpendRowDto"][];
         };
-        PlatformCategorySpendDto: {
-            categoryName?: string;
+        PlatformSpendRowDto: {
+            name?: string;
+            /** Format: int64 */
+            customers?: number;
             totalSpend?: number;
+            medianSpendPerCustomer?: number;
             /** Format: int64 */
             transactionCount?: number;
+            previousMedianSpendPerCustomer?: number;
         };
-        PlatformMerchantSpendDto: {
-            merchantName?: string;
+        PlatformSpendSummaryDto: {
+            /** Format: int64 */
+            customersWithSpend?: number;
             totalSpend?: number;
+            medianSpendPerCustomer?: number;
+            toSortSpend?: number;
             /** Format: int64 */
             transactionCount?: number;
         };
@@ -24922,6 +25045,29 @@ export interface operations {
             };
         };
     };
+    events: {
+        parameters: {
+            query?: {
+                page?: number;
+                size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponsePagedResponseLearningEventRow"];
+                };
+            };
+        };
+    };
     list_27: {
         parameters: {
             query?: {
@@ -25977,7 +26123,10 @@ export interface operations {
     };
     analytics: {
         parameters: {
-            query?: never;
+            query?: {
+                from?: string;
+                months?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;

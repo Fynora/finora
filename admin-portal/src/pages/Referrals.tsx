@@ -13,8 +13,7 @@ import type { AdminReferralSummaryDto } from '../types';
 
 const PAGE_SIZE = 20;
 
-/** Same convention as PlatformAnalytics.tsx's own formatCurrency -- fixed 2 decimals and
- *  en-IN grouping, since reward is a real NUMERIC(10,2) money value, not a whole-rupee count. */
+/** Fixed 2 decimals and en-IN grouping, since reward is a real NUMERIC(10,2) money value, not a whole-rupee count. */
 function formatReward(amount: number) {
   return '₹' + amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }

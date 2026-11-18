@@ -13,7 +13,7 @@ import type {
   FeedbackRow, FeedbackQuery, FeedbackBreakdown,
   CreateAccountRequest, CreateBankRequest, CreateMerchantTemplateRequest, CreateRelationshipRequest,
   CreateRuleRequest, CreateTrustedSenderRequest, CreateUserRequest, FeatureFlagDto, GmailMerchantParserStatDto, LearningGrowthPoint, LearningPlatformStatsDto, LearningSummaryDto, SignupSourceCountDto,
-  LearningTimelineEntry,
+  LearningTimelineEntry, LearningEventRow,
   IntegrationsOverviewDto,
   MeAccessDto, MerchantDto, MerchantMergeRequest, MerchantStatDto, MerchantTemplateDto,
   MerchantUpdateRequest, OperationalDashboardDto, SampleAnalysis, PagedResponse, PermissionDto, PlatformAnalyticsDto, SpendingTrackingBreakdown,
@@ -784,6 +784,8 @@ export const adminUserAnalyticsApi = {
 
 export const adminLearningApi = {
   platformStats: () => api.get<LearningPlatformStatsDto>('/admin/learning/stats').then((r) => r.data),
+  events: (params: { page: number; size: number }) =>
+    api.get<PagedResponse<LearningEventRow>>('/admin/learning/events', { params }).then((r) => r.data),
 };
 
 /** Admin, read-only Learning Engine visibility for a specific user -- AdminUserLearningController
@@ -962,7 +964,9 @@ export const adminActivationApi = {
 };
 
 export const adminPlatformAnalyticsApi = {
-  get: () => api.get<PlatformAnalyticsDto>('/admin/analytics/platform').then((r) => r.data),
+  /** from: first month as YYYY-MM, months: how many (1 to 12); no from means all time. */
+  get: (period?: { from: string; months: number }) =>
+    api.get<PlatformAnalyticsDto>('/admin/analytics/platform', { params: period }).then((r) => r.data),
   spendingTracking: () =>
     api.get<SpendingTrackingBreakdown>('/admin/analytics/spending-tracking').then((r) => r.data),
 };

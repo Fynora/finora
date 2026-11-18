@@ -218,12 +218,9 @@ public class AdminOperationalDashboardService {
      * today included.
      *
      * Each day is its own bounded [start, nextDayStart) window, queried directly with the same
-     * Between-style repository calls {@link #overview()} already uses for "yesterday" -- not one
-     * bulk fetch bucketed in Java the way AdminLearningStatsService.trend() buckets by month.
-     * That fetch-then-bucket shape exists there to walk a data-driven range and fill gaps between
-     * whatever months actually have rows; this range is always exactly 7 fixed, known days, so
-     * there is no gap-filling to get right or wrong -- the loop below always emits all 7 points
-     * regardless of whether a given day had any activity.
+     * Between-style repository calls {@link #overview()} already uses for "yesterday". This range
+     * is always exactly 7 fixed, known days, so there is no gap-filling to get right or wrong --
+     * the loop below always emits all 7 points regardless of whether a given day had any activity.
      */
     @Transactional(readOnly = true)
     public List<ActivityTrendPointDto> activityTrend() {

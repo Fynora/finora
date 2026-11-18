@@ -1,7 +1,7 @@
 import type { ComponentProps } from 'react';
 import type Ionicons from '@expo/vector-icons/Ionicons';
 
-type IoniconName = ComponentProps<typeof Ionicons>['name'];
+export type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
 // Maps the curated icon-token vocabulary CategoryPalette.ICONS defines server-side (backend/src/
 // main/java/com/finora/util/CategoryPalette.java) to an Ionicons glyph -- mirrors

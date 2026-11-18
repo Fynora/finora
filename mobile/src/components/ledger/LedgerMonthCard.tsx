@@ -8,7 +8,9 @@ import { spacing, typography, useTheme } from '../../theme';
 /**
  * The Transactions tab's month card: Income and Expenses from the dashboard's own figures. The
  * period heading and the comparison wording are props from useDashboardKpis and are never written
- * here as text; scripts/check-reporting-period-labels.py scans this file to keep it so.
+ * here as text; scripts/check-reporting-period-labels.py scans this file to keep it so. Shown only
+ * while no filter is on: these figures describe the month, so LedgerFilteredCard replaces them for
+ * a narrowed list.
  */
 export function LedgerMonthCard({
   kpis, title, deltaLabel, deltaSpokenLabel, stacked, note,

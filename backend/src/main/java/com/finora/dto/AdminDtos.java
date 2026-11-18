@@ -345,21 +345,59 @@ public class AdminDtos {
 
     // --- Learning Engine (AdminLearningStatsService / AdminUserLearningController) ---
 
-    /** Platform-wide aggregate for the admin Learning Engine page. learnedMerchantPairs is a
-     *  live COUNT of MerchantCategoryLearning rows (current state, across every user) --
-     *  totalConfirmations/correctedCount/resetCount are lifetime counts off the audit trail
-     *  (history), same "these two views can legitimately disagree" relationship documented on
-     *  MerchantLearningService.summary() for the per-user version of this same distinction.
-     *  trend reuses AnalyticsDto.LearningGrowthPoint's exact shape (month, learnedCount,
-     *  correctedCount) rather than inventing a platform-only variant -- same x-axis convention,
-     *  just summed across every user instead of one. */
+    /** Platform-wide aggregate for the admin Learning Engine page, over customer accounts only
+     *  (internal and admin accounts are left out, as on the activation and reading quality pages).
+     *  learnedMerchantPairs is the live count of learned (merchant, category) pairs with at least
+     *  one confirmation (current state); the action counts are lifetime counts off the audit trail
+     *  (history), so the two can legitimately disagree -- see MerchantLearningService.summary().
+     *  totalConfirmations is LEARNED + CORRECTED. See AdminLearningStatsService for each field. */
     public record LearningPlatformStatsDto(
             long learnedMerchantPairs,
             long totalConfirmations,
             long correctedCount,
             long resetCount,
-            List<AnalyticsDto.LearningGrowthPoint> trend
+            long undoneCount,
+            long usersWithLearning,
+            double medianPairsPerUser,
+            LearningWindow last30Days,
+            LearningWindow previous30Days,
+            List<LearningTrendPoint> trend,
+            List<LearningCategorySourceCount> categorySources,
+            List<LearningCorrectedMerchant> topCorrectedMerchants,
+            List<LearningCategoryChange> topCategoryChanges
     ) {}
+
+    /** Confirmations in one 30-day window. firstTime had no category to check against (the merchant
+     *  was new to the engine); kept agreed with the category the engine already had; corrected
+     *  changed it. The correction rate is corrected / (kept + corrected), and has no value when
+     *  both are zero: a first confirmation cannot show the engine was right or wrong. */
+    public record LearningWindow(long firstTime, long kept, long corrected) {}
+
+    /** One calendar month in India time ("YYYY-MM") of learning events, every month from the first
+     *  to the last with any event, quiet months as zeros. firstTime, kept and corrected as on
+     *  {@link LearningWindow}. */
+    public record LearningTrendPoint(String month, long firstTime, long kept, long corrected,
+                                     long undone, long reset) {}
+
+    /** How many transactions added in the last 30 days, on accounts that still exist, took their
+     *  category from this source (Transaction.DecisionSource name; MANUAL is set or changed by hand). */
+    public record LearningCategorySourceCount(String source, long transactions) {}
+
+    /** A merchant name (grouped across accounts, ignoring case and outer spaces) whose learned
+     *  category was overridden. usualFrom/usualTo is its most common change, null when no
+     *  correction of it still has both categories. */
+    public record LearningCorrectedMerchant(String merchant, long corrections, long users,
+                                            String usualFrom, String usualTo) {}
+
+    /** A from-category to to-category change made by corrections, by category name across accounts,
+     *  ignoring case and outer spaces. */
+    public record LearningCategoryChange(String fromCategory, String toCategory, long count) {}
+
+    /** One learning event for the admin Learning Engine page's recent events list. Category names
+     *  are null when the event had none (a first confirmation has no "from"; a reset has no "to")
+     *  or the category was deleted since. */
+    public record LearningEventRow(UUID id, Instant createdAt, UUID userId, String userEmail,
+                                   String action, String merchant, String fromCategory, String toCategory) {}
 
     // --- Reconciliation Monitor (AdminReconciliationStatsService / AdminUserWorkspaceController) ---
 
@@ -382,17 +420,23 @@ public class AdminDtos {
 
     // --- Platform Analytics (AdminPlatformAnalyticsService / AdminPlatformAnalyticsController) ---
 
-    /** Same exclusion rules as AnalyticsService.activeExpenseTransactions() (no duplicates, no
-     *  transfers, no REFUND-status income, EXPENSE rows only) but summed across every user's
-     *  transactions instead of one -- see AdminPlatformAnalyticsService's class comment for why
-     *  this needs a two-step (group-by-id-in-SQL, then resolve-and-re-group-by-name-in-Java)
-     *  aggregation rather than a single grouped query. */
-    public record PlatformCategorySpendDto(String categoryName, BigDecimal totalSpend, long transactionCount) {}
+    /** One category or merchant name for a period, across every customer whose own private row
+     *  carries that name (see AdminPlatformAnalyticsService's class comment). {@code customers} is
+     *  how many customers spent under it; {@code medianSpendPerCustomer} is the middle of their
+     *  period totals. {@code previousMedianSpendPerCustomer} is that middle figure in the comparison
+     *  period -- per customer, because a total rises whenever more customers join or import --
+     *  null when there is no comparison or fewer than the privacy floor of customers spent there. */
+    public record PlatformSpendRowDto(String name, long customers, BigDecimal totalSpend,
+                                      BigDecimal medianSpendPerCustomer, long transactionCount,
+                                      BigDecimal previousMedianSpendPerCustomer) {}
 
-    /** Same shape and reasoning as PlatformCategorySpendDto, grouped by merchant instead --
-     *  distinct from MerchantStatDto (data footprint: how many users/rows) in that this measures
-     *  actual platform-wide spend, which MerchantStatDto deliberately doesn't. */
-    public record PlatformMerchantSpendDto(String merchantName, BigDecimal totalSpend, long transactionCount) {}
+    /** Whole-period figures. The money figures are null when fewer customers than the privacy floor
+     *  spent in the period, since they would then describe one or two people. {@code toSortSpend}
+     *  is expense with no category or flagged needsCategoryReview -- the same flag the customer's
+     *  own "needs review" badge uses. */
+    public record PlatformSpendSummaryDto(long customersWithSpend, BigDecimal totalSpend,
+                                          BigDecimal medianSpendPerCustomer, BigDecimal toSortSpend,
+                                          long transactionCount) {}
 
     /** One answer to the required setup question "How do you keep track of your spending today?"
      *  and how many live consumer accounts gave it. */
@@ -403,9 +447,19 @@ public class AdminDtos {
     public record SpendingTrackingBreakdown(long answered, long notAnswered,
                                             List<SpendingTrackingMethodCount> methods) {}
 
+    /** Platform spend for one period ({@code from}..{@code to}, inclusive; both null for all time)
+     *  and, when there is one, the comparison period of the same length just before it. Rows from
+     *  fewer than {@code minCustomers} customers are left out. */
     public record PlatformAnalyticsDto(
-            List<PlatformCategorySpendDto> topCategories,
-            List<PlatformMerchantSpendDto> topMerchants
+            LocalDate from,
+            LocalDate to,
+            LocalDate previousFrom,
+            LocalDate previousTo,
+            int minCustomers,
+            PlatformSpendSummaryDto summary,
+            PlatformSpendSummaryDto previousSummary,
+            List<PlatformSpendRowDto> topCategories,
+            List<PlatformSpendRowDto> topMerchants
     ) {}
 
     /**

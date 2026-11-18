@@ -122,11 +122,11 @@ describe('MoneyGoingInCard', () => {
 
     expect(await screen.findByText('₹1,44,000')).toBeTruthy();
     expect(screen.getByText('₹1,44,000').props.numberOfLines).toBe(1);
-    expect(screen.getByText('About ₹12,000 a month · 2 payments')).toBeTruthy();
+    expect(screen.getByText('About ₹36,000 a month · 2 payments')).toBeTruthy();
     expect(transactions.search).toHaveBeenCalledWith(expect.objectContaining({
       categoryId: 'cat-inv', type: 'EXPENSE', dateFrom: '2025-12-01', dateTo: '2026-11-18',
     }));
-    expect(screen.getByLabelText('Last 12 months: ₹1,44,000, about ₹12,000 a month')).toBeTruthy();
+    expect(screen.getByLabelText('Last 12 months: ₹1,44,000, about ₹36,000 a month')).toBeTruthy();
 
     fireEvent.press(screen.getByLabelText('See payments'));
     expect(onSeePayments).toHaveBeenCalledWith('cat-inv', '2025-12-01', '2026-11-18');
@@ -137,7 +137,7 @@ describe('MoneyGoingInCard', () => {
     renderCard();
 
     expect(await screen.findByText('At least ₹10,000')).toBeTruthy();
-    expect(screen.getByLabelText('Last 12 months: At least ₹10,000, about ₹833 a month')).toBeTruthy();
+    expect(screen.getByLabelText('Last 12 months: At least ₹10,000, about ₹2,500 a month')).toBeTruthy();
     expect(transactions.search).toHaveBeenCalledTimes(10);
   });
 

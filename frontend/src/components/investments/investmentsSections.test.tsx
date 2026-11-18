@@ -110,11 +110,11 @@ describe('MoneyGoingInCard', () => {
     renderCard();
 
     expect(await screen.findByText('₹1,44,000')).toBeInTheDocument();
-    expect(screen.getByText('About ₹12,000 a month · 2 payments')).toBeInTheDocument();
+    expect(screen.getByText('About ₹36,000 a month · 2 payments')).toBeInTheDocument();
     expect(transactionsApi.search).toHaveBeenCalledWith(expect.objectContaining({
       categoryId: 'cat-inv', type: 'EXPENSE', dateFrom: '2025-12-01', dateTo: '2026-11-18',
     }));
-    expect(screen.getByRole('img', { name: 'Last 12 months: ₹1,44,000, about ₹12,000 a month' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Last 12 months: ₹1,44,000, about ₹36,000 a month' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'See payments' })).toHaveAttribute(
       'href', '/app/transactions?category=Investments&from=2025-12-01&to=2026-11-18',
     );
@@ -124,7 +124,7 @@ describe('MoneyGoingInCard', () => {
     vi.mocked(transactionsApi.search).mockResolvedValue(page([txn('a', 12000)]));
     renderCard();
 
-    expect(await screen.findByText('About ₹1,000 a month · 1 payment')).toBeInTheDocument();
+    expect(await screen.findByText('About ₹3,000 a month · 1 payment')).toBeInTheDocument();
   });
 
   it('says At least when there are more payments than it reads', async () => {
@@ -132,7 +132,7 @@ describe('MoneyGoingInCard', () => {
     renderCard();
 
     expect(await screen.findByText('At least ₹10,000')).toBeInTheDocument();
-    expect(screen.getByRole('img', { name: 'Last 12 months: At least ₹10,000, about ₹833 a month' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Last 12 months: At least ₹10,000, about ₹2,500 a month' })).toBeInTheDocument();
     expect(transactionsApi.search).toHaveBeenCalledTimes(10);
   });
 

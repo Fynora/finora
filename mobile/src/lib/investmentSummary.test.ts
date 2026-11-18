@@ -188,11 +188,30 @@ describe('summarizeMoneyIn', () => {
       { date: '2026-03-05', amount: 9000, reconciliationStatus: 'SUPERSEDED' },
       { date: '2025-11-30', amount: 500000 },
     ], TODAY);
-    expect(s).toMatchObject({ total: 27000, count: 3, monthlyAverage: 2250 });
+    expect(s).toMatchObject({ total: 27000, count: 3, monthlyAverage: 2700 });
     expect(s.months).toHaveLength(12);
     expect(s.months[0]).toMatchObject({ key: '2025-12', letter: 'D', total: 0, heightFrac: 0 });
     expect(s.months[11]).toMatchObject({ key: '2026-11', letter: 'N', total: 18000, heightFrac: 1 });
     expect(s.months[2]).toMatchObject({ key: '2026-02', total: 9000, heightFrac: 0.5 });
+  });
+
+  // Dividing by 12 made two months of ₹10,000 SIPs read as about ₹1,667 a month.
+  it.each([
+    ['two recent months', [['2026-10-05', 10000], ['2026-11-05', 10000]], 10000],
+    ['a first payment this month', [['2026-11-05', 5000]], 5000],
+    ['a gap, which still counts as a month', [['2026-08-05', 15000], ['2026-11-05', 15000]], 7500],
+    ['the whole period', [['2025-12-05', 12000], ['2026-11-05', 132000]], 12000],
+  ] as [string, [string, number][], number][])('averages from the first payment: %s', (_name, rows, average) => {
+    const s = summarizeMoneyIn(rows.map(([date, amount]) => ({ date, amount })), TODAY);
+    expect(s.monthlyAverage).toBe(average);
+  });
+
+  it('does not start the average at a payment that was a duplicate', () => {
+    const s = summarizeMoneyIn([
+      { date: '2026-01-05', amount: 9000, reconciliationStatus: 'DUPLICATE' },
+      { date: '2026-11-05', amount: 6000 },
+    ], TODAY);
+    expect(s.monthlyAverage).toBe(6000);
   });
 
   it('has no NaN with no payments', () => {

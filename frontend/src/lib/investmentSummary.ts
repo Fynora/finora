@@ -264,10 +264,12 @@ export function summarizeMoneyIn(payments: PaymentLike[], today: Date): MoneyInS
     count += 1;
   }
   const tallest = Math.max(...totals.map((m) => m.total));
+  // From the first month with a payment: earlier months may simply have no statement imported yet.
+  const firstPaid = totals.findIndex((m) => m.total > 0);
   return {
     total,
     count,
-    monthlyAverage: Math.round(total / PERIOD_MONTHS),
+    monthlyAverage: firstPaid < 0 ? 0 : Math.round(total / (PERIOD_MONTHS - firstPaid)),
     months: totals.map((m) => ({ ...m, heightFrac: tallest > 0 ? m.total / tallest : 0 })),
   };
 }

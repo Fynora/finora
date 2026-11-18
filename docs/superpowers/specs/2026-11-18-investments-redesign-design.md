@@ -99,8 +99,12 @@ maturity date is not in Coming up; its holding row reads "Matured 3 Jan 2026".
 excluding `DUPLICATE` and `SUPERSEDED`, 100 rows a page, at most 10 pages.
 
 - Period: the current calendar month and the 11 before it, so every bar except the last is a whole month.
-- Shows the total, "About ₹X a month" (total / 12, rounded), the payment count and 12 monthly bars. The
-  tallest month fills the bar height; a month with no payments shows an empty slot.
+- Shows the total, "About ₹X a month", the payment count and 12 monthly bars. The tallest month fills the
+  bar height; a month with no payments shows an empty slot.
+- "About ₹X a month" is the total divided by the months from the first month with a payment through the
+  current month, rounded. Earlier months may only lack an imported statement, so they are not counted.
+  A month with no payments after the first one still counts. (Changed from total / 12 on Sid's decision,
+  2026-11-18: two months of ₹10,000 SIPs read as about ₹1,667 a month.)
 - If the page cap is hit, the total reads "At least ₹X".
 - "See payments" opens the transactions list filtered to Investments for that period.
 - The period picker and the list of the latest 8 rows are removed.

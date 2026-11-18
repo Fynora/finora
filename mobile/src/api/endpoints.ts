@@ -1127,7 +1127,6 @@ export interface NetWorthData {
 }
 export const networthApi = {
   current: () => api.get<NetWorthData>('/networth').then((r) => r.data),
-  saveSnapshot: () => api.post<NetWorthData>('/networth/snapshot').then((r) => r.data),
 };
 
 interface CategoryMover {

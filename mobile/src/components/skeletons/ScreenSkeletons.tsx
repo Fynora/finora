@@ -82,41 +82,42 @@ export function InvestmentsSkeleton({ holdingsCount }: { holdingsCount?: number 
   const noHoldings = holdingsCount === 0;
   return (
     <SkeletonGroup testID="investments-skeleton">
+      {/* The 44pt Add holding button. */}
       <View style={styles.headerEnd}>
-        <SkeletonText size="body" width="15%" />
-      </View>
-      <View style={styles.threeUp}>
-        {[0, 1, 2].map((i) => (
-          <Card key={i} style={styles.threeUpTile}>
-            <SkeletonText size="tiny" width="70%" />
-            <SkeletonText size="heading" width="85%" />
-          </Card>
-        ))}
+        <SkeletonBox size="touch" width="40%" />
       </View>
       <Card style={styles.gapMd}>
+        {noHoldings ? (
+          <SkeletonEmptyState lines={2} />
+        ) : (
+          <>
+            <SkeletonText size="tiny" width="30%" />
+            <SkeletonText size="heading" width="60%" style={styles.stackSm} />
+            <SkeletonText size="caption" width="100%" />
+          </>
+        )}
+      </Card>
+      <Card style={styles.gapMd}>
+        <SkeletonText size="heading" width="45%" style={styles.stackSm} />
         <SkeletonText size="heading" width="35%" style={styles.stackSm} />
-        {noHoldings ? <SkeletonEmptyState lines={2} /> : <SkeletonChart variant="donut" />}
+        <SkeletonText size="caption" width="70%" />
       </Card>
-      {/* Net Worth Trend: the heading beside the 44pt Save snapshot button, then the trend chart. */}
+      {noHoldings ? null : (
+        <Card style={styles.gapMd}>
+          <SkeletonText size="heading" width="30%" style={styles.stackSm} />
+          {Array.from({ length: holdingsCount ?? 2 }).map((_, i) => <HoldingRowSkeleton key={i} />)}
+        </Card>
+      )}
       <Card style={styles.gapMd}>
-        <View style={styles.headerRow}>
-          <SkeletonText size="heading" width="45%" />
-          <SkeletonBox size="touch" width="35%" />
-        </View>
+        <SkeletonText size="tiny" width="25%" />
+        <SkeletonText size="heading" width="45%" style={styles.stackSm} />
         <SkeletonChart variant="trend" />
-      </Card>
-      <Card style={styles.gapMd}>
-        <SkeletonText size="heading" width="30%" style={styles.stackSm} />
-        {noHoldings
-          ? <SkeletonEmptyState />
-          : Array.from({ length: holdingsCount ?? 2 }).map((_, i) => <HoldingRowSkeleton key={i} />)}
       </Card>
     </SkeletonGroup>
   );
 }
 
-/** InvestmentsScreen's holding row: the name and its kind on the left; the value and the 32pt
- *  Delete link under it on the right, which is what sets the row's height. */
+/** InvestmentsScreen's holding row: the name and its share on the left, the value on the right. */
 function HoldingRowSkeleton() {
   const c = useTheme();
   return (
@@ -127,9 +128,6 @@ function HoldingRowSkeleton() {
       </View>
       <View style={[styles.holdingRight, { width: skeletonTokens.fixedWidth.amount }]}>
         <SkeletonText size="body" width="100%" />
-        <View style={[styles.holdingAction, { height: skeletonTokens.control.rowAction }]}>
-          <SkeletonText size="caption" width="70%" />
-        </View>
       </View>
     </View>
   );
@@ -571,7 +569,6 @@ const styles = StyleSheet.create({
   },
   holdingKind: { marginTop: 2 },
   holdingRight: { alignItems: 'flex-end' },
-  holdingAction: { marginTop: 6, justifyContent: 'center', alignItems: 'flex-end', width: '100%' },
   // SupportTicketsScreen's row: a 1pt-bordered card padded 16, 4 apart; the subject and dates 3 below
   // the line above; the number and tag 4 apart.
   ticketCard: {

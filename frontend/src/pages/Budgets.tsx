@@ -1,15 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Doughnut } from 'react-chartjs-2';
-import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
-import { PiggyBank, Wallet, CheckCircle2, CalendarClock, PieChart, Trash2 } from 'lucide-react';
+import { PiggyBank, Plus } from 'lucide-react';
 import { budgetsApi, categoriesApi, type CategoryOption } from '../api/endpoints';
 import type { Budget } from '../types';
-import { FinoraCard, EmptyState, Button, IconButton, ConfirmDialog, Skeleton, MetricCard, Badge, SectionHeader, ChartContainer, baseChartOptions } from '../design-system';
+import { FinoraCard, EmptyState, Button, ConfirmDialog, Skeleton } from '../design-system';
+import { NewBudgetDialog } from '../components/budgets/NewBudgetDialog';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
-import { ICON_COMPONENTS, COLOR_HEX } from '../lib/categoryIcons';
-
-ChartJS.register(ArcElement, Tooltip, Legend);
+import { GROUP_LABEL, groupBudgets, monthClock, overallPace, withSavedBudget, type BudgetGroup } from '../lib/budgetPace';
+import { BudgetHero } from '../components/budgets/BudgetHero';
+import { BudgetRow } from '../components/budgets/BudgetRow';
 
 function fmt(n: number) {
   // Negative amounts (e.g. a month where spend exceeded income) must render as "-₹500",
@@ -17,49 +16,60 @@ function fmt(n: number) {
   return (n < 0 ? '-₹' : '₹') + Math.round(Math.abs(n)).toLocaleString('en-IN');
 }
 
-function daysLeftInMonth(): number {
-  const now = new Date();
-  const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  return lastDayOfMonth - now.getDate();
-}
+const LOAD_ERROR = 'Could not load budgets.';
 
-function budgetStatus(pct: number): { label: string; tone: 'success' | 'warning' | 'danger' } {
-  if (pct >= 100) return { label: 'Over budget', tone: 'danger' };
-  if (pct >= 90) return { label: 'Almost there', tone: 'warning' };
-  return { label: 'On track', tone: 'success' };
-}
+const GROUP_INK: Record<BudgetGroup, string> = {
+  over: 'text-danger',
+  'heading-over': 'text-warning',
+  'on-track': 'text-success',
+};
+const GROUP_DOT: Record<BudgetGroup, string> = {
+  over: 'bg-danger',
+  'heading-over': 'bg-warning',
+  'on-track': 'bg-success',
+};
 
+/**
+ * Budgets: the month at a glance (ring hero), then every budget grouped by risk -- over, heading
+ * over at this pace, on track -- with a pace marker on each bar. All numbers and status lines come
+ * from lib/budgetPace.ts, shared byte for byte with the phone app.
+ * Design: docs/superpowers/specs/2026-11-17-budgets-redesign-design.md
+ */
 export default function Budgets() {
   const [budgets, setBudgets] = useState<Budget[]>([]);
-  const [newCategory, setNewCategory] = useState('');
-  const [newLimit, setNewLimit] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [newOpen, setNewOpen] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState<Budget | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
-  // Bug fix: this page had no loading flag at all -- `budgets` started `[]`, which is
-  // indistinguishable from "genuinely no budgets set," so the EmptyState rendered immediately on
-  // every mount and then popped to real content once the fetch resolved. `loading` now gates the
-  // EmptyState branch explicitly; `showSkeleton` (useDelayedLoading) only controls whether a
-  // skeleton appears during that gate, not whether the wrong content shows.
+  // `loading` gates the EmptyState explicitly: `budgets` starts `[]`, which can't be told apart from
+  // "genuinely no budgets set". `showSkeleton` only decides whether a skeleton shows during that gate.
   const [loading, setLoading] = useState(true);
   const [categoriesById, setCategoriesById] = useState<Map<string, CategoryOption>>(new Map());
   const queryClient = useQueryClient();
+  // Spoken after a save or remove: the change itself is only visible on screen.
+  const [status, setStatus] = useState('');
+  const focusRequest = useRef<string | null>(null);
+  // Only the newest request may fill the page: a slower, older answer would undo a newer save.
+  const latestLoad = useRef(0);
+  const loadedOn = useRef('');
 
-  function load() {
-    setLoading(true);
-    // Categories only supply each row's icon/color -- cosmetic, with a safe fallback already
-    // built into the row rendering (`?? 'tag'` / `?? 'gray'`) -- so a categories-service hiccup
-    // must not block budgets from showing at all. Promise.all here would fail the whole page on
-    // either request failing; allSettled lets a categories failure degrade silently to those
-    // fallbacks while a budgets failure still surfaces the real error.
+  /** `refresh`: reload after a save or remove without dropping back to the loading state, so the
+   *  hero and list stay on screen instead of blanking until the request returns. */
+  function load(refresh = false) {
+    const thisLoad = ++latestLoad.current;
+    loadedOn.current = new Date().toDateString();
+    if (!refresh) setLoading(true);
+    // Categories only supply each row's icon/color, with a safe fallback in the row -- so a
+    // categories hiccup must not block budgets. allSettled lets it degrade to the fallback while a
+    // budgets failure still surfaces the real error.
     Promise.allSettled([budgetsApi.list(), categoriesApi.list()])
       .then(([budgetsResult, categoriesResult]) => {
+        if (thisLoad !== latestLoad.current) return;
         if (budgetsResult.status === 'rejected') {
-          setError('Could not load budgets.');
+          setError(LOAD_ERROR);
           return;
         }
+        setError((current) => (current === LOAD_ERROR ? null : current));
         setBudgets(budgetsResult.value);
         setCategoriesById(
           categoriesResult.status === 'fulfilled'
@@ -67,43 +77,37 @@ export default function Budgets() {
             : new Map()
         );
       })
-      .catch(() => setError('Could not load budgets.'))
-      .finally(() => setLoading(false));
+      .catch(() => { if (thisLoad === latestLoad.current) setError(LOAD_ERROR); })
+      .finally(() => { if (thisLoad === latestLoad.current) setLoading(false); });
   }
-  useEffect(load, []);
+  useEffect(() => load(), []);
+  // A tab left open overnight would otherwise set yesterday's spend against today's day count.
+  useEffect(() => {
+    function onVisible() {
+      if (document.visibilityState === 'visible' && new Date().toDateString() !== loadedOn.current) load(true);
+    }
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, []);
   const showSkeleton = useDelayedLoading(loading);
 
-  async function addOrUpdate() {
-    if (!newCategory || !newLimit) return;
-    const limit = parseFloat(newLimit);
-    if (!(limit > 0)) {
-      setError('Monthly limit must be greater than zero.');
-      return;
-    }
+  function invalidateBudgetReaders() {
+    // Dashboard reads budgets through TanStack Query ('budgets', 30s staleTime); overspend feeds its
+    // notices and health score ('dashboard-summary'); the Getting-started checklist derives "Create a
+    // budget" from budget existence ('onboarding').
+    void queryClient.invalidateQueries({ queryKey: ['budgets'] });
+    void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+    void queryClient.invalidateQueries({ queryKey: ['onboarding'] });
+  }
+
+  /** Upsert by category name, as before. Rejections propagate so the editor or dialog shows them. */
+  async function saveBudget(categoryName: string, limit: number) {
+    const saved = await budgetsApi.upsert(categoryName, limit);
+    setBudgets((current) => withSavedBudget(current, saved));
+    setStatus(`${categoryName} budget saved.`);
     setError(null);
-    setSaving(true);
-    try {
-      await budgetsApi.upsert(newCategory, limit);
-      setNewCategory('');
-      setNewLimit('');
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-      load();
-      // This page keeps its own local `budgets` list (loaded via load() above), but Dashboard
-      // reads the same data through TanStack Query under the 'budgets' key (30s staleTime) --
-      // without invalidating that cache too, a limit set/changed here wouldn't show up on the
-      // Dashboard's Budget Progress widget until the cache aged out on its own. 'dashboard-summary'
-      // also gets invalidated since budget overspend feeds its notifications/health score.
-      void queryClient.invalidateQueries({ queryKey: ['budgets'] });
-      void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
-      // Getting-started checklist's "Create a budget" item is derived directly from Budget
-      // existence -- same reasoning as the two invalidations just above.
-      void queryClient.invalidateQueries({ queryKey: ['onboarding'] });
-    } catch (e: any) {
-      setError(e.response?.data?.message ?? 'Could not save this budget. Try again.');
-    } finally {
-      setSaving(false);
-    }
+    load(true);
+    invalidateBudgetReaders();
   }
 
   async function remove(budget: Budget) {
@@ -111,11 +115,10 @@ export default function Budgets() {
     setRemovingId(budget.id);
     try {
       await budgetsApi.remove(budget.id);
-      load();
-      // Same caches as a save: the Dashboard's budget widget and notices, and the checklist.
-      void queryClient.invalidateQueries({ queryKey: ['budgets'] });
-      void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
-      void queryClient.invalidateQueries({ queryKey: ['onboarding'] });
+      setBudgets((current) => current.filter((b) => b.id !== budget.id));
+      setStatus(`${budget.categoryName} budget removed.`);
+      load(true);
+      invalidateBudgetReaders();
     } catch (e: any) {
       setError(e.response?.data?.message ?? 'Could not remove this budget. Try again.');
     } finally {
@@ -123,165 +126,119 @@ export default function Budgets() {
     }
   }
 
-  const totalSpend = budgets.reduce((sum, b) => sum + b.spentThisMonth, 0);
+  const today = new Date();
+  const clock = monthClock(today);
+  const totalSpent = budgets.reduce((sum, b) => sum + b.spentThisMonth, 0);
   const totalLimit = budgets.reduce((sum, b) => sum + b.monthlyLimit, 0);
-  const onTrackCount = budgets.filter((b) => b.monthlyLimit > 0 && (b.spentThisMonth / b.monthlyLimit) * 100 < 90).length;
+  const groups = groupBudgets(budgets, clock);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="font-display text-2xl font-extrabold text-ink md:text-3xl">Budgets</h1>
+          <p className="text-sm text-muted">{`${clock.monthLabel} · day ${clock.dayOfMonth} of ${clock.daysInMonth}`}</p>
+        </div>
+        <Button onClick={() => setNewOpen(true)}>
+          <Plus size={16} aria-hidden="true" />
+          New budget
+        </Button>
+      </div>
+
       {loading ? (
         showSkeleton && (
-          <Skeleton.Region label="Loading budget summary" className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {[0, 1, 2, 3].map((i) => <Skeleton.Card key={i} />)}
+          <Skeleton.Region label="Loading budget summary">
+            <FinoraCard padding="lg" className="flex items-center gap-8">
+              <Skeleton.Circle size={148} />
+              <div className="grid flex-1 grid-cols-3 gap-6">
+                {[0, 1, 2].map((i) => <Skeleton.Block key={i} className="h-16" />)}
+              </div>
+            </FinoraCard>
           </Skeleton.Region>
         )
-      ) : (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <MetricCard
-            label="Total Spend"
-            value={fmt(totalSpend)}
-            icon={Wallet}
-            iconBg="bg-primary-light"
-            iconColor="text-primary"
-          />
-          <MetricCard
-            label="Total Budget"
-            value={`${fmt(totalSpend)} / ${fmt(totalLimit)}`}
-            icon={PiggyBank}
-            iconBg="bg-primary-light"
-            iconColor="text-primary"
-          />
-          <MetricCard
-            label="Budgets on Track"
-            value={`${onTrackCount} of ${budgets.length}`}
-            icon={CheckCircle2}
-            iconBg="bg-success-bg"
-            iconColor="text-success"
-          />
-          <MetricCard
-            label="Days Left"
-            value={String(daysLeftInMonth())}
-            icon={CalendarClock}
-            iconBg="bg-warning-bg"
-            iconColor="text-warning"
-          />
-        </div>
+      ) : budgets.length > 0 && (
+        <BudgetHero totalSpent={totalSpent} totalLimit={totalLimit} overall={overallPace(budgets, clock)} clock={clock} money={fmt} />
       )}
 
-      <FinoraCard>
-        <SectionHeader title="Set a Budget" size="sm" />
-        <div className="flex gap-2 items-end">
-          <div>
-            <label htmlFor="budget-category" className="block text-xs uppercase text-muted mb-1">Category</label>
-            <input id="budget-category" value={newCategory} onChange={(e) => setNewCategory(e.target.value)} className="bg-card text-ink border rounded px-2 py-1.5 text-sm" />
-          </div>
-          <div>
-            <label htmlFor="budget-monthly-limit" className="block text-xs uppercase text-muted mb-1">Monthly limit</label>
-            <input id="budget-monthly-limit" type="number" value={newLimit} onChange={(e) => setNewLimit(e.target.value)} className="bg-card text-ink border rounded px-2 py-1.5 text-sm" />
-          </div>
-          <Button onClick={addOrUpdate} loading={saving} size="md" className="uppercase">
-            Set Budget
-          </Button>
-          {saved && <span className="text-success text-xs">Saved.</span>}
-        </div>
-      </FinoraCard>
-      {error && <p className="text-danger text-sm">{error}</p>}
+      {error && <p role="alert" className="text-danger text-sm">{error}</p>}
+      <p role="status" className="sr-only">{status}</p>
 
-      <div className="grid lg:grid-cols-3 gap-4">
-        <FinoraCard padding="sm" className="lg:col-span-2 space-y-3">
-          {loading ? (
-            showSkeleton && (
-              <Skeleton.Region label="Loading budgets">
-                <div className="space-y-3">
-                  {[0, 1, 2].map((i) => (
-                    <div key={i} className="flex items-center gap-3">
-                      <Skeleton.Circle size={32} />
-                      <Skeleton.Text width="w-32" />
-                      <Skeleton.Block className="h-2 flex-1" />
-                      <Skeleton.Text width="w-36" />
-                      <Skeleton.Block className="h-5 w-20" />
-                    </div>
-                  ))}
-                </div>
-              </Skeleton.Region>
-            )
-          ) : budgets.length === 0 ? (
-            <EmptyState
-              icon={PiggyBank}
-              iconBg="bg-accent-orange-bg"
-              iconColor="text-accent-orange"
-              title="No budgets set"
-              desc="Create your first budget above to start tracking spending."
-            />
-          ) : (
-            budgets.map((b) => {
-              const pct = b.monthlyLimit > 0 ? Math.min(999, (b.spentThisMonth / b.monthlyLimit) * 100) : 0;
-              const barPct = Math.min(100, pct);
-              const status = budgetStatus(pct);
-              const cat = categoriesById.get(b.categoryId);
-              const Icon = ICON_COMPONENTS[cat?.icon ?? 'tag'] ?? Wallet;
-              const color = COLOR_HEX[cat?.color ?? 'gray'];
-              return (
-                <div key={b.id} data-testid="budget-row" className="flex items-center gap-3 text-sm">
-                  <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: `${color}26` }}>
-                    <Icon size={16} style={{ color }} />
+      {loading ? (
+        showSkeleton && (
+          <FinoraCard>
+            <Skeleton.Region label="Loading budgets">
+              <div className="space-y-4">
+                {[0, 1, 2].map((i) => (
+                  <div key={i} className="flex items-center gap-4">
+                    <Skeleton.Circle size={32} />
+                    <Skeleton.Text width="w-32" />
+                    <Skeleton.Block className="h-2 flex-1" />
+                    <Skeleton.Text width="w-36" />
+                    <Skeleton.Text width="w-40" />
                   </div>
-                  <span className="w-32 flex-shrink-0 truncate">{b.categoryName}</span>
-                  <div className="flex-1 h-2 bg-black/10 rounded overflow-hidden">
-                    <div
-                      className={`h-full ${status.tone === 'danger' ? 'bg-danger' : status.tone === 'warning' ? 'bg-warning' : 'bg-success'}`}
-                      style={{ width: `${barPct}%` }}
-                    />
-                  </div>
-                  <span className="w-36 flex-shrink-0 text-right">{fmt(b.spentThisMonth)} / {fmt(b.monthlyLimit)}</span>
-                  <Badge tone={status.tone} label={status.label} className="flex-shrink-0" />
-                  <IconButton
-                    variant="danger"
-                    size="sm"
-                    icon={<Trash2 size={14} />}
-                    aria-label={`Remove the ${b.categoryName} budget`}
-                    title="Remove budget"
-                    onClick={() => setConfirmRemove(b)}
-                    loading={removingId === b.id}
-                    className="flex-shrink-0"
-                  />
-                </div>
-              );
-            })
-          )}
-        </FinoraCard>
-
+                ))}
+              </div>
+            </Skeleton.Region>
+          </FinoraCard>
+        )
+      ) : budgets.length === 0 ? (
+        // A failed load leaves `budgets` at []; the error above already says so, and "No budgets
+        // set" under it would be a false statement.
+        error === LOAD_ERROR ? null : (
         <FinoraCard>
-          <SectionHeader title="Spending Breakdown" size="sm" />
-          <ChartContainer
-            height={220}
-            loading={loading}
-            loadingLabel="Loading spending breakdown"
-            isEmpty={budgets.length === 0}
-            emptyState={
-              <EmptyState
-                icon={PieChart}
-                iconBg="bg-primary-light"
-                iconColor="text-primary"
-                title="No spending to break down yet"
-                desc="Set a budget above to see how your spending splits by category."
-              />
-            }
-          >
-            <Doughnut
-              data={{
-                labels: budgets.map((b) => b.categoryName),
-                datasets: [{
-                  data: budgets.map((b) => b.spentThisMonth),
-                  backgroundColor: budgets.map((b) => COLOR_HEX[categoriesById.get(b.categoryId)?.color ?? 'gray']),
-                  borderWidth: 0,
-                }],
-              }}
-              options={{ ...baseChartOptions }}
-            />
-          </ChartContainer>
+          <EmptyState
+            icon={PiggyBank}
+            iconBg="bg-accent-orange-bg"
+            iconColor="text-accent-orange"
+            title="No budgets set"
+            desc="Choose New budget to start tracking a category."
+          />
         </FinoraCard>
-      </div>
+        )
+      ) : (
+        <FinoraCard padding="none" className="px-6 pb-5 pt-2">
+          {groups.map((g) => (
+            <section key={g.group} aria-label={GROUP_LABEL[g.group]}>
+              <h2 className={`flex items-center gap-2 pb-1.5 pt-4 text-[13px] font-semibold ${GROUP_INK[g.group]}`}>
+                <span aria-hidden="true" className={`h-2 w-2 rounded-full ${GROUP_DOT[g.group]}`} />
+                {`${GROUP_LABEL[g.group]} · ${g.items.length}`}
+              </h2>
+              {g.items.map(({ budget: b, pace }) => (
+                <BudgetRow
+                  key={b.id}
+                  budget={b}
+                  pace={pace}
+                  clock={clock}
+                  today={today}
+                  category={categoriesById.get(b.categoryId)}
+                  money={fmt}
+                  onSaveLimit={(limit) => saveBudget(b.categoryName, limit)}
+                  onRemove={() => setConfirmRemove(b)}
+                  removing={removingId === b.id}
+                  focusRequest={focusRequest}
+                />
+              ))}
+            </section>
+          ))}
+          <p className="flex items-center gap-2.5 pt-3.5 text-xs text-muted">
+            <span aria-hidden="true" className="h-3.5 w-0.5 rounded-full bg-ink" />
+            Marks where spending should be today if you spread each budget evenly over the month. Dotted limits can be edited in place.
+          </p>
+        </FinoraCard>
+      )}
+
+      {newOpen && (
+        <NewBudgetDialog
+          budgets={budgets}
+          money={fmt}
+          // Reloads because the category picker can rename a category, and rows save by name.
+          onClose={() => { setNewOpen(false); load(true); }}
+          onSave={async (categoryName, limit) => {
+            await saveBudget(categoryName, limit);
+            setNewOpen(false);
+          }}
+        />
+      )}
 
       {confirmRemove && (
         <ConfirmDialog

@@ -43,6 +43,8 @@ interface AnimatedNumberProps {
    * bounce. */
   duration?: number;
   testID?: string;
+  /** Caps Dynamic Type growth, for a caller whose layout has room for only so much (a ring centre). */
+  maxFontSizeMultiplier?: number;
 }
 
 /**
@@ -59,7 +61,7 @@ interface AnimatedNumberProps {
  * towards, so the very first render shows the correct number immediately -- this only animates a
  * value that CHANGES after mount (a refresh, a save), never a count-up intro.
  */
-export function AnimatedNumber({ value, style, duration = CHART_REVEAL_DURATION, testID }: AnimatedNumberProps) {
+export function AnimatedNumber({ value, style, duration = CHART_REVEAL_DURATION, testID, maxFontSizeMultiplier }: AnimatedNumberProps) {
   const animated = useSharedValue(value);
 
   useEffect(() => {
@@ -79,6 +81,7 @@ export function AnimatedNumber({ value, style, duration = CHART_REVEAL_DURATION,
   return (
     <AnimatedTextInput
       testID={testID}
+      maxFontSizeMultiplier={maxFontSizeMultiplier}
       editable={false}
       // `editable={false}` alone doesn't stop Android from treating the underlying EditText as its
       // own focusable node -- TalkBack would then announce this component's accessibilityLabel AND

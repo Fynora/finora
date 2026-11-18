@@ -2,42 +2,60 @@ import { useState } from 'react';
 import {
   Pressable, ScrollView, StyleSheet, Text, View,
 } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { AppRefreshControl } from '../components/AppRefreshControl';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, type NavigationProp, type ParamListBase } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { usePreventScreenCapture } from '../lib/screenCapture';
-import { AnimatedNumber } from '../components/AnimatedNumber';
-import { Button } from '../components/Button';
 import { Card, EmptyState } from '../components/Card';
-import { CategoryPickerModal } from '../components/CategoryPickerModal';
 import { SkeletonBudgetCard, SkeletonGroup } from '../components/skeletons/Skeletons';
-import { ProgressBar } from '../components/ProgressBar';
-import { TextField } from '../components/TextField';
-import { budgetsApi } from '../api/endpoints';
+import { BudgetActionsSheet } from '../components/budgets/BudgetActionsSheet';
+import { BudgetCard } from '../components/budgets/BudgetCard';
+import { BudgetHeroCard } from '../components/budgets/BudgetHeroCard';
+import { EditLimitSheet } from '../components/budgets/EditLimitSheet';
+import { NewBudgetSheet } from '../components/budgets/NewBudgetSheet';
+import { groupInk } from '../components/budgets/PaceBar';
+import { budgetsApi, categoriesApi } from '../api/endpoints';
 import { AppAlert } from '../lib/appAlert';
 import type { Budget } from '../types';
 import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { currentYearMonth, fmtCurrency, monthDateRange, monthLabel } from '../lib/format';
-import { hapticError, hapticSuccess, hapticWarning } from '../lib/haptics';
-import { useLargeFontScale } from '../lib/useLargeFontScale';
+import { hapticError, hapticSuccess } from '../lib/haptics';
+import { colorHexFor, iconNameFor } from '../lib/categoryIcons';
+import { GROUP_LABEL, groupBudgets, monthClock, overallPace, withSavedBudget } from '../lib/budgetPace';
 import { useSingleFlight } from '../lib/useSingleFlight';
-import { useTransientFlag } from '../lib/useTransientFlag';
-import { parsePositiveAmount } from '../lib/validation';
-import { radius, spacing, useTheme } from '../theme';
+import { spacing, typography, useTheme } from '../theme';
 import type { AppTabParamList } from '../navigation/types';
 import { trackNavigation } from '../lib/trackNavigation';
 import { GlassScreen } from '../components/GlassScreen';
 import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
+/** This month's transactions in one category -- what a budget card is already showing a total of. */
+function openTransactions(navigation: NavigationProp<ParamListBase>, b: Budget) {
+  const month = currentYearMonth();
+  const { dateFrom, dateTo } = monthDateRange(month);
+  trackNavigation('transactions', 'contextual');
+  navigation.getParent<BottomTabNavigationProp<AppTabParamList>>()?.navigate('Transactions', {
+    filters: {
+      categoryId: b.categoryId, dateFrom, dateTo,
+      label: `${b.categoryName} · ${monthLabel(month)}`,
+      nonce: Date.now(),
+    },
+  });
+}
+
 /**
- * Port of frontend/src/pages/Budgets.tsx.
+ * Budgets: the month at a glance (ring hero), then every budget grouped by risk -- over, heading
+ * over at this pace, on track -- with a pace marker on each bar. Every number and status line comes
+ * from lib/budgetPace.ts, a byte-for-byte copy of the web app's, so both apps say the same thing.
+ * Design: docs/superpowers/specs/2026-11-17-budgets-redesign-design.md
  *
- * One deliberate difference: the web page takes the category as free text, so a typo silently
- * creates a budget against a category no transaction will ever be filed under -- it reads as a
- * budget that never fills up. Here the category comes from the same picker the import review uses,
- * which is both the better touch affordance and the fix for that.
+ * Adding and editing happen in bottom sheets; the three-dot button on a card opens a menu (Edit
+ * limit, See transactions, Remove budget). Only one sheet is visible at a time: moving from the menu
+ * to Edit limit swaps two sibling sheets in one step, which does not hit the iOS nested-modal freeze
+ * (that needs a sheet INSIDE another closing together with it).
  */
 export function BudgetsScreen() {
   // D3 (Track D security cleanup). Budget amounts and category spend are financial figures like
@@ -46,64 +64,54 @@ export function BudgetsScreen() {
   usePreventScreenCapture();
   const c = useTheme();
   const tabBar = useTabBarSpace();
-  const largeText = useLargeFontScale();
   const queryClient = useQueryClient();
   // BudgetsScreen lives inside the More stack (see AppTabs.tsx), not on the tab bar itself --
-  // getParent() reaches the tab navigator the same way StatementHistoryScreen's own re-import
-  // link does, for the identical reason (Track C/C4).
-  const navigation = useNavigation();
-  const [category, setCategory] = useState<string | null>(null);
-  const [limit, setLimit] = useState('');
-  const [pickerOpen, setPickerOpen] = useState(false);
+  // getParent() reaches the tab navigator (Track C/C4).
+  const navigation = useNavigation<NavigationProp<ParamListBase>>();
+  const [newOpen, setNewOpen] = useState(false);
+  // The menu's budget outlives `menuOpen` so the sheet keeps its title while it slides away.
+  const [menuFor, setMenuFor] = useState<Budget | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [editFor, setEditFor] = useState<Budget | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saved, confirmSaved] = useTransientFlag();
   const singleFlight = useSingleFlight();
 
-  const { data: budgets = [], isLoading, isError, isFetching, refetch } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ['budgets'],
     queryFn: () => budgetsApi.list(),
   });
+  const budgets = data ?? [];
+  // isError also turns on when a refresh fails, and the budgets already on screen are still good.
+  const loadFailed = isError && data === undefined;
+  // Icons and colours only. A failure falls back to a neutral icon and never blocks the budgets.
+  const { data: categories = [] } = useQuery({
+    queryKey: ['categories'],
+    queryFn: () => categoriesApi.list(),
+    retry: false,
+  });
+  const categoryById = new Map(categories.map((cat) => [cat.id, cat]));
 
-  async function save() {
-    const amount = parsePositiveAmount(limit);
-    if (!category) {
-      setError('Pick a category first.');
-      hapticWarning();
-      return;
+  /** Upsert by category name. Rethrows so the sheet that called it can show the error and stay open. */
+  async function saveBudget(categoryName: string, amount: number) {
+    const startedAt = requestStartedAt();
+    let saved: Budget;
+    try {
+      saved = await budgetsApi.upsert(categoryName, amount);
+    } catch (e) {
+      reportTransportFailure(e, 'budgets:upsert', startedAt);
+      // hapticError, not hapticWarning: the server rejected a well-formed submit.
+      hapticError();
+      throw e;
     }
-    if (amount === null) {
-      setError('Monthly limit must be a number greater than zero.');
-      hapticWarning();
-      return;
-    }
+    hapticSuccess();
     setError(null);
-    await singleFlight(async () => {
-      setSaving(true);
-      const startedAt = requestStartedAt();
-      try {
-        await budgetsApi.upsert(category, amount);
-        setCategory(null);
-        setLimit('');
-        confirmSaved();
-        hapticSuccess();
-        // Dashboard's budget widget and the health score/notifications both read this -- see the
-        // web page's own comment. 'budgets' alone would leave the Dashboard stale until its cache
-        // aged out.
-        void queryClient.invalidateQueries({ queryKey: ['budgets'] });
-        void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
-        // A first budget is a Journey milestone; the Dashboard's Journey card isn't on this screen.
-        void queryClient.invalidateQueries({ queryKey: ['timeline'] });
-      } catch (e) {
-        reportTransportFailure(e, 'budgets:upsert', startedAt);
-        setError(toUserMessage(e, 'Could not save this budget. Try again.'));
-        // hapticError, not hapticWarning -- this is the server rejecting a well-formed submit, not
-        // the client-side "form isn't complete yet" case the two validation checks above cover.
-        hapticError();
-      } finally {
-        setSaving(false);
-      }
-    });
+    // The card shows the new limit as the sheet closes, not after the refetch below returns.
+    queryClient.setQueryData<Budget[]>(['budgets'], (current) => (current ? withSavedBudget(current, saved) : current));
+    // Dashboard's budget widget and the health score/notifications both read this.
+    void queryClient.invalidateQueries({ queryKey: ['budgets'] });
+    void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+    // A first budget is a Journey milestone; the Dashboard's Journey card isn't on this screen.
+    void queryClient.invalidateQueries({ queryKey: ['timeline'] });
   }
 
   function confirmRemove(b: Budget) {
@@ -121,6 +129,7 @@ export function BudgetsScreen() {
       try {
         await budgetsApi.remove(b.id);
         hapticSuccess();
+        queryClient.setQueryData<Budget[]>(['budgets'], (current) => current?.filter((x) => x.id !== b.id));
         // Same caches a save invalidates: this list, and the Dashboard's widget and notices.
         void queryClient.invalidateQueries({ queryKey: ['budgets'] });
         void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
@@ -132,6 +141,10 @@ export function BudgetsScreen() {
     });
   }
 
+  const clock = monthClock(new Date());
+  const totalSpent = budgets.reduce((sum, b) => sum + b.spentThisMonth, 0);
+  const totalLimit = budgets.reduce((sum, b) => sum + b.monthlyLimit, 0);
+
   return (
     <GlassScreen style={styles.glassRoot}>
     <ScrollView
@@ -141,37 +154,23 @@ export function BudgetsScreen() {
         <AppRefreshControl refreshing={isFetching && !isLoading} onRefresh={() => void refetch()} tintColor={c.primary} />
       }
     >
-      <Card>
-        <Text style={[styles.fieldLabel, { color: c.muted }]}>Category</Text>
+      <View style={styles.actions}>
         <Pressable
-          onPress={() => setPickerOpen(true)}
-          style={[styles.picker, { backgroundColor: c.inputBg, borderColor: c.border }]}
+          onPress={() => setNewOpen(true)}
+          style={[styles.newButton, { backgroundColor: c.primary }]}
           accessibilityRole="button"
-          accessibilityLabel={category ? `Category: ${category}. Change` : 'Choose a category'}
+          accessibilityLabel="New budget"
         >
-          <Text style={[styles.pickerText, { color: category ? c.ink : c.muted }]}>
-            {category ?? 'Choose a category'}
-          </Text>
-          <Text style={[styles.chevron, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">
-            ›
-          </Text>
+          <Ionicons name="add" size={18} color={c.onPrimary} />
+          <Text style={[typography.labelM, { color: c.onPrimary }]}>New budget</Text>
         </Pressable>
+      </View>
 
-        <View style={styles.limitField}>
-          <TextField
-            label="Monthly limit"
-            value={limit}
-            onChangeText={setLimit}
-            keyboardType="decimal-pad"
-            placeholder="0"
-          />
-        </View>
+      {!isLoading && !loadFailed && budgets.length > 0 ? (
+        <BudgetHeroCard totalSpent={totalSpent} totalLimit={totalLimit} overall={overallPace(budgets, clock)} clock={clock} money={fmtCurrency} />
+      ) : null}
 
-        <Button label={saving ? 'Saving…' : 'Set Budget'} onPress={() => void save()} loading={saving} />
-
-        {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
-        {saved ? <Text style={[styles.saved, { color: c.successInk }]}>Saved.</Text> : null}
-      </Card>
+      {error ? <Text style={[typography.bodyM, { color: c.dangerInk }]}>{error}</Text> : null}
 
       <View style={styles.list}>
         {isLoading ? (
@@ -180,101 +179,87 @@ export function BudgetsScreen() {
             <SkeletonBudgetCard />
             <SkeletonBudgetCard />
           </SkeletonGroup>
-        ) : isError ? (
+        ) : loadFailed ? (
           <Card>
-            <Text style={[styles.error, { color: c.dangerInk }]}>Could not load budgets.</Text>
+            <Text style={[typography.bodyM, { color: c.dangerInk }]}>Could not load budgets.</Text>
           </Card>
         ) : budgets.length === 0 ? (
           <Card>
             <EmptyState
-              message="No budgets set yet. Set one above to start tracking a category."
-              // Bug caught by the pre-existing add-form's own picker trigger sharing the same
-              // default accessibilityLabel ("Choose a category") -- both are on screen at once
-              // when the list is empty, and getByLabelText/getByText would have found two.
+              message="No budgets set yet. Tap New budget to set one."
               actionLabel="Set your first budget"
-              onAction={() => setPickerOpen(true)}
+              onAction={() => setNewOpen(true)}
             />
           </Card>
         ) : (
-          budgets.map((b) => {
-            const pct = b.monthlyLimit > 0 ? (b.spentThisMonth / b.monthlyLimit) * 100 : 0;
-            // Same three thresholds as the web page: over budget, close to it, comfortable.
-            const barColor = pct >= 100 ? c.danger : pct >= 90 ? c.warning : c.success;
-            const remaining = b.monthlyLimit - b.spentThisMonth;
-            return (
-              <Card key={b.id} style={styles.budgetCard}>
-                {/* One accessible node: the category, the amounts and the bar are a single fact,
-                    and swiping through them separately loses which spend belongs to which limit.
-                    A Pressable rather than the plain View this used to be (Track C/C4): this
-                    month's spend against THIS category is exactly what a budget card is already
-                    showing a total of, so it's the drill-through's most direct source. */}
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`${b.categoryName}: ${fmtCurrency(b.spentThisMonth)} spent of ${fmtCurrency(
-                    b.monthlyLimit
-                  )}. ${
-                    remaining >= 0 ? `${fmtCurrency(remaining)} left` : `${fmtCurrency(-remaining)} over budget`
-                  }`}
-                  accessibilityHint="Opens these transactions"
-                  android_ripple={{ color: c.border }}
-                  onPress={() => {
-                    const month = currentYearMonth();
-                    const { dateFrom, dateTo } = monthDateRange(month);
-                    trackNavigation('transactions', 'contextual');
-                    navigation.getParent<BottomTabNavigationProp<AppTabParamList>>()?.navigate('Transactions', {
-                      filters: {
-                        categoryId: b.categoryId, dateFrom, dateTo,
-                        label: `${b.categoryName} · ${monthLabel(month)}`,
-                        nonce: Date.now(),
-                      },
-                    });
-                  }}
-                >
-                  <View style={styles.budgetHeader}>
-                    <Text style={[styles.budgetName, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
-                      {b.categoryName}
-                    </Text>
-                    <View style={styles.budgetAmountsRow}>
-                      <AnimatedNumber value={b.spentThisMonth} style={[styles.budgetAmounts, { color: c.muted }]} />
-                      <Text style={[styles.budgetAmounts, { color: c.muted }]}> / </Text>
-                      <AnimatedNumber value={b.monthlyLimit} style={[styles.budgetAmounts, { color: c.muted }]} />
-                    </View>
-                  </View>
-                  <ProgressBar pct={pct} color={barColor} />
-                  <Text style={[styles.budgetFoot, { color: remaining >= 0 ? c.muted : c.dangerInk }]}>
-                    {remaining >= 0
-                      ? `${fmtCurrency(remaining)} left this month`
-                      : `${fmtCurrency(-remaining)} over budget`}
+          <>
+            {groupBudgets(budgets, clock).map((g) => (
+              <View key={g.group} style={styles.group}>
+                <View style={styles.groupHeading}>
+                  <View style={[styles.groupDot, { backgroundColor: groupInk(c, g.group) }]} />
+                  <Text accessibilityRole="header" style={[typography.labelS, { color: groupInk(c, g.group) }]}>
+                    {`${GROUP_LABEL[g.group]} · ${g.items.length}`}
                   </Text>
-                </Pressable>
-                {/* Its own button, outside the card's Pressable: that one opens the transactions. */}
-                <Pressable
-                  onPress={() => confirmRemove(b)}
-                  style={[styles.removeAction, { borderColor: c.danger }]}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Remove the ${b.categoryName} budget`}
-                >
-                  <Text style={[styles.removeText, { color: c.dangerInk }]}>Remove</Text>
-                </Pressable>
-              </Card>
-            );
-          })
+                </View>
+                {g.items.map(({ budget: b, pace }) => {
+                  const cat = categoryById.get(b.categoryId);
+                  return (
+                    <BudgetCard
+                      key={b.id}
+                      budget={b}
+                      pace={pace}
+                      clock={clock}
+                      iconName={iconNameFor(cat?.icon ?? 'tag')}
+                      color={colorHexFor(cat?.color ?? 'gray')}
+                      money={fmtCurrency}
+                      onOpen={() => openTransactions(navigation, b)}
+                      onMore={() => { setMenuFor(b); setMenuOpen(true); }}
+                    />
+                  );
+                })}
+              </View>
+            ))}
+            <Text style={[typography.bodyS, styles.hint, { color: c.mutedInk }]}>
+              Tap a card to see its transactions. The three-dot button edits or removes.
+            </Text>
+          </>
         )}
       </View>
 
-      {/* CategoryPickerModal, not OptionPickerModal: setting up a budget for a category that
-          doesn't exist yet is a real scenario, and the old fixed list offered no way to create
-          one -- same gap as CategoryReviewScreen's identical fix. */}
-      <CategoryPickerModal
-        visible={pickerOpen}
-        title="Category"
-        selectedName={category}
-        onSelect={(cat) => {
-          setCategory(cat.name);
-          setPickerOpen(false);
-        }}
-        onClose={() => setPickerOpen(false)}
+      <BudgetActionsSheet
+        budget={menuFor}
+        visible={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        onEdit={() => { setEditFor(menuFor); setMenuOpen(false); }}
+        onSeeTransactions={() => { setMenuOpen(false); if (menuFor) openTransactions(navigation, menuFor); }}
+        onRemove={() => { setMenuOpen(false); if (menuFor) confirmRemove(menuFor); }}
       />
+      {editFor ? (
+        <EditLimitSheet
+          key={editFor.id}
+          budget={editFor}
+          clock={clock}
+          onClose={() => setEditFor(null)}
+          onSave={async (amount) => {
+            await saveBudget(editFor.categoryName, amount);
+            setEditFor(null);
+          }}
+        />
+      ) : null}
+      {newOpen ? (
+        <NewBudgetSheet
+          budgets={budgets}
+          // Refreshes because the category picker can rename a category, and cards save by name.
+          onClose={() => {
+            setNewOpen(false);
+            void queryClient.invalidateQueries({ queryKey: ['budgets'] });
+          }}
+          onSave={async (categoryName, amount) => {
+            await saveBudget(categoryName, amount);
+            setNewOpen(false);
+          }}
+        />
+      ) : null}
     </ScrollView>
     </GlassScreen>
   );
@@ -282,46 +267,17 @@ export function BudgetsScreen() {
 
 const styles = StyleSheet.create({
   glassRoot: { flex: 1 },
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  content: { padding: spacing.md, paddingBottom: spacing.xl },
-  fieldLabel: { fontSize: 12, fontWeight: '500', marginBottom: 6 },
-  picker: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderWidth: 1,
-    borderRadius: radius.md,
-    paddingHorizontal: 12,
-    minHeight: 48,
+  content: { padding: spacing.md, paddingBottom: spacing.xl, gap: spacing.ms },
+  actions: { flexDirection: 'row', justifyContent: 'flex-end' },
+  newButton: {
+    flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 44,
+    paddingHorizontal: spacing.md, borderRadius: 999,
   },
-  pickerText: { fontSize: 15 },
-  chevron: { fontSize: 20, lineHeight: 20 },
-  limitField: { marginTop: spacing.sm },
-  error: { fontSize: 13, marginTop: spacing.sm },
-  saved: { fontSize: 13, marginTop: spacing.sm },
-  list: { marginTop: spacing.md, gap: spacing.sm },
+  list: { gap: spacing.sm },
   // The cards' spacing inside `list`, kept when they are wrapped in one placeholder group.
   skeletonList: { gap: spacing.sm },
-  budgetCard: {},
-  budgetHeader: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-    marginBottom: spacing.sm,
-  },
-  budgetName: { fontSize: 14, fontWeight: '600', flex: 1, marginRight: spacing.sm },
-  budgetAmountsRow: { flexDirection: 'row', alignItems: 'baseline' },
-  budgetAmounts: { fontSize: 12 },
-  budgetFoot: { fontSize: 11, marginTop: 6 },
-  removeAction: {
-    alignSelf: 'flex-start',
-    borderWidth: 1,
-    borderRadius: 8,
-    minHeight: 44,
-    paddingHorizontal: spacing.md,
-    marginTop: spacing.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  removeText: { fontSize: 13, fontWeight: '600' },
+  group: { gap: spacing.sm },
+  groupHeading: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingTop: spacing.sm, paddingLeft: spacing.xs },
+  groupDot: { width: 8, height: 8, borderRadius: 4 },
+  hint: { paddingHorizontal: spacing.xs, paddingTop: spacing.xs },
 });

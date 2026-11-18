@@ -259,6 +259,19 @@ describe('Budgets', () => {
       expect(budgetsApi.upsert).not.toHaveBeenCalled();
     });
 
+    it.each(['12,50', '1,00', '1,000,00'])('asks about the commas in %j without calling the server', async (typed) => {
+      vi.mocked(budgetsApi.list).mockResolvedValue([FOOD]);
+      renderPage();
+
+      const input = await startEdit();
+      await userEvent.clear(input);
+      await userEvent.type(input, typed);
+      await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+      expect(await screen.findByText('Check the commas in this amount. For paise, use a point: 12.50.')).toBeInTheDocument();
+      expect(budgetsApi.upsert).not.toHaveBeenCalled();
+    });
+
     it('a double click on Save sends one request', async () => {
       vi.mocked(budgetsApi.list).mockResolvedValue([FOOD]);
       vi.mocked(budgetsApi.upsert).mockReturnValue(new Promise(() => {}));

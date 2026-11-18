@@ -207,7 +207,8 @@ describe('wording at the edges', () => {
 describe('parseLimit', () => {
   it.each([
     ['5000', 5000], [' 5000 ', 5000], ['10,000', 10000], ['1,25,000', 125000], ['125,000', 125000],
-    ['99.50', 99.5], ['5.', 5], ['.5', 0.5],
+    ['99.50', 99.5], ['5.', 5], ['.5', 0.5], ['2,60,000', 260000], ['260,000', 260000], ['1,000,000', 1000000],
+    ['2,60,000.50', 260000.5],
   ])('reads %j as %d', (typed, expected) => {
     expect(parseLimit(typed)).toBe(expected);
   });
@@ -217,6 +218,10 @@ describe('parseLimit', () => {
       expect(parseLimit(typed)).toBeNull();
     },
   );
+
+  it.each(['12,50', '1,00', '1,000,00'])('refuses %j rather than saving a wrong amount', (typed) => {
+    expect(parseLimit(typed)).toBeNull();
+  });
 });
 
 describe('withSavedBudget', () => {
@@ -248,6 +253,17 @@ describe('limitProblem', () => {
   ])('explains %j, and parseLimit refuses it', (typed, message) => {
     expect(limitProblem(typed)).toBe(message);
     expect(parseLimit(typed)).toBeNull();
+  });
+
+  it.each(['12,50', '1,00', '1,000,00', '12,5', '1,2,3', ',500', '5,000,', '12,50.5'])(
+    'asks about the commas in %j instead of guessing the amount', (typed) => {
+      expect(limitProblem(typed)).toBe('Check the commas in this amount. For paise, use a point: 12.50.');
+      expect(parseLimit(typed)).toBeNull();
+    },
+  );
+
+  it.each(['2,60,000', '260,000', '1,000.50'])('has no complaint about the commas in %j', (typed) => {
+    expect(limitProblem(typed)).toBeNull();
   });
 
   it('accepts the largest limit the server stores', () => {

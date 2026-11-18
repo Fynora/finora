@@ -63,12 +63,14 @@ export function dayCount(n: number): string {
 
 /** budgets.monthly_limit is NUMERIC(14,2); the API refuses anything larger or finer. */
 const MAX_LIMIT = 999_999_999_999.99;
-const LIMIT_FORMAT = /^(\d+|\d{1,3}(,\d{2,3})+)?(\.\d*)?$/;
+// Grouped digits always end in three: "12,50" is a decimal comma or a typo, not 1,250.
+const LIMIT_FORMAT = /^(\d+|\d{1,3}(,\d{2,3})*,\d{3})?(\.\d*)?$/;
 
 /**
  * The limit someone typed, or null if it isn't one. Digit grouping is fine ("10,000", "1,25,000");
- * "12,5" is refused rather than read as 125, and so are forms Number() would quietly accept ("1e5",
- * "0x10"). Anything the API would refuse is refused here, where limitProblem can explain it.
+ * "12,5" and "12,50" are refused rather than read as 125 and 1250, and so are forms Number() would
+ * quietly accept ("1e5", "0x10"). Anything the API would refuse is refused here, where limitProblem
+ * can explain it.
  */
 export function parseLimit(text: string): number | null {
   const trimmed = text.trim();
@@ -77,10 +79,12 @@ export function parseLimit(text: string): number | null {
   return Number.isFinite(value) && value > 0 ? value : null;
 }
 
-/** Why a well-formed number can't be a limit, in words; null when there is nothing specific to say. */
+/** Why what was typed can't be a limit, in words; null when there is nothing specific to say. */
 export function limitProblem(text: string): string | null {
   const trimmed = text.trim();
-  if (!LIMIT_FORMAT.test(trimmed)) return null;
+  if (!LIMIT_FORMAT.test(trimmed)) {
+    return /^[\d,]*,[\d,]*(\.\d*)?$/.test(trimmed) ? 'Check the commas in this amount. For paise, use a point: 12.50.' : null;
+  }
   if (/\.\d{3,}$/.test(trimmed)) return 'Monthly limit can have at most 2 decimal places.';
   return Number(trimmed.replace(/,/g, '')) > MAX_LIMIT ? 'Monthly limit is too large.' : null;
 }

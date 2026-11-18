@@ -355,6 +355,20 @@ describe('BudgetsScreen', () => {
       expect(screen.getByText('Monthly limit must be a number greater than zero.')).toBeTruthy();
     });
 
+    it.each(['12,50', '1,00', '1,000,00'])('Edit limit asks about the commas in %j without saving', async (typed) => {
+      renderScreen();
+      await openMenu('Groceries');
+      fireEvent.press(screen.getByLabelText('Edit limit'));
+      await settle();
+
+      fireEvent.changeText(screen.getByLabelText(/Monthly limit/i), typed);
+      fireEvent.press(screen.getByText('Save limit'));
+      await settle();
+
+      expect(api.upsert).not.toHaveBeenCalled();
+      expect(screen.getByText('Check the commas in this amount. For paise, use a point: 12.50.')).toBeTruthy();
+    });
+
     it('a double tap on Save limit sends one request', async () => {
       api.upsert.mockReset().mockReturnValue(new Promise(() => {}));
       renderScreen();

@@ -1,372 +1,211 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Doughnut, Line } from 'react-chartjs-2';
-import { Chart as ChartJS, ArcElement, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend } from 'chart.js';
-import { LineChart as LineChartIcon, TrendingUp, TrendingDown, Wallet, Loader2 } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { Plus, Wallet } from 'lucide-react';
 import { accountsApi, networthApi, type NetWorthData } from '../api/endpoints';
 import type { Account } from '../types';
-import { formatDate } from '../utils/date';
 import { useAsyncGuard } from '../hooks/useAsyncGuard';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
-import { Button, FinoraCard, MetricCard, EmptyState, SectionHeader, ChartContainer, baseChartOptions, ConfirmDialog, Skeleton, useChartColors } from '../design-system';
-import { InvestmentActivity } from '../components/InvestmentActivity';
-import { unknownCardsNote } from '../lib/amountOwed';
-
-ChartJS.register(ArcElement, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend);
+import { Button, ConfirmDialog, EmptyState, FinoraCard, Skeleton } from '../design-system';
+import { ComingUpCard } from '../components/investments/ComingUpCard';
+import { AddHoldingDialog, UpdateValueDialog } from '../components/investments/HoldingDialogs';
+import { HoldingsCard } from '../components/investments/HoldingsCard';
+import { MoneyGoingInCard } from '../components/investments/MoneyGoingInCard';
+import { NetWorthCard } from '../components/investments/NetWorthCard';
+import { PortfolioCard } from '../components/investments/PortfolioCard';
+import { assetShare, comingUp, shareLabel, summarizeHoldings } from '../lib/investmentSummary';
 
 function fmt(n: number) {
-  // Negative amounts (e.g. a month where spend exceeded income) must render as "-₹500",
-  // not "₹-500" -- string concatenation put the currency symbol before the sign.
+  // Negative amounts must render as "-₹500", not "₹-500".
   return (n < 0 ? '-₹' : '₹') + Math.round(Math.abs(n)).toLocaleString('en-IN');
 }
 
 /**
- * The terms of a deposit -- what distinguishes an FD or RD from any other holding sitting in this
- * module. Renders nothing at all when there are no terms to show, which is every hand-created
- * holding and every mutual fund/stock, so this only appears where it actually says something.
+ * Investments: the total and how it is spread, what matures next, money going in, then every holding
+ * by type. All numbers and status lines come from lib/investmentSummary.ts, shared byte for byte with
+ * the phone app. Design: docs/superpowers/specs/2026-11-18-investments-redesign-design.md
  */
-function DepositTerms({ holding }: { holding: Account }) {
-  const terms: string[] = [];
-  if (holding.principalAmount != null) terms.push(`Principal ${fmt(holding.principalAmount)}`);
-  if (holding.installmentAmount != null) terms.push(`${fmt(holding.installmentAmount)}/month`);
-  if (holding.installmentsPaid != null && holding.installmentsTotal != null) {
-    terms.push(`${holding.installmentsPaid} of ${holding.installmentsTotal} paid`);
-  }
-  if (holding.interestRate != null) terms.push(`${holding.interestRate}% p.a.`);
-  if (holding.maturityDate) {
-    terms.push(`Matures ${formatDate(holding.maturityDate)}`);
-  }
-  if (holding.maturityAmount != null) terms.push(`Worth ${fmt(holding.maturityAmount)} at maturity`);
-
-  if (terms.length === 0) return null;
-  return <p className="text-2xs text-muted mt-0.5">{terms.join(' · ')}</p>;
-}
-
 export default function Investments() {
-  const colors = useChartColors();
   const [holdings, setHoldings] = useState<Account[]>([]);
   const [netWorth, setNetWorth] = useState<NetWorthData | null>(null);
-  const [name, setName] = useState('');
-  const [value, setValue] = useState('');
-  const [kind, setKind] = useState('Mutual Fund');
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  // Distinct from `error`, which is also set by add/delete failures while real data is on screen.
-  // This one means "the data below is not trustworthy", and is what stops the empty states from
-  // telling a user with holdings that they have none when the fetch simply failed.
-  const [loadFailed, setLoadFailed] = useState(false);
+  // "The data below is not trustworthy": stops the empty state telling someone with holdings that
+  // they have none when the fetch simply failed. Only a load with nothing on screen sets these.
+  const [holdingsFailed, setHoldingsFailed] = useState(false);
+  const [netWorthFailed, setNetWorthFailed] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [adding, setAdding] = useState(false);
-  const [savingSnapshot, setSavingSnapshot] = useState(false);
-  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
+  const [status, setStatus] = useState('');
+  const [addOpen, setAddOpen] = useState(false);
+  const [updating, setUpdating] = useState<Account | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState<Account | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const hasHoldings = useRef(false);
+  const hasNetWorth = useRef(false);
+  const queryClient = useQueryClient();
+  // Only the newest load may fill the page: a slower, older answer would undo a newer save or delete.
   const { beginRequest } = useAsyncGuard();
 
-  /**
-   * `mode` exists because this function serves two very different situations. On mount there is
-   * nothing on screen, so a skeleton is right. After an add or a delete the page is fully rendered
-   * and merely stale -- collapsing it back into a skeleton there would be the "replace visible
-   * content with a skeleton on every refresh" behaviour the roadmap's UX table explicitly routes
-   * to a spinner instead. Before this split, both went through one `loading` flag.
-   *
-   * Returns the promise so a caller can keep its own pending state up until the data is actually
-   * fresh, rather than declaring itself done while the refetch is still running.
-   */
-  // useCallback, not a bare function: the old `useEffect(load, [])` passed `load` straight through
-  // as the effect body, which exhaustive-deps does not flag. Calling it inside an arrow (needed now
-  // that it takes a mode) does get flagged, and `npm run lint` runs with --max-warnings 0. Every
-  // value this closes over is stable -- state setters, and beginRequest is itself a useCallback --
-  // so an identity tied to [beginRequest] is honest rather than a suppression.
-  const load = useCallback((mode: 'initial' | 'refresh' = 'refresh') => {
-    // Guarded because keeping the list on screen during a refresh is exactly what makes a SECOND
-    // load reachable: pre-Phase-5 the page-level gate replaced everything, so there were no Delete
-    // buttons and no Add form to start one from. Now there are. Without this, deleting a second
-    // holding while the first delete's refetch is still running lets the older response -- whose
-    // GET was issued before the second delete -- land last and resurrect the deleted row as a live,
-    // deletable entry. Same single-slot guard Reports uses for its month switches.
+  const load = useCallback(() => {
     const isCurrent = beginRequest();
-    if (mode === 'initial') setLoading(true);
-    else setRefreshing(true);
-    return Promise.all([accountsApi.list(), networthApi.current()])
-      .then(([accounts, nw]) => {
-        if (!isCurrent()) return;
-        setHoldings(accounts.filter((a) => a.accountType === 'INVESTMENT'));
-        setNetWorth(nw);
-        setLoadFailed(false);
-      })
-      .catch(() => {
-        if (!isCurrent()) return;
-        setError('Could not load investments.');
-        setLoadFailed(true);
-      })
-      // Both flags clear together, and only for the newest request. Clearing per-mode would strand
-      // `loading` true forever whenever a refresh superseded an in-flight initial load; clearing
-      // unguarded would let a superseded request switch the indicator off while the request whose
-      // data is actually awaited is still running.
-      .finally(() => {
-        if (!isCurrent()) return;
-        setLoading(false);
-        setRefreshing(false);
-      });
+    // Settled separately, so one failing leaves the other usable.
+    return Promise.allSettled([accountsApi.list(), networthApi.current()]).then(([accounts, worth]) => {
+      if (!isCurrent()) return;
+      if (accounts.status === 'fulfilled') {
+        hasHoldings.current = true;
+        setHoldings(accounts.value.filter((a) => a.accountType === 'INVESTMENT'));
+        setHoldingsFailed(false);
+      } else if (!hasHoldings.current) {
+        setHoldingsFailed(true);
+      }
+      if (worth.status === 'fulfilled') {
+        hasNetWorth.current = true;
+        setNetWorth(worth.value);
+        setNetWorthFailed(false);
+      } else if (!hasNetWorth.current) {
+        setNetWorthFailed(true);
+      }
+      setLoading(false);
+    });
   }, [beginRequest]);
-  useEffect(() => { void load('initial'); }, [load]);
+  useEffect(() => { void load(); }, [load]);
+  const showSkeleton = useDelayedLoading(loading);
 
-  async function addHolding() {
-    if (!name || !value) return;
-    // Bug fix: this only checked presence, not validity -- unlike Goals.tsx/Budgets.tsx's own
-    // amount fields. "-500" or non-numeric text passed straight through: a negative balance
-    // persisted and skewed the Allocation doughnut, or parseFloat returned NaN, which propagated
-    // into fmt()'s Math.round(NaN) and rendered "₹NaN" across the Total Investments card.
-    const currentValue = parseFloat(value);
-    if (!(currentValue > 0)) {
-      setError('Current value must be greater than zero.');
-      return;
-    }
-    setAdding(true);
-    try {
-      await accountsApi.create({ name, accountType: 'INVESTMENT', balance: currentValue, investmentKind: kind });
-      setName(''); setValue('');
-      // Awaited, so the button keeps its spinner until the new holding is actually on screen.
-      // Firing and forgetting would drop the spinner while the list was still the old one.
-      await load();
-    } catch (e: any) {
-      // Surfaces the server message rather than a fixed string, same as Setup.tsx's own
-      // addAccount() for this identical endpoint -- the one failure a person can act on here is
-      // the per-user holdings ceiling, whose message names the limit and what to do ("Delete one
-      // to add another"). Every other catch in this file stays a fixed string on purpose.
-      setError(e.response?.data?.message ?? 'Could not add this holding.');
-    } finally {
-      setAdding(false);
-    }
+  /** A holding changes total assets, so the Dashboard's net worth and health score move too. */
+  function refreshAfterChange() {
+    void load();
+    void queryClient.invalidateQueries({ queryKey: ['accounts'] });
+    void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
   }
 
-  async function removeHolding(id: string) {
+  async function saveValue(holding: Account, balance: number) {
+    await accountsApi.update(holding.id, { name: holding.name, accountType: 'INVESTMENT', balance });
+    setHoldings((current) => current.map((h) => (h.id === holding.id ? { ...h, balance } : h)));
+    setUpdating(null);
+    setStatus(`${holding.name} value saved.`);
+    refreshAfterChange();
+  }
+
+  async function addHolding(body: { name: string; balance: number; investmentKind: string }) {
+    const created = await accountsApi.create({ ...body, accountType: 'INVESTMENT' });
+    setHoldings((current) => [...current, created]);
+    setAddOpen(false);
+    setStatus(`${body.name} added.`);
+    refreshAfterChange();
+  }
+
+  async function deleteHolding(holding: Account) {
+    setError(null);
+    setDeletingId(holding.id);
     try {
-      await accountsApi.remove(id);
-      await load();
+      await accountsApi.remove(holding.id);
+      setHoldings((current) => current.filter((h) => h.id !== holding.id));
+      setStatus(`${holding.name} deleted.`);
+      refreshAfterChange();
     } catch {
       setError('Could not delete this holding.');
-    }
-  }
-
-  async function saveSnapshot() {
-    // Bug fix: no try/catch and no pending state meant a failed save was an unhandled promise
-    // rejection with zero user feedback, and since the button was never disabled mid-request, a
-    // slow response let someone fire multiple concurrent snapshot-save requests by clicking again.
-    if (savingSnapshot) return;
-    setSavingSnapshot(true);
-    try {
-      const nw = await networthApi.saveSnapshot();
-      setNetWorth(nw);
-    } catch {
-      setError('Could not save today’s snapshot.');
     } finally {
-      setSavingSnapshot(false);
+      setDeletingId(null);
     }
   }
 
-  // No page-level gate any more. Each section below shows its own skeleton, which is what lets the
-  // two ChartContainers take a real `loading` prop -- behind an early return they would render only
-  // after loading finished, making that prop dead code. It also fixes a flash the early return was
-  // masking: both charts' `isEmpty` tests (`holdings.length === 0`, `!netWorth || history < 2`) and
-  // the holdings list's own empty state are indistinguishable from "still loading", so without a
-  // loading branch they would each announce an empty state to a user who has data. ChartContainer
-  // checks `loading` before `isEmpty`, so passing it is the fix for the charts; the holdings list
-  // gets the same treatment explicitly below.
-  const showSkeleton = useDelayedLoading(loading);
-  const totalInvestments = holdings.reduce((s, h) => s + h.balance, 0);
+  const today = new Date();
+  const summary = summarizeHoldings(holdings);
+  const upcoming = comingUp(holdings, today);
+  const invested = assetShare(summary.total, netWorth?.totalAssets);
+  const countLabel = `${summary.count} ${summary.count === 1 ? 'holding' : 'holdings'}`;
+  const showSummary = !loading && !holdingsFailed && summary.count > 0;
 
   return (
-    <div className="space-y-6">
-      {error && (
-        <div className="bg-danger/10 text-danger text-sm rounded p-3 flex justify-between items-center">
-          <span>{error}</span>
-          <button onClick={() => setError(null)}>×</button>
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="font-display text-2xl font-extrabold text-ink md:text-3xl">Investments</h1>
+          {showSummary && (
+            <p className="text-sm text-muted">{invested === null ? countLabel : `${countLabel} · ${shareLabel(invested)} of your assets`}</p>
+          )}
         </div>
-      )}
+        <Button onClick={() => setAddOpen(true)}>
+          <Plus size={16} aria-hidden="true" />
+          Add holding
+        </Button>
+      </div>
+
+      {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+      <p role="status" className="sr-only">{status}</p>
+
       {loading ? (
-        <Skeleton.Region label="Loading your investment totals">
+        <Skeleton.Region label="Loading your investments">
           {showSkeleton && (
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              {[0, 1, 2].map((i) => <Skeleton.Card key={i} />)}
+            <div className="space-y-5">
+              <Skeleton.Card />
+              <div className="grid gap-5 lg:grid-cols-2">
+                <Skeleton.Card />
+                <Skeleton.Card />
+              </div>
+              <Skeleton.Card />
             </div>
           )}
         </Skeleton.Region>
       ) : (
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-          <MetricCard label="Total Investments" value={fmt(totalInvestments)} icon={LineChartIcon} iconBg="bg-primary-light" iconColor="text-primary" />
-          {/* A card whose amount owed is not known is left out of both figures (lib/amountOwed.ts). */}
-          <MetricCard label="Net Worth" value={fmt(netWorth?.netWorth ?? 0)} caption={unknownCardsNote(netWorth?.cardsWithUnknownAmountOwed) ?? undefined} icon={TrendingUp} iconBg="bg-success-bg" iconColor="text-success" valueColor="text-success" />
-          <MetricCard label="Liabilities" value={fmt(netWorth?.totalLiabilities ?? 0)} caption={unknownCardsNote(netWorth?.cardsWithUnknownAmountOwed) ?? undefined} icon={TrendingDown} iconBg="bg-danger-bg" iconColor="text-danger" valueColor="text-danger" />
-        </div>
+        <>
+          {holdingsFailed ? (
+            <FinoraCard padding="lg">
+              <p className="text-sm font-medium text-danger">Could not load your investments.</p>
+            </FinoraCard>
+          ) : summary.count === 0 ? (
+            <FinoraCard>
+              <EmptyState
+                icon={Wallet}
+                iconBg="bg-accent-blue-bg"
+                iconColor="text-accent-blue"
+                title="No investments yet"
+                desc="Add a holding, or import a deposit statement."
+              />
+            </FinoraCard>
+          ) : (
+            <PortfolioCard summary={summary} money={fmt} />
+          )}
+
+          <div className={`grid items-start gap-5 ${upcoming.length > 0 ? 'lg:grid-cols-2' : ''}`}>
+            <ComingUpCard rows={upcoming} money={fmt} />
+            <MoneyGoingInCard today={today} />
+          </div>
+
+          {showSummary && (
+            <HoldingsCard
+              summary={summary}
+              today={today}
+              money={fmt}
+              onUpdate={setUpdating}
+              onDelete={setConfirmingDelete}
+              busyId={deletingId}
+            />
+          )}
+
+          <NetWorthCard netWorth={netWorth} failed={netWorthFailed} money={fmt} />
+        </>
       )}
 
-      <div className="grid md:grid-cols-2 gap-6">
-        <FinoraCard>
-          <SectionHeader title="Allocation" />
-          <ChartContainer
-            height={224}
-            loading={loading}
-            loadingLabel="Loading your allocation"
-            isEmpty={holdings.length === 0}
-            emptyState={
-              // "No data to chart" is true either way; WHY differs. Claiming "no investments yet"
-              // to someone whose fetch just failed is the same false-empty message the loading
-              // branch above exists to prevent, one state later.
-              loadFailed ? (
-                <p className="text-muted text-sm">Couldn't load your investments.</p>
-              ) : (
-                <EmptyState
-                  icon={Wallet}
-                  iconBg="bg-accent-blue-bg"
-                  iconColor="text-accent-blue"
-                  title="No investments yet"
-                  desc="Add your first investment or asset below to see its allocation."
-                />
-              )
-            }
-          >
-            <Doughnut
-              data={{
-                labels: holdings.map((h) => h.name),
-                datasets: [{ data: holdings.map((h) => h.balance), backgroundColor: holdings.map((_, i) => colors.series[i % colors.series.length]) }],
-              }}
-              options={{ ...baseChartOptions }}
-            />
-          </ChartContainer>
-        </FinoraCard>
-        <FinoraCard>
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="font-semibold text-ink">Net Worth Trend</h2>
-            {/* Static label + Button's own spinner, replacing the manual "Saving…" text swap --
-                the convention every earlier phase adopted. The `if (savingSnapshot) return`
-                re-entrancy guard in saveSnapshot() stays: Button disabling itself while `loading`
-                covers the pointer path, not a programmatic second call. */}
-            <Button variant="secondary" size="sm" onClick={saveSnapshot} loading={savingSnapshot} className="uppercase">
-              Save Today's Snapshot
-            </Button>
-          </div>
-          <ChartContainer
-            height={224}
-            loading={loading}
-            loadingLabel="Loading your net worth trend"
-            isEmpty={!netWorth || netWorth.history.length < 2}
-            emptyState={
-              loadFailed ? (
-                <p className="text-muted text-sm">Couldn't load your net worth history.</p>
-              ) : (
-                <EmptyState
-                  icon={TrendingUp}
-                  iconBg="bg-primary-light"
-                  iconColor="text-primary"
-                  title="Building your net worth trend"
-                  desc="Check back in a day or two, or save today's snapshot now to add a point right away."
-                />
-              )
-            }
-          >
-            <Line
-              data={{
-                labels: netWorth?.history.map((h) => h.date) ?? [],
-                datasets: [{
-                  label: 'Net Worth',
-                  data: netWorth?.history.map((h) => h.netWorth) ?? [],
-                  borderColor: '#a9803a',
-                  backgroundColor: 'rgba(169,128,58,0.15)',
-                  fill: true,
-                  tension: 0.3,
-                }],
-              }}
-              options={{ ...baseChartOptions, plugins: { legend: { display: false } } }}
-            />
-          </ChartContainer>
-        </FinoraCard>
-      </div>
-
-      {/* `relative` positions the refetch indicator below. A delete has no pending affordance of
-          its own once its dialog closes -- the add button keeps its own spinner through the
-          refetch, but a removal would otherwise leave stale rows on screen silently. */}
-      <FinoraCard className="relative">
-        {refreshing && (
-          <div className="absolute top-3 right-4 text-2xs uppercase text-primary flex items-center gap-1">
-            <Loader2 size={11} className="animate-spin" aria-hidden="true" /> Refreshing…
-          </div>
-        )}
-        <SectionHeader title="Add Investment / Asset" />
-        <div className="grid md:grid-cols-4 gap-2 items-end mb-4">
-          <div>
-            <label htmlFor="investment-name" className="block text-xs uppercase text-muted mb-1">Name</label>
-            <input id="investment-name" value={name} onChange={(e) => setName(e.target.value)} className="bg-card text-ink border rounded px-2 py-1.5 text-sm w-full" />
-          </div>
-          <div>
-            <label htmlFor="investment-value" className="block text-xs uppercase text-muted mb-1">Current value</label>
-            <input id="investment-value" type="number" value={value} onChange={(e) => setValue(e.target.value)} className="bg-card text-ink border rounded px-2 py-1.5 text-sm w-full" />
-          </div>
-          <div>
-            <label htmlFor="investment-type" className="block text-xs uppercase text-muted mb-1">Type</label>
-            <select id="investment-type" value={kind} onChange={(e) => setKind(e.target.value)} className="bg-card text-ink border rounded px-2 py-1.5 text-sm w-full">
-              <option>Mutual Fund</option><option>Stocks</option><option>FD</option><option>PPF/NPS</option><option>Other</option>
-            </select>
-          </div>
-          <Button onClick={addHolding} loading={adding} className="uppercase">Add</Button>
-        </div>
-
-        {loading ? (
-          <Skeleton.Region label="Loading your holdings">
-            {showSkeleton && (
-              <div className="space-y-2">
-                {Array.from({ length: 3 }, (_, i) => (
-                  <div key={i} className="flex justify-between items-center border-b border-dashed py-2">
-                    <Skeleton.Text width="w-2/5" />
-                    <Skeleton.Text width="w-20" className="h-2.5" />
-                  </div>
-                ))}
-              </div>
-            )}
-          </Skeleton.Region>
-        ) : loadFailed ? (
-          <p className="text-muted text-sm">Couldn't load your holdings — please try again later.</p>
-        ) : holdings.length === 0 ? (
-          <EmptyState
-            icon={Wallet}
-            iconBg="bg-accent-blue-bg"
-            iconColor="text-accent-blue"
-            title="No holdings yet"
-            desc="Add your first investment or asset above."
-          />
-        ) : (
-          <div className="space-y-2">
-            {holdings.map((h) => (
-              <div key={h.id} className="border-b border-dashed py-2">
-                <div className="flex justify-between items-center text-sm">
-                  <span>{h.name} <span className="text-2xs uppercase text-muted ml-2">{h.investmentKind}</span></span>
-                  <span className="flex items-center gap-3">
-                    {fmt(h.balance)}
-                    {/* size="sm" rather than this row's old px-2 py-0.5 text-2xs: it makes the
-                        control identical to Goals.tsx's per-item Delete, which is the same action
-                        opening the same ConfirmDialog. Normalising matches that precedent. */}
-                    <Button variant="danger" size="sm" onClick={() => setConfirmRemoveId(h.id)} className="uppercase">Delete</Button>
-                  </span>
-                </div>
-                <DepositTerms holding={h} />
-              </div>
-            ))}
-          </div>
-        )}
-      </FinoraCard>
-
-      <InvestmentActivity />
-
-      {confirmRemoveId && (
+      {addOpen && <AddHoldingDialog onClose={() => setAddOpen(false)} onSave={addHolding} />}
+      {updating && (
+        <UpdateValueDialog
+          holding={updating}
+          money={fmt}
+          onClose={() => setUpdating(null)}
+          onSave={(value) => saveValue(updating, value)}
+        />
+      )}
+      {confirmingDelete && (
         <ConfirmDialog
           title="Delete this holding?"
-          message="This can't be undone."
+          message={`"${confirmingDelete.name}" will be removed from your net worth. This can't be undone.`}
           confirmLabel="Delete"
           danger
           onConfirm={() => {
-            const id = confirmRemoveId;
-            setConfirmRemoveId(null);
-            void removeHolding(id);
+            const holding = confirmingDelete;
+            setConfirmingDelete(null);
+            void deleteHolding(holding);
           }}
-          onCancel={() => setConfirmRemoveId(null)}
+          onCancel={() => setConfirmingDelete(null)}
         />
       )}
     </div>

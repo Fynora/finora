@@ -135,20 +135,20 @@ describe('InvestmentsSkeleton', () => {
     render(<ThemeProvider><InvestmentsSkeleton holdingsCount={holdingsCount} /></ThemeProvider>);
   }
 
-  it('with no holdings known, draws the empty allocation and holdings messages', () => {
+  it('with no holdings known, draws the one empty message the screen will show', () => {
     renderIt(0);
-    expect(screen.getAllByTestId('skeleton-empty-state', { hidden: true })).toHaveLength(2);
+    expect(screen.getAllByTestId('skeleton-empty-state', { hidden: true })).toHaveLength(1);
     expect(screen.queryByTestId('skeleton-chart-donut', { hidden: true })).toBeNull();
     expect(screen.queryAllByTestId('skeleton-holding-row', { hidden: true })).toHaveLength(0);
   });
 
-  it('with holdings known, draws the donut and one row per holding', () => {
+  it('with holdings known, draws one row per holding and no donut', () => {
     renderIt(3);
-    expect(screen.getByTestId('skeleton-chart-donut', { hidden: true })).toBeTruthy();
+    expect(screen.queryByTestId('skeleton-chart-donut', { hidden: true })).toBeNull();
     expect(screen.getAllByTestId('skeleton-holding-row', { hidden: true })).toHaveLength(3);
   });
 
-  it('draws the net worth trend as the snapshot button row over the trend chart with its date axis', () => {
+  it('draws the Add holding button and the net worth trend chart', () => {
     renderIt(0);
     expect(screen.getByTestId('skeleton-chart-trend', { hidden: true })).toBeTruthy();
     const heights = screen.getAllByTestId('shimmer-block', { hidden: true }).map(heightOf);
@@ -156,9 +156,8 @@ describe('InvestmentsSkeleton', () => {
     expect(heights).toContain(skeletonTokens.chart.trend);
   });
 
-  it('with holdings not yet known, draws the donut and two rows standing in for some', () => {
+  it('with holdings not yet known, draws two rows standing in for some', () => {
     renderIt(undefined);
-    expect(screen.getByTestId('skeleton-chart-donut', { hidden: true })).toBeTruthy();
     expect(screen.getAllByTestId('skeleton-holding-row', { hidden: true })).toHaveLength(2);
   });
 });

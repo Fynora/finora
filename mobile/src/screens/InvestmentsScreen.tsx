@@ -1,103 +1,80 @@
 import { useMemo, useState } from 'react';
-import {
-  Pressable, ScrollView, StyleSheet, Text,
-  useWindowDimensions, View
-} from 'react-native';
-import { AppRefreshControl } from '../components/AppRefreshControl';
-import { AppAlert } from '../lib/appAlert';
-import { unknownCardsNote } from '../lib/amountOwed';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
-import { usePreventScreenCapture } from '../lib/screenCapture';
-import { Button } from '../components/Button';
-import { Card, EmptyState, SectionHeading } from '../components/Card';
-import { DonutChart, type Slice } from '../components/charts/DonutChart';
-import { TrendChart } from '../components/charts/TrendChart';
-import { OptionPickerModal } from '../components/OptionPickerModal';
-import { InvestmentActivityCard, INVESTMENT_ACTIVITY_QUERY_KEY } from '../components/InvestmentActivityCard';
-import { TextField } from '../components/TextField';
+import { useNavigation, type NavigationProp, type ParamListBase } from '@react-navigation/native';
+import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { AppRefreshControl } from '../components/AppRefreshControl';
+import { Card, EmptyState } from '../components/Card';
+import { GlassScreen } from '../components/GlassScreen';
+import { ComingUpCard } from '../components/investments/ComingUpCard';
+import { AddHoldingSheet, HoldingActionsSheet, UpdateValueSheet } from '../components/investments/HoldingSheets';
+import { HoldingsCard } from '../components/investments/HoldingsCard';
+import { INVESTMENT_ACTIVITY_QUERY_KEY, MoneyGoingInCard } from '../components/investments/MoneyGoingInCard';
+import { NetWorthCard } from '../components/investments/NetWorthCard';
+import { PortfolioCard } from '../components/investments/PortfolioCard';
+import { InvestmentsSkeleton } from '../components/skeletons/ScreenSkeletons';
 import { accountsApi, networthApi } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
-import { hapticError, hapticSuccess, hapticWarning } from '../lib/haptics';
-import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
-import { CHART_PALETTE, bucketTopSlices } from '../lib/chartGeometry';
-import { fmtCurrency, fmtDate } from '../lib/format';
-import { isPausedCold } from '../lib/refreshingIndicator';
-import { useLargeFontScale } from '../lib/useLargeFontScale';
-import { useSingleFlight } from '../lib/useSingleFlight';
-import { parsePositiveAmount } from '../lib/validation';
-import { radius, spacing, useTheme } from '../theme';
-import type { Account } from '../types';
+import { AppAlert } from '../lib/appAlert';
 import { withBypass } from '../lib/changeSync';
-import { GlassScreen } from '../components/GlassScreen';
-import { InvestmentsSkeleton } from '../components/skeletons/ScreenSkeletons';
+import { fmtCurrency } from '../lib/format';
+import { hapticError, hapticSuccess } from '../lib/haptics';
+import { assetShare, comingUp, shareLabel, summarizeHoldings } from '../lib/investmentSummary';
+import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
+import { isPausedCold } from '../lib/refreshingIndicator';
+import { usePreventScreenCapture } from '../lib/screenCapture';
+import { trackNavigation } from '../lib/trackNavigation';
+import { useSingleFlight } from '../lib/useSingleFlight';
+import type { AppTabParamList } from '../navigation/types';
 import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
+import { radius, spacing, typography, useTheme } from '../theme';
+import type { Account } from '../types';
 
-// Same options as the web page's <select>.
-const INVESTMENT_KINDS = ['Mutual Fund', 'Stocks', 'FD', 'PPF/NPS', 'Other'];
-
-/**
- * The terms of a deposit -- what distinguishes an FD or RD from a name and a balance. Renders
- * nothing when there are no terms, which is every hand-created holding, so it only appears where it
- * actually says something. Ported from Investments.tsx's DepositTerms.
- */
-function depositTerms(holding: Account): string | null {
-  const terms: string[] = [];
-  if (holding.principalAmount != null) terms.push(`Principal ${fmtCurrency(holding.principalAmount)}`);
-  if (holding.installmentAmount != null) terms.push(`${fmtCurrency(holding.installmentAmount)}/month`);
-  if (holding.installmentsPaid != null && holding.installmentsTotal != null) {
-    terms.push(`${holding.installmentsPaid} of ${holding.installmentsTotal} paid`);
-  }
-  if (holding.interestRate != null) terms.push(`${holding.interestRate}% p.a.`);
-  if (holding.maturityDate) terms.push(`Matures ${fmtDate(holding.maturityDate)}`);
-  if (holding.maturityAmount != null) terms.push(`Worth ${fmtCurrency(holding.maturityAmount)} at maturity`);
-  return terms.length > 0 ? terms.join(' · ') : null;
+/** The payments behind the Money going in card, in the Transactions tab. */
+function openPayments(navigation: NavigationProp<ParamListBase>, categoryId: string, dateFrom: string, dateTo: string) {
+  trackNavigation('transactions', 'contextual');
+  navigation.getParent<BottomTabNavigationProp<AppTabParamList>>()?.navigate('Transactions', {
+    filters: { categoryId, dateFrom, dateTo, label: 'Investments · last 12 months', nonce: Date.now() },
+  });
 }
 
-/** Port of frontend/src/pages/Investments.tsx. */
+/**
+ * Investments: the total and how it is spread, what matures next, money going in, then every holding
+ * by type. All numbers and status lines come from lib/investmentSummary.ts, a byte-for-byte copy of
+ * the web app's. Design: docs/superpowers/specs/2026-11-18-investments-redesign-design.md
+ *
+ * Only one sheet is visible at a time: moving from the menu to Update value swaps two sibling sheets
+ * in one step, the same way the Budgets screen does.
+ */
 export function InvestmentsScreen() {
-  // D3 (Track D security cleanup). Holdings and net worth are the single most sensitive figures
-  // in the app -- same screenshot/screen-recording exposure Dashboard/Accounts/Statement History
-  // already guard against.
+  // Holdings and net worth are the most sensitive figures in the app.
   usePreventScreenCapture();
   const c = useTheme();
   const tabBar = useTabBarSpace();
-  const largeText = useLargeFontScale();
-  const { width } = useWindowDimensions();
   const queryClient = useQueryClient();
-  // See useSingleFlight: a same-frame double tap would otherwise create the holding twice, since
-  // the `adding` flag that disables the button only reaches it on the next render.
+  const navigation = useNavigation<NavigationProp<ParamListBase>>();
   const singleFlight = useSingleFlight();
-
-  const [name, setName] = useState('');
-  const [value, setValue] = useState('');
-  const [kind, setKind] = useState(INVESTMENT_KINDS[0]);
-  const [kindPickerOpen, setKindPickerOpen] = useState(false);
-  const [formOpen, setFormOpen] = useState(false);
-  const [adding, setAdding] = useState(false);
-  const [savingSnapshot, setSavingSnapshot] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  // The menu's holding outlives `menuOpen` so the sheet keeps its title while it slides away.
+  const [menuFor, setMenuFor] = useState<Account | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [updating, setUpdating] = useState<Account | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // useQueries so a failing net-worth endpoint still leaves the holdings list usable, and vice
-  // versa -- the web page's Promise.all loses both to either failure.
+  // useQueries so one failing endpoint still leaves the other usable.
   const [accountsQ, netWorthQ] = useQueries({
     queries: [
       { queryKey: ['accounts'], queryFn: () => accountsApi.list() },
       { queryKey: ['networth'], queryFn: () => networthApi.current() },
     ],
   });
-
-  const holdings = useMemo(
-    () => (accountsQ.data ?? []).filter((a) => a.accountType === 'INVESTMENT'),
-    [accountsQ.data]
-  );
-  const netWorth = netWorthQ.data;
+  const holdings = useMemo(() => (accountsQ.data ?? []).filter((a) => a.accountType === 'INVESTMENT'), [accountsQ.data]);
   const loading = accountsQ.isLoading || netWorthQ.isLoading;
-  // A cold query paused for lack of connectivity is neither an error nor an answer -- see
-  // isPausedCold. Folded in alongside isError everywhere a figure or an empty state would
-  // otherwise be stated as fact, so going offline reads as "not available" rather than as ₹0.
-  const accountsUnknown = accountsQ.isError || isPausedCold(accountsQ);
-  const netWorthUnknown = netWorthQ.isError || isPausedCold(netWorthQ);
-  const unknownCards = netWorthUnknown ? null : unknownCardsNote(netWorth?.cardsWithUnknownAmountOwed);
+  // A failed refresh keeps what is on screen: only "no answer at all" is stated as not known. A cold
+  // query paused for lack of connectivity is the same case, and must not read as ₹0.
+  const holdingsUnknown = accountsQ.data === undefined && (accountsQ.isError || isPausedCold(accountsQ));
+  const netWorthUnknown = netWorthQ.data === undefined && (netWorthQ.isError || isPausedCold(netWorthQ));
   const refreshing = (accountsQ.isFetching || netWorthQ.isFetching) && !loading;
 
   function refresh() {
@@ -109,103 +86,66 @@ export function InvestmentsScreen() {
     });
   }
 
-  /**
-   * Capped to the palette, same as DashboardScreen's donutSlices (both call the shared
-   * bucketTopSlices) -- an uncapped one-slice-per-holding mapping let the chart's reveal-in
-   * stagger (RevealArc's `delay`, one slice sweeping in after another) grow without bound as
-   * holdings accumulate, and past six colours the palette was silently reused, painting two
-   * different holdings the same colour. bucketTopSlices also merges the overflow into a holding a
-   * user has literally named "Other" rather than rendering two identically-labelled legend rows --
-   * holding names are free text, and "Other" is a plausible one to type.
-   */
-  const slices: Slice[] = useMemo(
-    () => bucketTopSlices(holdings.map((h) => [h.name, h.balance]), CHART_PALETTE, 'Other'),
-    [holdings]
-  );
-  const totalInvestments = holdings.reduce((s, h) => s + h.balance, 0);
-
-  async function addHolding() {
-    const currentValue = parsePositiveAmount(value);
-    if (!name.trim()) {
-      hapticWarning();
-      setError('Give this holding a name.');
-      return;
-    }
-    if (currentValue === null) {
-      hapticWarning();
-      setError('Current value must be a number greater than zero.');
-      return;
-    }
-    setError(null);
-    await singleFlight(async () => {
-      setAdding(true);
-      const startedAt = requestStartedAt();
-      try {
-        await accountsApi.create({
-          name: name.trim(),
-          accountType: 'INVESTMENT',
-          balance: currentValue,
-          investmentKind: kind,
-        });
-        hapticSuccess();
-        setName(''); setValue('');
-        setFormOpen(false);
-        refresh();
-        // A new holding changes total assets, so the Dashboard's net worth and health score move.
-        void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
-      } catch (e) {
-        hapticError();
-        reportTransportFailure(e, 'investments:add-holding', startedAt);
-        setError(toUserMessage(e, 'Could not add this holding.'));
-      } finally {
-        setAdding(false);
-      }
-    });
+  /** A holding changes total assets, so the Dashboard's net worth and health score move too. */
+  function refreshAfterChange() {
+    refresh();
+    void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
   }
 
-  function confirmDelete(h: Account) {
-    AppAlert.alert('Delete this holding?', `"${h.name}" will be removed from your net worth.`, [
+  /** Rethrows so the sheet that called it can show the error and stay open. */
+  async function saveValue(holding: Account, balance: number) {
+    const startedAt = requestStartedAt();
+    try {
+      await accountsApi.update(holding.id, { name: holding.name, accountType: 'INVESTMENT', balance });
+    } catch (e) {
+      hapticError();
+      reportTransportFailure(e, 'investments:update-value', startedAt);
+      throw e;
+    }
+    hapticSuccess();
+    queryClient.setQueryData<Account[]>(['accounts'], (current) => current?.map((a) => (a.id === holding.id ? { ...a, balance } : a)));
+    setUpdating(null);
+    setError(null);
+    refreshAfterChange();
+  }
+
+  async function addHolding(body: { name: string; balance: number; investmentKind: string }) {
+    const startedAt = requestStartedAt();
+    let created: Account;
+    try {
+      created = await accountsApi.create({ ...body, accountType: 'INVESTMENT' });
+    } catch (e) {
+      hapticError();
+      reportTransportFailure(e, 'investments:add-holding', startedAt);
+      throw e;
+    }
+    hapticSuccess();
+    queryClient.setQueryData<Account[]>(['accounts'], (current) => (current ? [...current, created] : current));
+    setAddOpen(false);
+    setError(null);
+    refreshAfterChange();
+  }
+
+  function confirmDelete(holding: Account) {
+    AppAlert.alert('Delete this holding?', `"${holding.name}" will be removed from your net worth. This can't be undone.`, [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => void removeHolding(h) },
+      { text: 'Delete', style: 'destructive', onPress: () => void removeHolding(holding) },
     ]);
   }
 
-  async function removeHolding(h: Account) {
+  async function removeHolding(holding: Account) {
     await singleFlight(async () => {
       setError(null);
       const startedAt = requestStartedAt();
       try {
-        await accountsApi.remove(h.id);
+        await accountsApi.remove(holding.id);
         hapticSuccess();
-        refresh();
-        void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+        queryClient.setQueryData<Account[]>(['accounts'], (current) => current?.filter((a) => a.id !== holding.id));
+        refreshAfterChange();
       } catch (e) {
         hapticError();
         reportTransportFailure(e, 'investments:remove-holding', startedAt);
         setError(toUserMessage(e, 'Could not delete this holding.'));
-      }
-    });
-  }
-
-  async function saveSnapshot() {
-    // Guarded and awaited, unlike the web page's original: without the pending flag a slow response
-    // let repeated taps fire concurrent snapshot writes, and without the catch a failure was an
-    // unhandled rejection with no user feedback at all. The ref-based guard rather than the
-    // `savingSnapshot` state, because state hasn't reached the button yet on a same-frame retap.
-    await singleFlight(async () => {
-      setSavingSnapshot(true);
-      setError(null);
-      const startedAt = requestStartedAt();
-      try {
-        await networthApi.saveSnapshot();
-        hapticSuccess();
-        void queryClient.invalidateQueries({ queryKey: ['networth'] });
-      } catch (e) {
-        hapticError();
-        reportTransportFailure(e, 'investments:save-snapshot', startedAt);
-        setError(toUserMessage(e, 'Could not save today’s snapshot.'));
-      } finally {
-        setSavingSnapshot(false);
       }
     });
   }
@@ -222,266 +162,94 @@ export function InvestmentsScreen() {
     );
   }
 
-  const chartWidth = width - spacing.md * 2 - spacing.md * 2;
-  const history = netWorth?.history ?? [];
+  const today = new Date();
+  const summary = summarizeHoldings(holdings);
+  const invested = netWorthUnknown ? null : assetShare(summary.total, netWorthQ.data?.totalAssets);
+  const countLabel = `${summary.count} ${summary.count === 1 ? 'holding' : 'holdings'}`;
 
   return (
     <GlassScreen style={styles.glassRoot}>
-    <ScrollView
-      contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
-      keyboardShouldPersistTaps="handled"
-      refreshControl={<AppRefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}
-    >
-      <View style={styles.header}>
-        <Pressable
-          onPress={() => setFormOpen((o) => !o)}
-          hitSlop={12}
-          accessibilityRole="button"
-          accessibilityState={{ expanded: formOpen }}
-        >
-          <Text style={[styles.headerAction, { color: c.primary }]}>{formOpen ? 'Cancel' : '+ Add'}</Text>
-        </Pressable>
-      </View>
-
-      {error ? (
-        <Pressable onPress={() => setError(null)} accessibilityRole="button" accessibilityLabel="Dismiss error">
-          <Text style={[styles.error, { color: c.dangerInk, backgroundColor: c.dangerBg }]}>{error}</Text>
-        </Pressable>
-      ) : null}
-
-      {formOpen ? (
-        <Card style={styles.section}>
-          <TextField label="Name" value={name} onChangeText={setName} placeholder="Index fund" />
-          <TextField
-            label="Current value"
-            value={value}
-            onChangeText={setValue}
-            keyboardType="decimal-pad"
-            placeholder="0"
-          />
-          <Text style={[styles.fieldLabel, { color: c.muted }]}>Type</Text>
+      <ScrollView
+        contentContainerStyle={padForTabBar(styles.content, tabBar)}
+        scrollIndicatorInsets={{ bottom: tabBar }}
+        keyboardShouldPersistTaps="handled"
+        refreshControl={<AppRefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}
+      >
+        <View style={styles.actions}>
           <Pressable
-            onPress={() => setKindPickerOpen(true)}
-            style={[styles.picker, { backgroundColor: c.inputBg, borderColor: c.border }]}
+            onPress={() => setAddOpen(true)}
+            style={[styles.addButton, { backgroundColor: c.primary }]}
             accessibilityRole="button"
-            accessibilityLabel={`Type: ${kind}. Change`}
+            accessibilityLabel="Add holding"
           >
-            <Text style={[styles.pickerText, { color: c.ink }]}>{kind}</Text>
-            <Text style={[styles.chevron, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">
-              ›
-            </Text>
+            <Ionicons name="add" size={18} color={c.onPrimary} />
+            <Text style={[typography.labelM, { color: c.onPrimary }]}>Add holding</Text>
           </Pressable>
-          <View style={styles.formButton}>
-            <Button label={adding ? 'Adding…' : 'Add Holding'} onPress={() => void addHolding()} loading={adding} />
-          </View>
-        </Card>
-      ) : null}
+        </View>
 
-      <View style={styles.totals}>
-        <Card style={styles.totalCard}>
-          <Text style={[styles.totalLabel, { color: c.muted }]}>Investments</Text>
-          <Text style={[styles.totalValue, { color: c.ink }]} numberOfLines={1} adjustsFontSizeToFit>
-            {/* '—' on failure, matching the two cards beside it. totalInvestments is derived from
-                `holdings`, which is [] when the accounts fetch failed -- so this used to state a
-                confident ₹0 for a portfolio it had simply been unable to load, sitting directly
-                next to two cards that correctly admitted they didn't know. A fabricated zero is
-                the worst of the three outcomes here: it is indistinguishable from a real answer. */}
-            {accountsUnknown ? '—' : fmtCurrency(totalInvestments)}
-          </Text>
-        </Card>
-        <Card style={styles.totalCard}>
-          <Text style={[styles.totalLabel, { color: c.muted }]}>Net Worth</Text>
-          {/* Sign-aware, like ReportsScreen's own Net card. Net worth is a genuinely signed figure
-              -- AccountBalanceConvention treats a credit card as a liability, so anyone who imports
-              a card statement before a bank one is legitimately negative -- and painting that green
-              inverts the only signal the colour carries. */}
-          <Text
-            style={[
-              styles.totalValue,
-              { color: (netWorth?.netWorth ?? 0) >= 0 ? c.successInk : c.dangerInk },
-            ]}
-            numberOfLines={1}
-            adjustsFontSizeToFit
-          >
-            {netWorthUnknown ? '—' : fmtCurrency(netWorth?.netWorth ?? 0)}
-          </Text>
-          {/* A card whose amount owed is not known is left out of both figures (lib/amountOwed.ts). */}
-          {unknownCards ? <Text style={[styles.leftOut, { color: c.muted }]}>{unknownCards}</Text> : null}
-        </Card>
-        <Card style={styles.totalCard}>
-          <Text style={[styles.totalLabel, { color: c.muted }]}>Liabilities</Text>
-          <Text style={[styles.totalValue, { color: c.dangerInk }]} numberOfLines={1} adjustsFontSizeToFit>
-            {netWorthUnknown ? '—' : fmtCurrency(netWorth?.totalLiabilities ?? 0)}
-          </Text>
-          {unknownCards ? <Text style={[styles.leftOut, { color: c.muted }]}>{unknownCards}</Text> : null}
-        </Card>
-      </View>
+        {error ? (
+          <Pressable onPress={() => setError(null)} accessibilityRole="button" accessibilityLabel="Dismiss error">
+            <Text style={[styles.error, { color: c.dangerInk, backgroundColor: c.dangerBg }]}>{error}</Text>
+          </Pressable>
+        ) : null}
 
-      <Card style={styles.section}>
-        <SectionHeading title="Allocation" />
-        {/* The isError branch has to come first, for the same reason the Holdings card below states
-            it: `holdings` is [] both when the user genuinely has none and when the fetch failed,
-            and only one of those is an answer. Without this, one failed /accounts told the user
-            "No investment holdings yet" here and "Could not load holdings." forty lines down. */}
-        {accountsUnknown ? (
-          <Text style={[styles.inlineError, { color: c.dangerInk }]}>Could not load your allocation.</Text>
-        ) : holdings.length === 0 ? (
-          <EmptyState message="No investment holdings yet. Add one above, or import a deposit statement." />
+        {holdingsUnknown ? (
+          <Card>
+            <Text style={[typography.bodyM, { color: c.dangerInk }]}>Could not load your investments.</Text>
+          </Card>
+        ) : summary.count === 0 ? (
+          <Card>
+            <EmptyState message="No investments yet. Add a holding, or import a deposit statement." />
+          </Card>
         ) : (
-          <DonutChart slices={slices} centerLabel={fmtCurrency(totalInvestments)} />
-        )}
-      </Card>
-
-      <Card style={styles.section}>
-        <SectionHeading
-          title="Net Worth Trend"
-          action={
-            <Pressable
-              onPress={() => void saveSnapshot()}
-              disabled={savingSnapshot}
-              style={[styles.snapshotButton, { borderColor: c.border }, savingSnapshot && styles.disabled]}
-              accessibilityRole="button"
-              accessibilityLabel="Save today's net worth snapshot"
-              accessibilityState={{ disabled: savingSnapshot, busy: savingSnapshot }}
-            >
-              <Text style={[styles.snapshotText, { color: c.primary }]}>
-                {savingSnapshot ? 'Saving…' : 'Save snapshot'}
-              </Text>
-            </Pressable>
-          }
-        />
-        {/* Same rule as the Allocation card above. `history` falls back to [] on failure, so a
-            failed /networth told someone with a year of saved snapshots that they had never saved
-            one -- while the Net Worth card immediately above it, fed by that identical query,
-            correctly showed '—'. Reliably reachable: 'networth' is deliberately excluded from the
-            persistence allowlist, so there is never a cached value to fall back on. */}
-        {netWorthUnknown ? (
-          <Text style={[styles.inlineError, { color: c.dangerInk }]}>
-            Could not load your net worth history.
-          </Text>
-        ) : history.length < 2 ? (
-          // Track C/C8: a snapshot is now taken automatically every day (NetWorthSnapshotSweepService),
-          // so this is no longer "the first one you save" -- it just hasn't been a day or two yet.
-          // "Save snapshot" above still exists as a same-day override, not the only way history starts.
-          <EmptyState message="Building your net worth trend — check back in a day or two, or save today's snapshot now to add a point right away." />
-        ) : (
-          <TrendChart
-            points={history.map((h) => ({ date: h.date, value: h.netWorth }))}
-            width={chartWidth}
+          <PortfolioCard
+            summary={summary}
+            subtitle={invested === null ? countLabel : `${countLabel} · ${shareLabel(invested)} of your assets`}
+            money={fmtCurrency}
           />
         )}
-      </Card>
 
-      <Card style={styles.section}>
-        <SectionHeading title="Holdings" />
-        {accountsUnknown ? (
-          <Text style={[styles.inlineError, { color: c.dangerInk }]}>Could not load holdings.</Text>
-        ) : holdings.length === 0 ? (
-          <EmptyState message="No holdings yet." />
-        ) : (
-          holdings.map((h) => {
-            const terms = depositTerms(h);
-            return (
-              <View key={h.id} style={[styles.holdingRow, { borderBottomColor: c.border }]}>
-                <View style={styles.holdingMain}>
-                  <Text style={[styles.holdingName, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
-                    {h.name}
-                  </Text>
-                  {h.investmentKind ? (
-                    <Text style={[styles.holdingKind, { color: c.muted }]}>{h.investmentKind}</Text>
-                  ) : null}
-                  {terms ? <Text style={[styles.holdingTerms, { color: c.muted }]}>{terms}</Text> : null}
-                </View>
-                <View style={styles.holdingRight}>
-                  <Text style={[styles.holdingValue, { color: c.ink }]}>{fmtCurrency(h.balance)}</Text>
-                  <Pressable
-                    onPress={() => confirmDelete(h)}
-                    hitSlop={8}
-                    style={styles.deleteButton}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Delete ${h.name}`}
-                  >
-                    <Text style={[styles.deleteText, { color: c.dangerInk }]}>Delete</Text>
-                  </Pressable>
-                </View>
-              </View>
-            );
-          })
-        )}
-      </Card>
+        <ComingUpCard rows={comingUp(holdings, today)} money={fmtCurrency} />
+        <MoneyGoingInCard
+          today={today}
+          onSeePayments={(categoryId, dateFrom, dateTo) => openPayments(navigation, categoryId, dateFrom, dateTo)}
+        />
+        {!holdingsUnknown && summary.count > 0 ? (
+          <HoldingsCard
+            summary={summary}
+            today={today}
+            money={fmtCurrency}
+            onMore={(holding) => { setMenuFor(holding); setMenuOpen(true); }}
+          />
+        ) : null}
+        <NetWorthCard netWorth={netWorthQ.data ?? null} failed={netWorthUnknown} money={fmtCurrency} />
 
-      <InvestmentActivityCard />
-
-      <OptionPickerModal
-        visible={kindPickerOpen}
-        title="Type"
-        options={INVESTMENT_KINDS}
-        selected={kind}
-        onSelect={(k) => {
-          setKind(k);
-          setKindPickerOpen(false);
-        }}
-        onClose={() => setKindPickerOpen(false)}
-      />
-    </ScrollView>
+        <HoldingActionsSheet
+          holding={menuFor}
+          visible={menuOpen}
+          onClose={() => setMenuOpen(false)}
+          onUpdate={() => { setUpdating(menuFor); setMenuOpen(false); }}
+          onDelete={() => { setMenuOpen(false); if (menuFor) confirmDelete(menuFor); }}
+        />
+        {updating ? (
+          <UpdateValueSheet
+            key={updating.id}
+            holding={updating}
+            money={fmtCurrency}
+            onClose={() => setUpdating(null)}
+            onSave={(value) => saveValue(updating, value)}
+          />
+        ) : null}
+        {addOpen ? <AddHoldingSheet onClose={() => setAddOpen(false)} onSave={addHolding} /> : null}
+      </ScrollView>
     </GlassScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  leftOut: { fontSize: 12, marginTop: 4 },
   glassRoot: { flex: 1 },
-  content: { padding: spacing.md, paddingBottom: spacing.xl },
-  header: { alignItems: 'flex-end', marginBottom: spacing.sm },
-  headerAction: { fontSize: 14, fontWeight: '600' },
-  error: {
-    fontSize: 13,
-    borderRadius: radius.md,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: spacing.sm,
-    overflow: 'hidden',
-  },
-  inlineError: { fontSize: 13, paddingVertical: spacing.sm },
-  fieldLabel: { fontSize: 12, fontWeight: '500', marginBottom: 6 },
-  picker: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderWidth: 1,
-    borderRadius: radius.md,
-    paddingHorizontal: 12,
-    minHeight: 48,
-  },
-  pickerText: { fontSize: 15 },
-  chevron: { fontSize: 20, lineHeight: 20 },
-  formButton: { marginTop: spacing.sm },
-  totals: { flexDirection: 'row', gap: spacing.sm },
-  totalCard: { flex: 1, paddingHorizontal: spacing.sm },
-  totalLabel: { fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5 },
-  totalValue: { fontSize: 15, fontWeight: '700', marginTop: 4 },
-  section: { marginTop: spacing.md },
-  snapshotButton: {
-    borderWidth: 1,
-    borderRadius: radius.md,
-    paddingHorizontal: 12,
-    minHeight: 44,
-    justifyContent: 'center',
-  },
-  snapshotText: { fontSize: 12, fontWeight: '600' },
-  disabled: { opacity: 0.5 },
-  holdingRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  holdingMain: { flex: 1, marginRight: spacing.sm },
-  holdingName: { fontSize: 14, fontWeight: '600' },
-  holdingKind: { fontSize: 10, textTransform: 'uppercase', marginTop: 2, letterSpacing: 0.4 },
-  holdingTerms: { fontSize: 11, marginTop: 4, lineHeight: 16 },
-  holdingRight: { alignItems: 'flex-end' },
-  holdingValue: { fontSize: 14, fontWeight: '700' },
-  deleteButton: { marginTop: 6, minHeight: 32, justifyContent: 'center' },
-  deleteText: { fontSize: 11, fontWeight: '600', textTransform: 'uppercase' },
+  content: { padding: spacing.md, paddingBottom: spacing.xl, gap: spacing.ms },
+  actions: { flexDirection: 'row', justifyContent: 'flex-end' },
+  addButton: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 44, paddingHorizontal: spacing.md, borderRadius: 999 },
+  error: { fontSize: 13, borderRadius: radius.md, paddingHorizontal: 12, paddingVertical: 10, overflow: 'hidden' },
 });

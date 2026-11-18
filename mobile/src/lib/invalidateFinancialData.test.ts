@@ -176,7 +176,9 @@ describe('invalidateFinancialData covers every query the app runs', () => {
   });
 
   // Regression: both were read by a Phase 4 screen while missing from the cascade.
-  it.each(['networth', 'recurring'])('refreshes %s after a write', (key) => {
+  // 'investment-activity' is named through a constant, so the source scan above cannot see it: the
+  // Investments total stayed stale after a payment was recategorised from its own See payments link.
+  it.each(['networth', 'recurring', 'investment-activity'])('refreshes %s after a write', (key) => {
     expect(declared.has(key)).toBe(true);
   });
 

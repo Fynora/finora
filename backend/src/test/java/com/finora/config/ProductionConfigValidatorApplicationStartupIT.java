@@ -136,6 +136,50 @@ class ProductionConfigValidatorApplicationStartupIT {
                 .isFalse();
     }
 
+    /**
+     * The same three proofs for the hosted-profile check: a real boot, on Railway, with the profile
+     * that a missing {@code SPRING_PROFILES_ACTIVE} resolves to. Everything else is left on its
+     * development default, as it would be on a deployment that lost its variables. The profile is
+     * passed explicitly as {@code dev}, which is what application.yml's own default gives, because
+     * this suite's JVM sets {@code spring.profiles.active=test} for every test.
+     */
+    @Test
+    void applicationFailsToStart_onRailway_withTheDevProfile_andNeverBindsAPort() throws IOException {
+        Path storageRoot = Files.createTempDirectory("finora-hosted-profile-it-storage");
+        AtomicBoolean webServerBound = new AtomicBoolean(false);
+
+        SpringApplicationBuilder builder = new SpringApplicationBuilder(
+                FinoraApplication.class, TestPhoneVerificationConfig.class)
+                .web(WebApplicationType.SERVLET)
+                .listeners((ApplicationListener<WebServerInitializedEvent>) event -> webServerBound.set(true));
+
+        String[] args = {
+                "--spring.profiles.active=dev",
+                "--server.port=0",
+                "--spring.datasource.url=" + POSTGRES.getJdbcUrl(),
+                "--spring.datasource.username=" + POSTGRES.getUsername(),
+                "--spring.datasource.password=" + POSTGRES.getPassword(),
+                "--app.statement-storage.provider=filesystem",
+                "--app.statement-storage.filesystem.root=" + storageRoot,
+                // What Railway sets on a deployment. A command-line argument is read through the
+                // same Environment an operating-system variable is.
+                "--RAILWAY_ENVIRONMENT_ID=an-id-railway-set"
+        };
+
+        assertThatThrownBy(() -> builder.run(args))
+                .satisfies(thrown -> {
+                    Throwable cause = rootCause(thrown);
+                    assertThat(cause).isInstanceOf(IllegalStateException.class);
+                    assertThat(cause.getMessage())
+                            .contains("Railway deployment")
+                            .contains("SPRING_PROFILES_ACTIVE=prod");
+                });
+
+        assertThat(webServerBound)
+                .as("the server must not accept a single request on the development defaults")
+                .isFalse();
+    }
+
     private static Throwable rootCause(Throwable throwable) {
         Throwable current = throwable;
         while (current.getCause() != null && current.getCause() != current) {

@@ -22,8 +22,11 @@ import java.util.Map;
  * to protect real user sessions or a real database. "Graceful startup when environment variables
  * are missing" cuts both ways: missing-and-obvious-crash is fine, missing-and-silently-insecure
  * in production is the actually dangerous failure mode, so this fails loudly and immediately
- * instead. Deliberately does nothing outside the prod profile -- these placeholder defaults are
- * exactly what makes local dev and CI convenient, and must keep working with zero setup there.
+ * instead. Deliberately checks none of those values outside the prod profile -- these placeholder
+ * defaults are exactly what makes local dev and CI convenient, and must keep working with zero
+ * setup there. The one thing it does outside prod is refuse to run at all on the hosting platform
+ * (see {@link #refuseANonProdProfileOnTheHostingPlatform()}): the profile is itself a setting that
+ * can go missing, and it defaults to dev.
  *
  * <h2>Why {@link SmartInitializingSingleton} and not {@code ApplicationRunner}</h2>
  *
@@ -136,12 +139,82 @@ public class ProductionConfigValidator implements SmartInitializingSingleton {
         validate();
     }
 
+    /**
+     * Variables Railway itself sets on every deployment it runs (its variables reference, read
+     * 2026-11-20). Any one present means this process is on the hosting platform. Several, so
+     * that Railway dropping or renaming one does not quietly switch the check below off.
+     */
+    static final Map<String, String> RAILWAY_MARKERS = Map.of(
+            "app.hosting.railway.environment-id", "RAILWAY_ENVIRONMENT_ID",
+            "app.hosting.railway.service-id", "RAILWAY_SERVICE_ID",
+            "app.hosting.railway.project-id", "RAILWAY_PROJECT_ID",
+            "app.hosting.railway.deployment-id", "RAILWAY_DEPLOYMENT_ID");
+
+    /** The one way to run a profile other than {@code prod} on the hosting platform. */
+    static final String ALLOW_NON_PROD_ON_RAILWAY = "ALLOW_NON_PROD_PROFILE_ON_RAILWAY";
+    private static final String ALLOW_NON_PROD_ON_RAILWAY_PROPERTY = "app.hosting.railway.allow-non-prod-profile";
+
+    /**
+     * Everything this class checks is gated on the {@code prod} profile, and the profile defaults
+     * to {@code dev} ({@code spring.profiles.active: ${SPRING_PROFILES_ACTIVE:dev}}). So one
+     * variable deleted, misspelled, or missed while re-entering them after an incident turned
+     * every check here off at once, and the server still started and passed its health check:
+     * with the placeholder JWT secret and the repository's encryption key accepted if those were
+     * missing too, SQL and security debug logging on, and raw exception text returned to callers.
+     * The guard for a missing setting was itself switched by a setting that could go missing.
+     *
+     * <p>This closes that for the place the server is actually deployed. On Railway, any profile
+     * other than {@code prod} refuses to start, unless {@link #ALLOW_NON_PROD_ON_RAILWAY} is
+     * {@code true}. That is a second, deliberate variable: a hosted test deployment needs
+     * someone to have typed it, and losing it fails closed. The profile variable going missing no
+     * longer decides anything by itself.
+     *
+     * <p>Local development, tests and CI set none of Railway's variables and are untouched. A
+     * local process started with those variables in its environment is refused like any other,
+     * with the same message saying how to allow it.
+     */
+    private void refuseANonProdProfileOnTheHostingPlatform() {
+        List<String> present = RAILWAY_MARKERS.entrySet().stream()
+                .filter(marker -> {
+                    String value = environment.getProperty(marker.getKey());
+                    return value != null && !value.isBlank();
+                })
+                .map(Map.Entry::getValue)
+                .sorted()
+                .toList();
+        if (present.isEmpty()) return;
+
+        String profiles = String.join(",", environment.getActiveProfiles());
+        if ("true".equalsIgnoreCase(trimmed(environment.getProperty(ALLOW_NON_PROD_ON_RAILWAY_PROPERTY)))) {
+            log.warn("Running on Railway with profile [{}], not prod, because {}=true. None of the "
+                    + "production configuration checks run in this mode. This must never be set on "
+                    + "a deployment that real users reach.", profiles, ALLOW_NON_PROD_ON_RAILWAY);
+            return;
+        }
+
+        String message = "Refusing to start: this is a Railway deployment (" + String.join(", ", present)
+                + " is set) and the active profile is [" + profiles + "], not prod. Outside the prod "
+                + "profile none of the production configuration checks run, and the development "
+                + "defaults for secrets and logging apply. Set SPRING_PROFILES_ACTIVE=prod. If this "
+                + "deployment is a test one that no real user reaches and is meant to run another "
+                + "profile, set " + ALLOW_NON_PROD_ON_RAILWAY + "=true as well.";
+        log.error(message);
+        throw new IllegalStateException(message);
+    }
+
+    private static String trimmed(String value) {
+        return value == null ? null : value.trim();
+    }
+
     /** The checks themselves, separated from the lifecycle hook that triggers them so a test can
      *  invoke them directly without standing up a context -- and so the hook above stays a single
      *  line whose only job is to say WHEN this runs. */
     void validate() {
         boolean isProd = Arrays.asList(environment.getActiveProfiles()).contains("prod");
-        if (!isProd) return;
+        if (!isProd) {
+            refuseANonProdProfileOnTheHostingPlatform();
+            return;
+        }
 
         StringBuilder problems = new StringBuilder();
 

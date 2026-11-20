@@ -113,10 +113,11 @@ class GoogleOAuthControllerTest {
      * covers peekReturnPlatform's own resolution rules).
      */
     @Test
-    @DisplayName("a successful mobile-initiated connect redirects to the app's custom scheme, not the web URL")
-    void successfulMobileConnectRedirectsToTheAppScheme() {
+    @DisplayName("a mobile-initiated flow returns to the app's custom scheme, not the web URL, carrying the ticket to confirm with")
+    void parkedMobileConnectRedirectsToTheAppScheme() {
         GmailConnectionService service = mock(GmailConnectionService.class);
         org.mockito.Mockito.when(service.peekReturnPlatform("mobile-state")).thenReturn(ReturnPlatform.MOBILE);
+        org.mockito.Mockito.when(service.parkCallback("mobile-state", "a-code")).thenReturn("the-ticket");
         GoogleOAuthController controller = new GoogleOAuthController(
                 service, new GoogleOAuthProperties(), mock(com.finora.security.CurrentUser.class),
                 mock(GmailReviewService.class), mock(GmailManualSyncService.class));
@@ -124,8 +125,45 @@ class GoogleOAuthControllerTest {
         ResponseEntity<Void> response = controller.callback("a-code", "mobile-state", null);
 
         assertThat(response.getHeaders().getLocation().toString())
-                .startsWith("finora://gmail-callback")
-                .contains("gmail=connected");
+                .isEqualTo("finora://gmail-callback?gmail=confirm&ticket=the-ticket");
+    }
+
+    /**
+     * The callback is unauthenticated, so it must never say "connected": it cannot know that the
+     * person finishing is the person who started. It parks Google's answer and hands the browser a
+     * ticket; only the signed-in app's confirmation connects anything.
+     */
+    @Test
+    @DisplayName("the web callback never reports a connection: it hands back a ticket to confirm with")
+    void callbackNeverReportsAConnection() {
+        GmailConnectionService service = mock(GmailConnectionService.class);
+        org.mockito.Mockito.when(service.peekReturnPlatform("web-state")).thenReturn(ReturnPlatform.WEB);
+        org.mockito.Mockito.when(service.parkCallback("web-state", "a-code")).thenReturn("the-ticket");
+        GoogleOAuthController controller = new GoogleOAuthController(
+                service, new GoogleOAuthProperties(), mock(com.finora.security.CurrentUser.class),
+                mock(GmailReviewService.class), mock(GmailManualSyncService.class));
+
+        ResponseEntity<Void> response = controller.callback("a-code", "web-state", null);
+
+        assertThat(response.getHeaders().getLocation().toString())
+                .isEqualTo("https://app.fynora.net/app/settings?gmail=confirm&ticket=the-ticket")
+                .doesNotContain("gmail=connected");
+    }
+
+    @Test
+    @DisplayName("confirming passes the ticket and the signed-in user, nobody else, to the service")
+    void confirmUsesTheSignedInUser() {
+        GmailConnectionService service = mock(GmailConnectionService.class);
+        UUID signedIn = UUID.randomUUID();
+        com.finora.security.CurrentUser currentUser = mock(com.finora.security.CurrentUser.class);
+        when(currentUser.id()).thenReturn(signedIn);
+        GoogleOAuthController controller = new GoogleOAuthController(
+                service, new GoogleOAuthProperties(), currentUser,
+                mock(GmailReviewService.class), mock(GmailManualSyncService.class));
+
+        controller.confirmConnect(new GmailConnectConfirmRequest("the-ticket"));
+
+        org.mockito.Mockito.verify(service).confirmConnect("the-ticket", signedIn);
     }
 
     @Test
@@ -149,8 +187,8 @@ class GoogleOAuthControllerTest {
     void failedMobileConnectRedirectsToTheAppScheme() {
         GmailConnectionService service = mock(GmailConnectionService.class);
         org.mockito.Mockito.when(service.peekReturnPlatform("mobile-state")).thenReturn(ReturnPlatform.MOBILE);
-        org.mockito.Mockito.when(service.completeConnect("mobile-state", "a-code"))
-                .thenThrow(new RuntimeException("Google token exchange failed"));
+        org.mockito.Mockito.when(service.parkCallback("mobile-state", "a-code"))
+                .thenThrow(new RuntimeException("state already used"));
         GoogleOAuthController controller = new GoogleOAuthController(
                 service, new GoogleOAuthProperties(), mock(com.finora.security.CurrentUser.class),
                 mock(GmailReviewService.class), mock(GmailManualSyncService.class));

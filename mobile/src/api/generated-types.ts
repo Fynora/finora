@@ -1444,6 +1444,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/integrations/google/gmail/connect/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["confirmConnect"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/insights/story": {
         parameters: {
             query?: never;
@@ -8640,6 +8656,9 @@ export interface components {
             details?: {
                 [key: string]: unknown;
             };
+        };
+        GmailConnectConfirmRequest: {
+            ticket: string;
         };
         StoryRequest: {
             month?: string;
@@ -18238,6 +18257,30 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseMapStringString"];
+                };
+            };
+        };
+    };
+    confirmConnect: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GmailConnectConfirmRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
                 };
             };
         };

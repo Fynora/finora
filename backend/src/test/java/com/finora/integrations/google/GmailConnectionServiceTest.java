@@ -272,10 +272,19 @@ class GmailConnectionServiceTest {
 
     @Test
     @DisplayName("paused: an OAuth callback that arrives anyway is refused before the state is looked at or Google is called")
-    void paused_completeConnectIsRefused() {
+    void paused_parkCallbackIsRefused() {
         properties.setEnabled(false);
 
-        assertServiceUnavailable(() -> service.completeConnect("some-state", "some-code"));
+        assertServiceUnavailable(() -> service.parkCallback("some-state", "some-code"));
+        verifyNoInteractions(states, googleClient);
+    }
+
+    @Test
+    @DisplayName("paused: a confirmation that arrives anyway is refused before the ticket is looked at or Google is called")
+    void paused_confirmConnectIsRefused() {
+        properties.setEnabled(false);
+
+        assertServiceUnavailable(() -> service.confirmConnect("some-ticket", userId));
         verifyNoInteractions(states, googleClient);
     }
 
@@ -333,7 +342,7 @@ class GmailConnectionServiceTest {
 
         assertThat(platform).isEqualTo(ReturnPlatform.MOBILE);
         // Read-only: the whole point is the callback can call this for outcomes (declined, invalid)
-        // where completeConnect's own single-use claim must never fire.
+        // where parkCallback's own single-use claim must never fire.
         verify(states, never()).claimForRedemption(anyString(), any());
     }
 
@@ -347,7 +356,7 @@ class GmailConnectionServiceTest {
     }
 
     @Test
-    @DisplayName("defaults to WEB for an unknown state -- exactly what completeConnect will reject anyway")
+    @DisplayName("defaults to WEB for an unknown state -- exactly what parkCallback will reject anyway")
     void peekReturnPlatform_defaultsToWebForAnUnknownState() {
         when(states.findByStateHash(anyString())).thenReturn(Optional.empty());
 
@@ -371,39 +380,39 @@ class GmailConnectionServiceTest {
      */
     @Test
     @DisplayName("a state cannot be redeemed twice")
-    void completeConnect_rejectsAnAlreadyConsumedState() {
+    void parkCallback_rejectsAnAlreadyConsumedState() {
         GmailOAuthState consumed = pendingState(userId, Instant.now().plusSeconds(300), Instant.now());
         stateIsNotClaimable();
         when(states.findByStateHash(anyString())).thenReturn(Optional.of(consumed));
 
-        assertThatThrownBy(() -> service.completeConnect("some-state", "some-code"))
+        assertThatThrownBy(() -> service.parkCallback("some-state", "some-code"))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("expired or was already used");
 
-        // Nothing was spent finding out what the code was worth.
-        verify(googleClient, never()).exchangeCode(anyString());
-        verify(connections, never()).save(any());
+        // Nothing was parked for it, so there is no ticket anyone could confirm.
+        verify(states, never()).save(any());
+        assertThat(consumed.getTicketHash()).isNull();
     }
 
     @Test
-    void completeConnect_rejectsAnExpiredState() {
+    void parkCallback_rejectsAnExpiredState() {
         GmailOAuthState expired = pendingState(userId, Instant.now().minusSeconds(1), null);
         stateIsNotClaimable();
         when(states.findByStateHash(anyString())).thenReturn(Optional.of(expired));
 
-        assertThatThrownBy(() -> service.completeConnect("some-state", "some-code"))
+        assertThatThrownBy(() -> service.parkCallback("some-state", "some-code"))
                 .isInstanceOf(ApiException.class);
-        verify(googleClient, never()).exchangeCode(anyString());
+        verify(states, never()).save(any());
     }
 
     @Test
-    void completeConnect_rejectsAnUnknownState() {
+    void parkCallback_rejectsAnUnknownState() {
         stateIsNotClaimable();
         when(states.findByStateHash(anyString())).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.completeConnect("forged", "some-code"))
+        assertThatThrownBy(() -> service.parkCallback("forged", "some-code"))
                 .isInstanceOf(ApiException.class);
-        verify(googleClient, never()).exchangeCode(anyString());
+        verify(states, never()).save(any());
     }
 
     /**
@@ -412,8 +421,8 @@ class GmailConnectionServiceTest {
      *
      * <p>Here the row still LOOKS redeemable on a read: unconsumed, unexpired. The claim returns 0
      * anyway, because a concurrent callback carrying the same state won the UPDATE a moment
-     * earlier. The loser must stop immediately — before exchanging the code, before binding
-     * anything to a user. Directly mirrors
+     * earlier. The loser must stop immediately — before parking a code, before issuing a
+     * ticket. Directly mirrors
      * {@code ImportSessionServiceTest.claimForConfirmation_rejectsALostRace_whenTheAtomicUpdateAffectsZeroRows}.
      *
      * <p>This matters more than an ordinary double-submit: the callback is deliberately
@@ -423,54 +432,134 @@ class GmailConnectionServiceTest {
      */
     @Test
     @DisplayName("a state that loses the atomic claim is rejected, even though a read still shows it redeemable")
-    void completeConnect_rejectsALostRace_whenTheAtomicClaimAffectsZeroRows() {
+    void parkCallback_rejectsALostRace_whenTheAtomicClaimAffectsZeroRows() {
         GmailOAuthState stillLooksFine = pendingState(userId, Instant.now().plusSeconds(300), null);
         when(states.claimForRedemption(anyString(), any())).thenReturn(0);
         when(states.findByStateHash(anyString())).thenReturn(Optional.of(stillLooksFine));
 
-        assertThatThrownBy(() -> service.completeConnect("state", "code"))
+        assertThatThrownBy(() -> service.parkCallback("state", "code"))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("expired or was already used");
 
-        verify(googleClient, never()).exchangeCode(anyString());
-        verify(connections, never()).save(any());
+        verify(states, never()).save(any());
+        assertThat(stillLooksFine.getTicketHash()).isNull();
     }
 
     /**
-     * Identity comes from the state, never from the request. A caller who presents someone else's
-     * state links THAT user's account -- which is exactly why the state is 256 random bits and
-     * single-use rather than anything guessable.
+     * The callback is unauthenticated: it knows who started the flow and nothing about who is
+     * finishing it. So it must not connect anything, and must not spend a call on Google either.
+     * It parks the code, encrypted, against a ticket only its hash of which is stored.
      */
     @Test
-    void completeConnect_bindsTheConnectionToTheStatesOwner_notToAnyoneElse() {
-        UUID stateOwner = UUID.randomUUID();
+    @DisplayName("the callback parks Google's code against a one-time ticket and connects nothing")
+    void parkCallback_parksTheCodeEncrypted_andConnectsNothing() {
+        GmailOAuthState pending = pendingState(userId, Instant.now().plusSeconds(300), null);
         stateIsClaimable();
-        when(states.findByStateHash(anyString()))
-                .thenReturn(Optional.of(pendingState(stateOwner, Instant.now().plusSeconds(300), null)));
-        when(userRepository.existsById(stateOwner)).thenReturn(true);
+        when(states.findByStateHash(anyString())).thenReturn(Optional.of(pending));
+        when(userRepository.existsById(userId)).thenReturn(true);
+
+        String ticket = service.parkCallback("state", "the-google-code");
+
+        assertThat(ticket).isNotBlank().isNotEqualTo("state");
+        assertThat(pending.getTicketHash())
+                .isEqualTo(TokenHasher.sha256(ticket))
+                .isNotEqualTo(ticket);
+        assertThat(pending.getTicketExpiresAt()).isAfter(Instant.now());
+        assertThat(pending.parkedCode().ciphertext()).doesNotContain("the-google-code");
+        assertThat(encryptionService.decrypt(pending.parkedCode())).isEqualTo("the-google-code");
+        verify(states).save(pending);
+        verifyNoInteractions(googleClient, connections);
+    }
+
+    /**
+     * The expiry sweep removes rows whose {@code expiresAt} has passed. A callback that arrives in
+     * the state's last minute still gets a full-length ticket, so the row has to outlive it.
+     */
+    @Test
+    @DisplayName("parking pushes the row's expiry out to the ticket's, so the sweep cannot remove a live ticket")
+    void parkCallback_keepsTheRowUntilTheTicketExpires() {
+        GmailOAuthState pending = pendingState(userId, Instant.now().plusSeconds(5), null);
+        stateIsClaimable();
+        when(states.findByStateHash(anyString())).thenReturn(Optional.of(pending));
+        when(userRepository.existsById(userId)).thenReturn(true);
+
+        service.parkCallback("state", "code");
+
+        assertThat(pending.getExpiresAt()).isEqualTo(pending.getTicketExpiresAt());
+    }
+
+    // ---------- confirmation: who may finish a flow ----------
+
+    /** A flow Google has redirected back for, started by {@code owner}, with its ticket claimable. */
+    private GmailOAuthState parkedFlow(UUID owner) {
+        GmailOAuthState parked = pendingState(owner, Instant.now().plusSeconds(300), Instant.now());
+        parked.park("irrelevant-the-lookup-is-mocked", encryptionService.encrypt("the-google-code"),
+                Instant.now().plusSeconds(300));
+        when(states.claimTicket(anyString(), any())).thenReturn(1);
+        when(states.findByTicketHash(anyString())).thenReturn(Optional.of(parked));
+        return parked;
+    }
+
+    /**
+     * The hole this whole step closes. Someone starts a connect in their own account and sends the
+     * consent link to another person, who approves it on a genuine Google screen. Before, that
+     * person's mailbox was attached to the first account by the callback alone. Now the ticket
+     * lands in the second person's browser, and posting it as anyone but the starter is refused
+     * without Google being asked for a token at all.
+     */
+    @Test
+    @DisplayName("a flow started by one account cannot be finished by another, and no token is fetched")
+    void confirmConnect_refusesAUserWhoDidNotStartTheFlow() {
+        UUID starter = UUID.randomUUID();
+        UUID whoeverOpenedTheLink = UUID.randomUUID();
+        GmailOAuthState parked = parkedFlow(starter);
+
+        assertThatThrownBy(() -> service.confirmConnect("ticket", whoeverOpenedTheLink))
+                .isInstanceOfSatisfying(ApiException.class,
+                        e -> assertThat(e.getStatus()).isEqualTo(HttpStatus.FORBIDDEN))
+                .hasMessageContaining("different Fynora account");
+
+        verifyNoInteractions(googleClient, connections);
+        assertThat(parked.parkedCode())
+                .as("the code is gone, so a second try with the same ticket has nothing to exchange")
+                .isNull();
+    }
+
+    @Test
+    @DisplayName("a ticket that is unknown, expired or already used is refused before Google is called")
+    void confirmConnect_rejectsATicketThatCannotBeClaimed() {
+        when(states.claimTicket(anyString(), any())).thenReturn(0);
+
+        assertThatThrownBy(() -> service.confirmConnect("ticket", userId))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("expired or was already used");
+
+        verifyNoInteractions(googleClient, connections);
+    }
+
+    @Test
+    @DisplayName("the starter's confirmation exchanges the parked code and connects the starter's account")
+    void confirmConnect_connectsTheAccountThatStartedTheFlow() {
+        GmailOAuthState parked = parkedFlow(userId);
         when(connections.findByGoogleUserIdAndStatusIn(anyString(), any())).thenReturn(Optional.empty());
-        when(googleClient.exchangeCode(anyString())).thenReturn(
-                new GoogleOAuthClient.TokenResponse("a", REFRESH_TOKEN, "openid", "Bearer", 3599));
-        when(googleClient.fetchUserInfo(anyString())).thenReturn(
-                new GoogleOAuthClient.UserInfo("google-sub-12345", "connected-mailbox@example.test"));
-        when(googleClient.grantedScopes(any())).thenReturn(List.of("openid"));
+        googleReturnsAValidGrant();
 
-        GmailConnection saved = service.completeConnect("state", "code");
+        GmailConnection saved = service.confirmConnect("ticket", userId);
 
-        assertThat(saved.getUserId()).isEqualTo(stateOwner);
+        assertThat(saved.getUserId()).isEqualTo(userId);
+        verify(googleClient).exchangeCode("the-google-code");
+        assertThat(parked.parkedCode()).isNull();
     }
 
     /** The point of ADR-009 reaching this feature at all. */
     @Test
     @DisplayName("the refresh token is stored encrypted, never in plaintext")
-    void completeConnect_encryptsTheRefreshToken() {
-        stateIsClaimable();
-        when(states.findByStateHash(anyString()))
-                .thenReturn(Optional.of(pendingState(userId, Instant.now().plusSeconds(300), null)));
+    void confirmConnect_encryptsTheRefreshToken() {
+        parkedFlow(userId);
         when(connections.findByGoogleUserIdAndStatusIn(anyString(), any())).thenReturn(Optional.empty());
         googleReturnsAValidGrant();
 
-        GmailConnection saved = service.completeConnect("state", "code");
+        GmailConnection saved = service.confirmConnect("ticket", userId);
 
         assertThat(saved.getEncryptedRefreshToken())
                 .as("what lands in the column must not be the token itself")
@@ -492,35 +581,30 @@ class GmailConnectionServiceTest {
      * a failure that would surface much later, far from its cause.
      */
     @Test
-    void completeConnect_refusesAGrantWithNoRefreshToken() {
-        stateIsClaimable();
-        when(states.findByStateHash(anyString()))
-                .thenReturn(Optional.of(pendingState(userId, Instant.now().plusSeconds(300), null)));
-        when(userRepository.existsById(userId)).thenReturn(true);
+    void confirmConnect_refusesAGrantWithNoRefreshToken() {
+        parkedFlow(userId);
         when(googleClient.exchangeCode(anyString())).thenReturn(
                 new GoogleOAuthClient.TokenResponse("access-only", null, "openid", "Bearer", 3599));
         when(googleClient.fetchUserInfo(anyString())).thenReturn(
                 new GoogleOAuthClient.UserInfo("google-sub-12345", "connected-mailbox@example.test"));
 
-        assertThatThrownBy(() -> service.completeConnect("state", "code"))
+        assertThatThrownBy(() -> service.confirmConnect("ticket", userId))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("refresh token");
         verify(connections, never()).save(any());
     }
 
     @Test
-    void completeConnect_refusesAMailboxAlreadyConnectedToADifferentFinoraAccount() {
+    void confirmConnect_refusesAMailboxAlreadyConnectedToADifferentFinoraAccount() {
         // Two accounts ingesting the same receipts would attribute one person's spending to two.
         GmailConnection somebodyElses = new GmailConnection();
         somebodyElses.setUserId(UUID.randomUUID());
-        stateIsClaimable();
-        when(states.findByStateHash(anyString()))
-                .thenReturn(Optional.of(pendingState(userId, Instant.now().plusSeconds(300), null)));
+        parkedFlow(userId);
         when(connections.findByGoogleUserIdAndStatusIn(anyString(), any()))
                 .thenReturn(Optional.of(somebodyElses));
         googleReturnsAValidGrant();
 
-        assertThatThrownBy(() -> service.completeConnect("state", "code"))
+        assertThatThrownBy(() -> service.confirmConnect("ticket", userId))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("another Finora account");
     }
@@ -538,17 +622,15 @@ class GmailConnectionServiceTest {
      */
     @Test
     @DisplayName("completing a reconnect retires the stale REAUTH_REQUIRED row instead of colliding with it")
-    void completeConnect_retiresAStaleReauthRequiredConnection() {
+    void confirmConnect_retiresAStaleReauthRequiredConnection() {
         GmailConnection stale = connectionWithStatus(GmailConnection.Status.REAUTH_REQUIRED);
         stale.storeCredential(new EncryptedValue("v1", "stale-ciphertext"));
-        stateIsClaimable();
-        when(states.findByStateHash(anyString()))
-                .thenReturn(Optional.of(pendingState(userId, Instant.now().plusSeconds(300), null)));
+        parkedFlow(userId);
         when(connections.findByUserIdAndStatusIn(eq(userId), any())).thenReturn(Optional.of(stale));
         when(connections.findByGoogleUserIdAndStatusIn(anyString(), any())).thenReturn(Optional.empty());
         googleReturnsAValidGrant();
 
-        GmailConnection saved = service.completeConnect("state", "code");
+        GmailConnection saved = service.confirmConnect("ticket", userId);
 
         assertThat(stale.getStatus())
                 .as("the dead row must drop out of LIVE so it stops colliding with the fresh one")
@@ -561,30 +643,25 @@ class GmailConnectionServiceTest {
     }
 
     /**
-     * The state is claimed before Google is contacted at all.
+     * The ticket is claimed before Google is contacted at all.
      *
-     * <p>Asserts the ORDER, not just that both happened: the claim is what makes the callback
-     * single-use, so an implementation that exchanged the code first and burned the state afterwards
-     * would leave a window where a replayed URL still reached Google.
+     * <p>Asserts the ORDER, not just that both happened: the claim is what makes the confirmation
+     * single-use, so an implementation that exchanged the code first and burned the ticket
+     * afterwards would leave a window where a second post still reached Google.
      *
-     * <p>Previously this asserted {@code pending.isConsumed()} on the in-memory entity. That check
-     * became meaningless once redemption moved into an atomic UPDATE — the row is consumed in the
-     * database and the loaded entity is never mutated, so the old assertion would fail on correct
-     * code and pass on code that mutated the object without persisting it. It was testing the
-     * mechanism rather than the property.
+     * <p>The claim is an atomic UPDATE in the database, so this checks the call, not a flag on the
+     * loaded entity, which a correct implementation never sets.
      */
     @Test
-    void completeConnect_claimsTheStateBeforeContactingGoogle() {
-        GmailOAuthState pending = pendingState(userId, Instant.now().plusSeconds(300), null);
-        stateIsClaimable();
-        when(states.findByStateHash(anyString())).thenReturn(Optional.of(pending));
+    void confirmConnect_claimsTheTicketBeforeContactingGoogle() {
+        parkedFlow(userId);
         when(connections.findByGoogleUserIdAndStatusIn(anyString(), any())).thenReturn(Optional.empty());
         googleReturnsAValidGrant();
 
-        service.completeConnect("state", "code");
+        service.confirmConnect("ticket", userId);
 
         InOrder inOrder = inOrder(states, googleClient);
-        inOrder.verify(states).claimForRedemption(anyString(), any());
+        inOrder.verify(states).claimTicket(anyString(), any());
         inOrder.verify(googleClient).exchangeCode(anyString());
     }
 

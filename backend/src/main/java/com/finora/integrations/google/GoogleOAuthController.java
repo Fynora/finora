@@ -4,6 +4,7 @@ import com.finora.dto.ApiResponse;
 import com.finora.integrations.google.merchant.GmailReviewService;
 import com.finora.security.CurrentUser;
 import com.finora.util.LogSanitizer;
+import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -21,7 +22,7 @@ import java.util.Map;
  * third-party DATA grant by a user who is already signed in, not a way to sign in. "Sign in with
  * Google" would be a different feature with different scopes and different consent copy.
  *
- * <p>Nothing here syncs, parses, or reads a mailbox. Connect, callback, status, disconnect.
+ * <p>Nothing here syncs, parses, or reads a mailbox. Connect, callback, confirm, status, disconnect.
  */
 @RestController
 @RequestMapping("/api/v1/integrations/google/gmail")
@@ -74,13 +75,16 @@ public class GoogleOAuthController {
      *
      * <p><b>Unauthenticated by necessity</b>, and permitted as such in {@code SecurityConfig}. This
      * is a top-level browser navigation initiated by Google: it carries no Authorization header,
-     * and this API keeps no session. Identity is recovered from the {@code state} parameter alone —
+     * and this API keeps no session. The {@code state} parameter says which user STARTED the flow —
      * see {@link GmailOAuthState} for why that value is single-use, expiring, hashed at rest, and
-     * generated with 256 bits of entropy.
+     * generated with 256 bits of entropy. Nothing here says who is FINISHING it, so this endpoint
+     * connects nothing: it parks Google's answer and redirects with {@code gmail=confirm} and a
+     * one-time ticket, which the signed-in app posts to {@link #confirmConnect}.
      *
      * <p>Answers with a redirect rather than JSON, because a human is looking at this response in
-     * their address bar, not a script. Success and failure both land back in Finora's settings
-     * page; the outcome travels as a query parameter, never as anything that could carry a token.
+     * their address bar, not a script. Every outcome lands back in Finora's settings page as a
+     * query parameter. The ticket is the only value that travels with it, and it is useless to
+     * anyone but the signed-in user who started the flow.
      */
     @GetMapping("/callback")
     public ResponseEntity<Void> callback(@RequestParam(required = false) String code,
@@ -89,7 +93,7 @@ public class GoogleOAuthController {
         // Resolved once, up front, from the (not yet consumed) state -- every branch below needs
         // it, including outcomes where nothing is actually redeemed (declined, invalid). See
         // peekReturnPlatform's own doc comment for why this is safe to read without claiming
-        // anything: it defaults to WEB for exactly the states completeConnect would reject anyway.
+        // anything: it defaults to WEB for exactly the states parkCallback would reject anyway.
         ReturnPlatform platform = connectionService.peekReturnPlatform(state);
 
         // The user pressed Cancel on Google's consent screen, or Google refused. Not an error
@@ -103,8 +107,11 @@ public class GoogleOAuthController {
         }
 
         try {
-            connectionService.completeConnect(state, code);
-            return redirectTo(platform, "gmail=connected");
+            // Nothing is connected here. The ticket goes only to the browser Google redirected, and
+            // the signed-in app posts it to /connect/confirm. It is base64url, so it needs no
+            // encoding, and it is worthless to anyone but the user who started the flow.
+            String ticket = connectionService.parkCallback(state, code);
+            return redirectTo(platform, "gmail=confirm&ticket=" + ticket);
         } catch (Exception e) {
             // Deliberately no exception text in the redirect: this URL lands in the user's history
             // and referrer headers, and the message could describe internals. The specific reason
@@ -120,6 +127,18 @@ public class GoogleOAuthController {
                     LogSanitizer.sanitize(e.getMessage()));
             return redirectTo(platform, "gmail=failed");
         }
+    }
+
+    /**
+     * Finishes the flow. Authenticated, which is the whole point: the callback above cannot know
+     * who is finishing, so it only parks Google's answer and hands the browser a one-time ticket.
+     * The connection is made here, and only when the signed-in user is the one who started it. A
+     * consent link opened by anyone else ends in a refusal with nothing connected.
+     */
+    @PostMapping("/connect/confirm")
+    public ApiResponse<Void> confirmConnect(@Valid @RequestBody GmailConnectConfirmRequest request) {
+        connectionService.confirmConnect(request.ticket(), currentUser.id());
+        return ApiResponse.ok(null, "Gmail connected");
     }
 
     /** What the user's settings page shows. Safe to call whether or not anything is connected.

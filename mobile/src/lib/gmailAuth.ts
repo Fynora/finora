@@ -14,13 +14,13 @@ const REDIRECT_URL = 'finora://gmail-callback';
 export type GmailConnectOutcome = 'connected' | 'declined' | 'failed' | 'cancelled';
 
 /**
- * Parses the `gmail` query param off GoogleOAuthController#callback's redirect URL. Deliberately
+ * Parses one query param off GoogleOAuthController#callback's redirect URL. Deliberately
  * not URL/URLSearchParams -- see useEmailChangeDeepLink.ts's identical reasoning: unverified
  * whether those are globally available in this Hermes runtime without a polyfill this repo
  * doesn't have. A plain regex needs nothing beyond what's already guaranteed.
  */
-function parseGmailOutcome(url: string): string | null {
-  const match = /[?&]gmail=([^&]+)/.exec(url);
+function parseParam(url: string, name: 'gmail' | 'ticket'): string | null {
+  const match = new RegExp(`[?&]${name}=([^&#]+)`).exec(url);
   return match ? decodeURIComponent(match[1]) : null;
 }
 
@@ -36,14 +36,31 @@ function parseGmailOutcome(url: string): string | null {
  * 'cancelled' covers the auth session ending before Google's flow ever redirected back (the user
  * closed the browser, or the OS-level prompt was dismissed before reaching Google) -- there is no
  * `gmail=` query param to read in that case. That's distinct from 'declined': the user reaching
- * Google's own consent screen and pressing Cancel there DOES redirect back, with `gmail=declined`
- * (see GoogleOAuthController#callback's own doc comment on why the outcome always travels as a
- * query parameter, never anything that could carry a token).
+ * Google's own consent screen and pressing Cancel there DOES redirect back, with `gmail=declined`.
+ *
+ * Google redirecting back does NOT mean the mailbox is connected. The backend's callback has no
+ * way to know who is finishing the flow, so it connects nothing: it returns `gmail=confirm` with
+ * a one-time ticket, and the connection is made when this signed-in app posts that ticket
+ * (gmailApi.confirmConnect). The server refuses it unless the account posting is the one that
+ * started the flow, which is what stops a consent link approved by somebody else from attaching
+ * their mailbox to the account that sent it. 'connected' is returned only after that post succeeds.
+ * A redirect that merely says `gmail=connected` is treated as a failure: no current backend
+ * sends it, and nothing has been connected when it arrives.
  */
 export async function connectGmail(): Promise<GmailConnectOutcome> {
   const { authorizationUrl } = await gmailApi.connect();
   const result = await WebBrowser.openAuthSessionAsync(authorizationUrl, REDIRECT_URL);
   if (result.type !== 'success') return 'cancelled';
-  const outcome = parseGmailOutcome(result.url);
-  return outcome === 'connected' || outcome === 'declined' ? outcome : 'failed';
+  const outcome = parseParam(result.url, 'gmail');
+  if (outcome === 'declined') return 'declined';
+  const ticket = outcome === 'confirm' ? parseParam(result.url, 'ticket') : null;
+  if (!ticket) return 'failed';
+  try {
+    await gmailApi.confirmConnect(ticket);
+    return 'connected';
+  } catch {
+    // Refused, expired, or the request did not get through. The ticket is single-use on the
+    // server, so there is nothing to retry with: the user starts again.
+    return 'failed';
+  }
 }

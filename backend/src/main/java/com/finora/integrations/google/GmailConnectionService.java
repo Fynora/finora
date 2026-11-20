@@ -48,6 +48,11 @@ public class GmailConnectionService {
      *  {@link GmailOAuthState}), so it has to be infeasible to guess rather than merely unique. */
     private static final int STATE_BYTES = 32;
 
+    /** How long the app has to post the callback's ticket back. It does so at once, so this only
+     *  has to cover a slow network, and it must stay inside the few minutes Google honours an
+     *  authorization code for. */
+    private static final Duration TICKET_TTL = Duration.ofMinutes(5);
+
     /** How many expired states one sweep removes. Bounded for the same reason
      *  {@code ImportSessionService.CLEANUP_BATCH_SIZE} is — a backlog drains across runs. */
     private static final int STATE_SWEEP_BATCH_SIZE = 200;
@@ -131,9 +136,7 @@ public class GmailConnectionService {
                                     + "Disconnect it first to connect a different one.");
                 });
 
-        byte[] raw = new byte[STATE_BYTES];
-        secureRandom.nextBytes(raw);
-        String state = Base64.getUrlEncoder().withoutPadding().encodeToString(raw);
+        String state = newToken();
 
         GmailOAuthState pending = new GmailOAuthState();
         pending.setStateHash(TokenHasher.sha256(state));
@@ -146,17 +149,47 @@ public class GmailConnectionService {
     }
 
     /**
-     * Redeems a callback: validates the state, exchanges the code, and stores the encrypted
-     * credential.
+     * What Google's redirect does now: validates the state and parks the authorization code. It
+     * connects nothing.
      *
-     * <p><b>The state is validated before anything else happens</b> — before the code is exchanged,
-     * before any outbound call. An unknown, expired, replayed, or already-consumed state means this
-     * callback is not a flow Finora started, and the correct response is to do nothing at all
-     * rather than to spend a request finding out what the code is worth.
+     * <p>The callback is unauthenticated, so the state says who STARTED the flow and nothing says
+     * who is finishing it. Linking here meant a consent link started in one account and opened by
+     * someone else attached that person's mailbox to the first account. So the code is held,
+     * encrypted, against a fresh one-time ticket that goes only to the browser Google redirected,
+     * and {@link #confirmConnect} makes the connection once the signed-in app posts it back.
+     *
+     * <p>The ticket has to be a new value, not the state: whoever started the flow already holds
+     * the state (it is in the consent link), and could confirm with it themselves.
+     *
+     * <p><b>The state is validated before anything else happens.</b> An unknown, expired, replayed,
+     * or already-consumed state means this callback is not a flow Finora started, and nothing is
+     * parked for it. No call to Google is made here at all.
+     *
+     * @return the raw ticket for the redirect; only its hash is stored
+     */
+    public String parkCallback(String state, String code) {
+        requireAvailable();
+
+        String ticket = newToken();
+        EncryptedValue sealedCode = encryptionService.encrypt(code);
+        transactionTemplate.executeWithoutResult(tx -> {
+            GmailOAuthState claimed = claimState(state);
+            claimed.park(TokenHasher.sha256(ticket), sealedCode, Instant.now().plus(TICKET_TTL));
+            states.save(claimed);
+        });
+        return ticket;
+    }
+
+    /**
+     * Makes the connection: redeems the ticket, exchanges the parked code, stores the encrypted
+     * credential. Authenticated, unlike the callback.
+     *
+     * <p>Refused, with nothing fetched from Google, unless {@code signedInUserId} is the user who
+     * started the flow. The ticket is spent either way, and the parked code is cleared.
      *
      * @return the connection that now exists
      */
-    public GmailConnection completeConnect(String state, String code) {
+    public GmailConnection confirmConnect(String ticket, UUID signedInUserId) {
         requireAvailable();
 
         // Deliberately NOT one transaction around this whole method. The two Google calls below sit
@@ -166,26 +199,74 @@ public class GmailConnectionService {
         // (row locks held across an object-storage write). With a pool of ten and a 15-second read
         // timeout, ten concurrent connects against a slow Google would take the whole application
         // down, not just Gmail.
-        UUID userId = consumeState(state);
+        ParkedFlow flow = claimTicket(ticket);
 
-        GoogleOAuthClient.TokenResponse tokens = googleClient.exchangeCode(code);
+        if (!flow.userId().equals(signedInUserId)) {
+            log.warn("Refused a Gmail connection: the flow was started by user {} and finished by "
+                    + "user {}. Nothing was connected.", flow.userId(), signedInUserId);
+            throw new ApiException(HttpStatus.FORBIDDEN,
+                    "This Gmail connection was started from a different Fynora account, so nothing "
+                            + "was connected.");
+        }
+
+        GoogleOAuthClient.TokenResponse tokens =
+                googleClient.exchangeCode(encryptionService.decrypt(flow.code()));
         GoogleOAuthClient.UserInfo identity = googleClient.fetchUserInfo(tokens.access_token());
 
-        return persistConnection(userId, tokens, identity);
+        return persistConnection(flow.userId(), tokens, identity);
+    }
+
+    /** Who started a parked flow, and the code Google returned for it. */
+    private record ParkedFlow(UUID userId, EncryptedValue code) {}
+
+    /**
+     * Redeems the ticket and takes the parked code off the row, in its own short transaction.
+     *
+     * <p>Committed BEFORE the user check and the Google calls, for the reason {@link #claimState}
+     * gives: a ticket left redeemable after a refusal or a failed exchange is a retry window held
+     * open by an error, and Google's code is single-use anyway.
+     */
+    private ParkedFlow claimTicket(String ticket) {
+        return transactionTemplate.execute(tx -> {
+            String ticketHash = TokenHasher.sha256(ticket);
+            if (states.claimTicket(ticketHash, Instant.now()) == 0) {
+                // One message for every failure, as in claimState.
+                throw new ApiException(HttpStatus.BAD_REQUEST,
+                        "This Gmail connection has expired or was already used. Start again from Settings.");
+            }
+            GmailOAuthState claimed = states.findByTicketHash(ticketHash)
+                    .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST,
+                            "This Gmail connection is not valid. Start again from Settings."));
+            EncryptedValue code = claimed.parkedCode();
+            claimed.clearParkedCode();
+            states.save(claimed);
+            if (code == null) {
+                throw new ApiException(HttpStatus.BAD_REQUEST,
+                        "This Gmail connection is not valid. Start again from Settings.");
+            }
+            return new ParkedFlow(claimed.getUserId(), code);
+        });
+    }
+
+    private String newToken() {
+        byte[] raw = new byte[STATE_BYTES];
+        secureRandom.nextBytes(raw);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(raw);
     }
 
     /**
-     * Validates and burns the state, in its own short transaction.
+     * Validates and burns the state. Call inside a transaction.
      *
-     * <p>Committing the consumption BEFORE the Google calls is deliberate. If the exchange then
+     * <p>The consumption is committed with the parking, before anything else. If a later step
      * fails, the state is spent and the user starts over — which is the correct direction to fail,
      * since Google's authorization code is itself single-use and a state left redeemable would be a
      * replay window held open by an error.
      *
-     * @return the user the flow was started by — the only place that identity exists
+     * @return the claimed row; its user is who the flow was started by — the only place that
+     *     identity exists
      */
-    private UUID consumeState(String state) {
-        return transactionTemplate.execute(tx -> {
+    private GmailOAuthState claimState(String state) {
+        {
             String stateHash = TokenHasher.sha256(state);
             Instant now = Instant.now();
 
@@ -211,22 +292,21 @@ public class GmailConnectionService {
                     .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST,
                             "This Gmail connection link is not valid. Start again from Settings."));
 
-            UUID userId = claimed.getUserId();
-            if (!userRepository.existsById(userId)) {
+            if (!userRepository.existsById(claimed.getUserId())) {
                 throw new ApiException(HttpStatus.BAD_REQUEST,
                         "The account this connection belongs to no longer exists.");
             }
-            return userId;
-        });
+            return claimed;
+        }
     }
 
     /**
      * Read-only lookup of which platform an in-flight (or already-resolved) state was started for,
      * used only to pick GoogleOAuthController#callback's redirect target. Deliberately does NOT
-     * claim or validate the state the way {@link #consumeState} does -- the callback needs this
+     * claim or validate the state the way {@link #claimState} does -- the callback needs this
      * answer for every outcome, including a declined consent or an invalid/missing state, where
      * consuming anything would be wrong or impossible. Defaults to {@link ReturnPlatform#WEB} for
-     * a blank, unknown, or unresolvable state -- the same value {@code completeConnect}'s own
+     * a blank, unknown, or unresolvable state -- the same value {@code parkCallback}'s own
      * rejection of that state will show the user regardless.
      */
     public ReturnPlatform peekReturnPlatform(String state) {
@@ -355,7 +435,7 @@ public class GmailConnectionService {
      * grant; keeping the token would add a second secret to protect for no benefit.
      */
     public GmailVerificationResultDto verifyConnection(UUID userId) {
-        // Matches beginConnect/completeConnect. Without it, a deployment whose Google client
+        // Matches beginConnect/parkCallback/confirmConnect. Without it, a deployment whose Google client
         // configuration was removed would send a blank client_id to Google, get invalid_client back,
         // and report "could not reach Google -- try again shortly" -- advice that can never work,
         // for a problem the operator has to fix rather than the user.
@@ -415,7 +495,7 @@ public class GmailConnectionService {
      *                       real admin id) -- same self-service convention as AccountService.create.
      */
     public void disconnect(UUID userId, UUID actingAdminId) {
-        // Same split as completeConnect, for the same reason: tryRevoke is an outbound call to
+        // Same split as confirmConnect, for the same reason: tryRevoke is an outbound call to
         // Google and must not run while a pooled database connection is held open (BH-016/BH-047).
         GmailConnection connection = transactionTemplate.execute(tx ->
                 connections.findByUserIdAndStatusIn(userId, LIVE)

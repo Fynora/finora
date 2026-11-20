@@ -89,13 +89,13 @@ class DeviceListIT extends AbstractIntegrationTest {
     }
 
     /**
-     * The case the leftover rule must not hide: a copy of the token replayed inside the reuse
-     * window, after which both copies keep refreshing. Reuse detection never fires for it (see
-     * RefreshTokenService's class comment), and a phone session has no absolute cap, so the second
-     * entry in the owner's list is what shows it.
+     * A copy of the token replayed inside the reuse window, after which both copies are used.
+     * This used to be the one thing that showed such a copy: the session was listed twice. Since
+     * audit F-05 (2026-11-20) the second copy to be used is refused and every session ends, so
+     * there is nothing left to list.
      */
     @Test
-    void aReplayedCopyThatIsInUseShowsTheSessionTwice() {
+    void aReplayedCopyThatIsInUseEndsTheSession_soNothingIsListed() {
         User user = createUser();
         RefreshTokenService.IssuedToken phone = refreshTokenService.issue(
                 user.getId(), Instant.now(), UUID.randomUUID(), SessionKind.MOBILE);
@@ -106,10 +106,14 @@ class DeviceListIT extends AbstractIntegrationTest {
                 .containsExactly(phone.sessionId());
 
         refreshTokenService.rotate(owner.newToken().rawToken());
-        refreshTokenService.rotate(copy.newToken().rawToken());
+        assertThat(listedSessions(user.getId())).as("one copy in use, the other untouched: still one entry")
+                .containsExactly(phone.sessionId());
 
-        assertThat(listedSessions(user.getId())).as("both copies in use: listed twice")
-                .containsExactly(phone.sessionId(), phone.sessionId());
+        ApiException refused = catchThrowableOfType(ApiException.class,
+                () -> refreshTokenService.rotate(copy.newToken().rawToken()));
+
+        assertThat(refused).isNotNull();
+        assertThat(listedSessions(user.getId())).isEmpty();
     }
 
     @Test

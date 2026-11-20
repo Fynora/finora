@@ -320,16 +320,27 @@ of the loser tripping `@Version` into a 409, and a token retired by ordinary rot
 strict rule is unchanged past the window and for every other kind of revocation: logout, the idle
 and absolute limits, and the theft response itself leave `rotated_at` null. The trade-off is stated
 in `application.yml` and is real: a thief who replays inside the window gets a token pair of their
-own, and from then on the two chains rotate independently and never collide, so reuse detection
-never fires for that theft. What bounds it is the same set of controls that bound any live session:
-the session shows twice in the owner's device list once both copies are in use, the idle and
-absolute caps end it on schedule (a phone session has no absolute cap), and "sign out everywhere"
-ends it now. Since 2026-11-12 each token records the token it replaced (`parent_token_id`, V314), and
-the device list hides a retry leftover -- a live token with a sibling that is not its session's most
-recently seen row -- so an ordinary retried refresh no longer shows the same device twice and a
-second entry keeps its meaning. A thief who replays after the window, or whose stolen token
-the owner has not yet rotated, is caught exactly as before. `finora.auth.refresh_replayed_within_grace`
-counts the grace path, and a sustained rate on one account is worth a look.
+own, and the replay itself cannot be told from a retry. Since 2026-11-12 each token records the
+token it replaced (`parent_token_id`, V314), and the device list hides a retry leftover -- a live
+token with a sibling that is not its session's most recently seen row -- so an ordinary retried
+refresh no longer shows the same device twice.
+
+Until 2026-11-20 the two chains then rotated independently and never collided, so reuse detection
+never fired for that theft; the session showing twice in the device list was the only sign. Since
+then (audit F-05) `rotate` catches it at the first refresh that shows both copies are in use: the
+token being rotated has a sibling that has itself been rotated. A client that was only retrying
+stores one answer and never presents the other (the browsers keep the token in one cookie, the
+phone in one stored value), so two answers in use means two holders. The second copy is refused
+with `AUTH_004` and every session of the user is ended, the same response as a replay outside the
+window. Siblings lock their shared parent row before their own, so two copies presented at the
+same moment still take turns and the second still sees the first. It has to be caught at that
+first use: the successors of the two copies share no parent. What remains undetected is a copy
+whose other half is never used again; the idle and absolute caps end that on schedule (365 days
+for a phone session), and "sign out everywhere" ends it now. A thief who replays after the window,
+or whose stolen token the owner has not yet rotated, is caught exactly as before.
+`finora.auth.refresh_replayed_within_grace` counts the grace path, and
+`finora.auth.refresh_both_copies_used` counts the theft response described here; the second should
+stay at zero.
 
 **One refresh cookie per portal.** The user app and the admin portal share the API host, and a
 cookie is keyed by host and name, so signing in to one overwrote the other's refresh cookie and

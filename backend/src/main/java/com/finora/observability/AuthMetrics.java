@@ -63,6 +63,16 @@ public class AuthMetrics {
                 .increment();
     }
 
+    /** Both answers to a refresh replayed inside the grace window were used: two holders of one
+     *  session, read as theft, every session ended (audit F-05, 2026-11-20). Expected to stay at
+     *  zero; anything else is either a stolen token or a client that keeps two copies. */
+    public void refreshBothCopiesUsed() {
+        Counter.builder("finora.auth.refresh_both_copies_used")
+                .description("Both tokens issued for one replayed refresh were used; every session of the user was ended")
+                .register(registry)
+                .increment();
+    }
+
     /** A refresh was refused because the token sat unused longer than {@code idle-timeout-ms} --
      *  {@code ErrorCode.AUTH_SESSION_IDLE}. */
     public void refreshExpiredIdle() {

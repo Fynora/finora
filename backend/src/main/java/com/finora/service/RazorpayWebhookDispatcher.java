@@ -442,10 +442,8 @@ public class RazorpayWebhookDispatcher {
             // landed. See ignoreForDeletedAccount's own doc for the one case that must NOT throw:
             // the account was deleted, so this will never resolve no matter how many times it's
             // retried. A genuinely unknown/garbage razorpaySubscriptionId still fails the same way
-            // on every retry -- the same accepted "retried on every sweep tick indefinitely,
-            // mitigated only by the visible FAILED row for manual follow-up" residual risk
-            // WebhookEventRepository.findFailed's own doc already describes for any
-            // deterministically-failing FAILED row, not a new mechanism introduced here.
+            // on every retry, until it has used the retries WebhookEventRepository.findFailed
+            // allows (V330); it then stays FAILED for manual follow-up and is not retried again.
             if (ignoreForDeletedAccount(razorpaySubscriptionId, subscriptionEntity, "subscription.charged")) return;
             throw new IllegalStateException(
                     "subscription.charged for unknown razorpaySubscriptionId " + LogSanitizer.sanitize(razorpaySubscriptionId));
@@ -725,6 +723,39 @@ public class RazorpayWebhookDispatcher {
         return true;
     }
 
+    /**
+     * True when a {@code subscription.cancelled} names a Razorpay subscription that this
+     * application once activated and has since moved on from, so that no row carries its id any
+     * more. There is nothing left for the event to change, and it is handled, not failed.
+     *
+     * <p>The ordinary way to get here is an upgrade. {@link #handleActivated} puts the NEW
+     * subscription's id on the user's row and then cancels the old Razorpay subscription itself;
+     * Razorpay answers with this event for the old id. Treating that as an unknown id threw, the
+     * event was stored FAILED, and because it can never succeed it was retried on every recovery
+     * run for good -- one such row per upgrade. The other way is {@link #handleHalted}, which
+     * clears the id when payments stop; a cancellation arriving for that subscription afterwards
+     * has nothing to do either.
+     *
+     * <p>What tells this apart from the case the throw in {@link #handleCancelled} exists for (a
+     * cancellation that raced ahead of its own activation, which must be retried) is the order
+     * row: it is COMPLETED only once {@code handleActivated} has run for this id. A PENDING order,
+     * or none, still throws.
+     *
+     * <p>Only for {@code subscription.cancelled}. A charge on a retired subscription is money
+     * taken and must not be waved through; it keeps failing loudly.
+     */
+    private boolean isCancellationOfARetiredSubscription(String razorpaySubscriptionId) {
+        boolean wasActivatedHere = subscriptionOrderRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId)
+                .filter(order -> SubscriptionOrder.STATUS_COMPLETED.equals(order.getStatus()))
+                .isPresent();
+        if (wasActivatedHere) {
+            log.info("subscription.cancelled for Razorpay subscription {}, which was activated here and has "
+                    + "since been replaced or ended -- nothing to change.",
+                    LogSanitizer.sanitize(razorpaySubscriptionId));
+        }
+        return wasActivatedHere;
+    }
+
     /** spec §5. PAST_DUE, not a revoked state — Razorpay's own retry is in progress and, per its
      *  documented behavior, does not itself affect access (design spec §3). */
     void handlePending(Map<String, Object> payload) {
@@ -830,6 +861,7 @@ public class RazorpayWebhookDispatcher {
         Optional<Subscription> maybeSubscription = subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId);
         if (maybeSubscription.isEmpty()) {
             if (ignoreForDeletedAccount(razorpaySubscriptionId, entity, "subscription.cancelled")) return;
+            if (isCancellationOfARetiredSubscription(razorpaySubscriptionId)) return;
             throw new IllegalStateException(
                     "subscription.cancelled for unknown razorpaySubscriptionId " + LogSanitizer.sanitize(razorpaySubscriptionId));
         }

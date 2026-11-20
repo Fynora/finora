@@ -916,6 +916,71 @@ class RazorpayWebhookDispatcherIT extends AbstractIntegrationTest {
                 .hasMessageContaining(razorpaySubscriptionId);
     }
 
+    /**
+     * An upgrade, start to finish. Activating the new subscription puts its id on the user's row
+     * and cancels the old Razorpay subscription; Razorpay then sends {@code subscription.cancelled}
+     * for the OLD id, which no row carries any more. That event has nothing left to change and must
+     * be handled. It used to throw, which stored it FAILED and had the recovery sweep retry it on
+     * every run for good.
+     */
+    @Test
+    void theCancellationRazorpaySendsForTheSubscriptionAnUpgradeReplacedIsHandled_andChangesNothing() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        Plan plus = planRepository.findByCode("PLUS").orElseThrow();
+        Plan premium = planRepository.findByCode("PREMIUM").orElseThrow();
+        String oldRazorpaySubscriptionId = "sub_old_" + UUID.randomUUID();
+        String newRazorpaySubscriptionId = "sub_new_" + UUID.randomUUID();
+
+        pendingOrder(user, plus, oldRazorpaySubscriptionId);
+        dispatcher.dispatch("subscription.activated", activation(oldRazorpaySubscriptionId));
+        pendingOrder(user, premium, newRazorpaySubscriptionId);
+        dispatcher.dispatch("subscription.activated", activation(newRazorpaySubscriptionId));
+        verify(gateway).cancelSubscription(oldRazorpaySubscriptionId, false);
+
+        dispatcher.dispatch("subscription.cancelled",
+                Map.of("subscription", Map.of("entity", Map.of("id", oldRazorpaySubscriptionId))));
+
+        Subscription reloaded = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        assertThat(reloaded.getRazorpaySubscriptionId()).isEqualTo(newRazorpaySubscriptionId);
+        assertThat(reloaded.getPlanId()).isEqualTo(premium.getId());
+        assertThat(reloaded.getStatus()).as("the upgraded subscription is not cancelled by the old one's event")
+                .isEqualTo(Subscription.STATUS_ACTIVE);
+        assertThat(reloaded.isAutoRenew()).isTrue();
+    }
+
+    /** The case the throw is kept for: a cancellation that arrives before its own activation. The
+     *  order exists but is still PENDING, so the event must fail and be retried, not be waved
+     *  through as belonging to a subscription that has been replaced. */
+    @Test
+    void aCancellationThatArrivesBeforeItsOwnActivationStillThrows_soItIsRetried() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        String razorpaySubscriptionId = "sub_early_" + UUID.randomUUID();
+        pendingOrder(user, planRepository.findByCode("PLUS").orElseThrow(), razorpaySubscriptionId);
+
+        assertThatThrownBy(() -> dispatcher.dispatch("subscription.cancelled",
+                Map.of("subscription", Map.of("entity", Map.of("id", razorpaySubscriptionId)))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining(razorpaySubscriptionId);
+    }
+
+    private void pendingOrder(User user, Plan plan, String razorpaySubscriptionId) {
+        SubscriptionOrder order = new SubscriptionOrder();
+        order.setUserId(user.getId());
+        order.setPlanId(plan.getId());
+        order.setBillingCycle("MONTHLY");
+        order.setRazorpaySubscriptionId(razorpaySubscriptionId);
+        order.setStatus(SubscriptionOrder.STATUS_PENDING);
+        order.setAmount(new BigDecimal("799.00"));
+        subscriptionOrderRepository.save(order);
+    }
+
+    private static Map<String, Object> activation(String razorpaySubscriptionId) {
+        return Map.of("subscription", Map.of("entity", Map.of(
+                "id", razorpaySubscriptionId, "current_end", 1893456000L))); // synthetic-ok: fixture epoch second
+    }
+
     @Test
     void resumedForAnUnknownRazorpaySubscriptionIdThrowsInsteadOfSilentlyDroppingIt() {
         String razorpaySubscriptionId = "sub_unknown_" + UUID.randomUUID();

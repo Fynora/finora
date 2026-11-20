@@ -125,6 +125,12 @@ public class WebhookEventRecoverySweepService {
     @Value("${app.webhook-event-recovery.sweep.batch-size:50}")
     private int batchSize;
 
+    /** How many times a failed event is retried before the sweep leaves it for a person (V330).
+     *  96 runs at the default 15-minute interval is a day: an event that arrived out of order
+     *  succeeds within a run or two, so one still failing after a day is not going to. */
+    @Value("${app.webhook-event-recovery.sweep.max-attempts:96}")
+    private int maxAttempts;
+
     public WebhookEventRecoverySweepService(WebhookEventRepository webhookEventRepository,
                                              WebhookEventService webhookEventService,
                                              RazorpayWebhookDispatcher razorpayDispatcher,
@@ -154,7 +160,16 @@ public class WebhookEventRecoverySweepService {
         Instant cutoff = Instant.now().minus(graceMinutes, ChronoUnit.MINUTES);
         List<WebhookEvent> candidates = new ArrayList<>(
                 webhookEventRepository.findStuckUnprocessed(cutoff, batchSize));
-        candidates.addAll(webhookEventRepository.findFailed(cutoff, batchSize));
+        candidates.addAll(webhookEventRepository.findFailed(cutoff, batchSize, maxAttempts));
+
+        // Said on every run while any exist, not once: this line is the only thing that tells a
+        // person an event has been given up on, and a single line is easy to miss.
+        long givenUp = webhookEventRepository.countGivenUp(maxAttempts);
+        if (givenUp > 0) {
+            log.error("Webhook recovery sweep: {} failed event(s) have used all {} retries and are no longer "
+                    + "retried -- each needs manual follow-up (webhook_events, status FAILED, "
+                    + "recovery_attempts >= {}).", givenUp, maxAttempts, maxAttempts);
+        }
 
         int recovered = 0;
         for (WebhookEvent event : candidates) {
@@ -218,7 +233,8 @@ public class WebhookEventRecoverySweepService {
             // its current (pre-this-fix) behavior -- FAILED, untouched -- until a dedicated fix closes
             // that gap (which also pre-exists, unrelated to this change, on the NULL-crash path this
             // sweep already covered before this fix).
-            if ("SETU".equals(event.getProvider()) || !webhookEventService.reclaimFailed(event.getEventId())) {
+            if ("SETU".equals(event.getProvider())
+                    || !webhookEventService.reclaimFailed(event.getEventId(), maxAttempts)) {
                 return false;
             }
         } else if (webhookEventRepository.findById(event.getEventId()).map(WebhookEvent::getStatus).orElse(null) != null) {

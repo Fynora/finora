@@ -89,10 +89,14 @@ API_PREFIX = "/api/v1"
 # check-dependency-advisories.py sets for an accepted advisory.
 BACKEND_ONLY_PERMITALL = {
     "/auth/verify-email": (
-        "Reached from an emailed link and only ever answers 400 (invalid, used or expired token) or\n"
-        "      404 -- read from AuthService.verifyEmail -- never 401. A stale bearer token attached to it\n"
-        "      is ignored (permitAll), so sending one is harmless, and there is no failure a client would\n"
-        "      wrongly treat as an expired session.\n"
+        "Reached from an emailed link and only ever answers 400 (invalid, used or expired token),\n"
+        "      403 (a sign-up link opened without a session of that account) or 404 -- read from\n"
+        "      AuthService.verifyEmail -- never 401. The bearer token is now USED, not ignored: a sign-up\n"
+        "      link needs the request to come from a session of the account it was sent for, and the\n"
+        "      phone app shows that with its stored access token (AuthService.signedInUser, which also\n"
+        "      accepts one that has expired while its session is still open). So the clients must keep\n"
+        "      sending it, which is one more reason this route stays out of their no-token lists. There\n"
+        "      is still no failure a client would wrongly treat as an expired session.\n"
         "      REVISIT IF: it ever starts answering 401. Then a wrong or reused link would be read by the\n"
         "      401 handler as an expired session, exactly like the OTP and MFA-code endpoints were."
     ),

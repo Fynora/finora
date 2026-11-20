@@ -99,7 +99,7 @@ class AuthServiceVerifyEmailConcurrentRaceIT extends AbstractIntegrationTest {
 
         Thread first = new Thread(() -> {
             try {
-                authService.verifyEmail(RAW_TOKEN);
+                authService.verifyEmail(RAW_TOKEN, userId);
             } catch (Throwable t) {
                 firstFailure.set(t);
             }
@@ -112,7 +112,7 @@ class AuthServiceVerifyEmailConcurrentRaceIT extends AbstractIntegrationTest {
 
         Thread second = new Thread(() -> {
             try {
-                authService.verifyEmail(RAW_TOKEN);
+                authService.verifyEmail(RAW_TOKEN, userId);
             } catch (Throwable t) {
                 secondFailure.set(t);
             }
@@ -169,7 +169,7 @@ class AuthServiceVerifyEmailConcurrentRaceIT extends AbstractIntegrationTest {
         UUID tokenId = evt.getId();
 
         try {
-            authService.verifyEmail(rawToken);
+            authService.verifyEmail(rawToken, userId);
             throw new AssertionError("Expected the first attempt on an expired token to throw");
         } catch (ApiException e) {
             assertThat(e.getMessage()).contains("expired");
@@ -181,7 +181,7 @@ class AuthServiceVerifyEmailConcurrentRaceIT extends AbstractIntegrationTest {
                 .isNull();
 
         try {
-            authService.verifyEmail(rawToken);
+            authService.verifyEmail(rawToken, userId);
             throw new AssertionError("Expected the second attempt on the same expired token to throw too");
         } catch (ApiException e) {
             assertThat(e.getMessage())
@@ -202,11 +202,11 @@ class AuthServiceVerifyEmailConcurrentRaceIT extends AbstractIntegrationTest {
         String rawToken = "verify-email-twice-token-" + UUID.randomUUID();
         UUID tokenId = saveToken(userId, rawToken, Instant.now().plusSeconds(600)).getId();
 
-        assertThat(authService.verifyEmail(rawToken).message()).isNotBlank();
+        assertThat(authService.verifyEmail(rawToken, userId).message()).isNotBlank();
         Instant claimedAt = emailVerificationTokenRepository.findById(tokenId).orElseThrow().getUsedAt();
         assertThat(claimedAt).isNotNull();
 
-        assertThat(authService.verifyEmail(rawToken).message()).isNotBlank();
+        assertThat(authService.verifyEmail(rawToken, userId).message()).isNotBlank();
 
         assertThat(userRepository.findById(userId).orElseThrow().isEmailVerified()).isTrue();
         assertThat(emailVerificationTokenRepository.findById(tokenId).orElseThrow().getUsedAt())
@@ -233,7 +233,7 @@ class AuthServiceVerifyEmailConcurrentRaceIT extends AbstractIntegrationTest {
         emailVerificationTokenRepository.save(spent);
 
         try {
-            authService.verifyEmail(rawToken);
+            authService.verifyEmail(rawToken, userId);
             throw new AssertionError("Expected a spent link on an unverified account to throw");
         } catch (ApiException e) {
             assertThat(e.getMessage()).contains("can no longer be used").doesNotContain("already been used");
@@ -252,7 +252,7 @@ class AuthServiceVerifyEmailConcurrentRaceIT extends AbstractIntegrationTest {
         String rawToken = "verify-email-other-way-token-" + UUID.randomUUID();
         saveToken(userId, rawToken, Instant.now().minusSeconds(60));
 
-        assertThat(authService.verifyEmail(rawToken).message()).isNotBlank();
+        assertThat(authService.verifyEmail(rawToken, userId).message()).isNotBlank();
 
         assertThat(userRepository.findById(userId).orElseThrow().isEmailVerified()).isTrue();
         assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(userId))

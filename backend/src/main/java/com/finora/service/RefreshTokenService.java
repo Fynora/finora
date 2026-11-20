@@ -25,6 +25,7 @@ import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.BooleanSupplier;
 import java.util.function.IntSupplier;
@@ -235,6 +236,34 @@ public class RefreshTokenService {
         // did to rotate()'s locked read later in the same transaction.
         return refreshTokenRepository.findUserIdByTokenHash(TokenHasher.sha256(rawToken))
                 .orElseThrow(() -> new ApiException(ErrorCode.AUTH_TOKEN_EXPIRED, "Invalid refresh token"));
+    }
+
+    /**
+     * Whose still-live session this refresh token belongs to, without rotating it or changing
+     * anything. Empty for an unknown token and for a token whose session has ended.
+     *
+     * <p>For a request that must show it comes from a signed-in browser but carries no access
+     * token: the web app keeps its access token in memory only, so a page opened from an emailed
+     * link has none until its first refresh, while the refresh cookie is there from the start
+     * (AuthService.verifyEmail). The token itself may already be rotated away: the page's own
+     * start-up refresh can land first, and what matters here is that its session is still open,
+     * which is the same test every access token is held to ({@code SessionValidator}).
+     */
+    /** Whether this session still has an unrevoked, unexpired refresh token: the same test
+     *  SessionValidator applies to every access token. */
+    @Transactional(readOnly = true)
+    public boolean isSessionLive(UUID sessionId) {
+        return sessionId != null
+                && refreshTokenRepository.existsBySessionIdAndRevokedAtIsNullAndExpiresAtAfter(sessionId, Instant.now());
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<UUID> userOfLiveSession(String rawToken) {
+        if (rawToken == null || rawToken.isBlank()) return Optional.empty();
+        return refreshTokenRepository.findByTokenHash(TokenHasher.sha256(rawToken))
+                .filter(rt -> refreshTokenRepository.existsBySessionIdAndRevokedAtIsNullAndExpiresAtAfter(
+                        rt.getSessionId(), Instant.now()))
+                .map(RefreshToken::getUserId);
     }
 
     @Transactional(noRollbackFor = ApiException.class)

@@ -154,12 +154,37 @@ public class AuthController {
         return ResponseEntity.ok(ApiResponse.ok(authService.resetPassword(request)));
     }
 
-    /** D-23. Confirms a {@code /verify-email?token=...} link -- see AuthService.verifyEmail. Not
-     *  authenticated: the token itself is the proof, the same posture reset-password/reactivate
-     *  already have for their own emailed/returned links. */
+    /** D-23. Confirms a {@code /verify-email?token=...} link -- see AuthService.verifyEmail, which
+     *  decides from the link's origin whether the token alone is enough. A link sent by sign-up
+     *  also needs the request to come from a session of that account; a link sent by a Google or
+     *  Apple sign-in conflict does not. The route itself stays open to signed-out callers. */
     @PostMapping("/verify-email")
-    public ResponseEntity<ApiResponse<VerifyEmailResponse>> verifyEmail(@Valid @RequestBody VerifyEmailRequest request) {
-        return ResponseEntity.ok(ApiResponse.ok(authService.verifyEmail(request.token())));
+    public ResponseEntity<ApiResponse<VerifyEmailResponse>> verifyEmail(@Valid @RequestBody VerifyEmailRequest request,
+                                                                         HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                authService.verifyEmail(request.token(), signedInUserId(httpRequest))));
+    }
+
+    /** The account this request is signed in as, or null. Gathers the three things a client may
+     *  have sent and leaves the judgement to AuthService.signedInUser, which says why each counts. */
+    private java.util.UUID signedInUserId(HttpServletRequest httpRequest) {
+        java.util.UUID authenticatedUserId = null;
+        var authentication = org.springframework.security.core.context.SecurityContextHolder.getContext()
+                .getAuthentication();
+        if (authentication != null && authentication.getPrincipal()
+                instanceof org.springframework.security.core.userdetails.UserDetails principal) {
+            try {
+                authenticatedUserId = java.util.UUID.fromString(principal.getUsername());
+            } catch (IllegalArgumentException e) {
+                // Not a user id: treated as not signed in by this route.
+            }
+        }
+        String authorization = httpRequest.getHeader("Authorization");
+        String bearerToken = authorization != null && authorization.startsWith("Bearer ")
+                ? authorization.substring(7) : null;
+        String refreshCookie = refreshTokenCookie.fromCookie(httpRequest, com.finora.entity.User.SCOPE_USER)
+                .orElse(null);
+        return authService.signedInUser(authenticatedUserId, bearerToken, refreshCookie);
     }
 
     /**

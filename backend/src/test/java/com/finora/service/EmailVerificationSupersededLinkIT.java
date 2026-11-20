@@ -79,17 +79,18 @@ class EmailVerificationSupersededLinkIT extends AbstractIntegrationTest {
         String newest = tokens.get(2);
 
         for (String superseded : List.of(fromRegister, fromFirstGoogleAttempt)) {
-            ApiException rejected = catchThrowableOfType(() -> authService.verifyEmail(superseded), ApiException.class);
+            ApiException rejected = catchThrowableOfType(() -> authService.verifyEmail(superseded, userId), ApiException.class);
             assertThat(rejected).as("an older email's link must not verify").isNotNull();
             assertThat(rejected.getMessage()).contains("replaced by a newer one");
             assertThat(rejected.getMessage()).doesNotContain("already been used");
         }
         assertThat(userRepository.findById(userId).orElseThrow().isEmailVerified()).isFalse();
 
-        assertThat(authService.verifyEmail(newest).message()).isNotBlank();
+        // The newest link came from a Google attempt, so it needs no session.
+        assertThat(authService.verifyEmail(newest, null).message()).isNotBlank();
         assertThat(userRepository.findById(userId).orElseThrow().isEmailVerified()).isTrue();
 
-        assertThat(authService.verifyEmail(fromRegister).message())
+        assertThat(authService.verifyEmail(fromRegister, null).message())
                 .as("once the account is verified, an older email's link reports that instead of failing")
                 .isNotBlank();
         assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(userId).stream()

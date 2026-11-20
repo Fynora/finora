@@ -200,6 +200,24 @@ app:
     # the Dockerfile always declares it, empty unless a build argument fills it.
     commit: ${GIT_COMMIT:}
     platform-commit: ${RAILWAY_GIT_COMMIT_SHA:}
+  hosting:
+    # Whether this process is running on Railway, and whether it may run there outside the prod
+    # profile. Read by ProductionConfigValidator, which refuses to start on Railway with any other
+    # profile: spring.profiles.active above defaults to dev, so a missing or misspelled
+    # SPRING_PROFILES_ACTIVE used to start the real deployment on the development defaults with
+    # every production check skipped.
+    #
+    # The four ids are set by Railway itself on every deployment (its variables reference). Any one
+    # of them non-blank counts. Empty everywhere else: local runs, tests and CI.
+    #
+    # ALLOW_NON_PROD_PROFILE_ON_RAILWAY=true is the only way to run another profile there, for a
+    # hosted test deployment that no real user reaches. Never set it on production.
+    railway:
+      environment-id: ${RAILWAY_ENVIRONMENT_ID:}
+      service-id: ${RAILWAY_SERVICE_ID:}
+      project-id: ${RAILWAY_PROJECT_ID:}
+      deployment-id: ${RAILWAY_DEPLOYMENT_ID:}
+      allow-non-prod-profile: ${ALLOW_NON_PROD_PROFILE_ON_RAILWAY:false}
   jwt:
     # 32+ char secret required for HS256. Override via env var in every real deployment --
     # never commit a real secret; this default is only safe because it's obviously a placeholder.

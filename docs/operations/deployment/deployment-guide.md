@@ -32,7 +32,9 @@ to leave at its default: local dev defaults, or must be explicitly set.
 
 | Variable | Required in prod? | Default (dev/local only) | Used for | Safe to leave at default in prod? |
 |---|---|---|---|---|
-| `SPRING_PROFILES_ACTIVE` | Yes | `dev` | Selects which `application-*.yml` overlay applies | **No** — must be `prod` |
+| `SPRING_PROFILES_ACTIVE` | Yes | `dev` | Selects which `application-*.yml` overlay applies | **No** — must be `prod`. On Railway the server refuses to start with anything else |
+| `ALLOW_NON_PROD_PROFILE_ON_RAILWAY` | No | `false` | Lets a hosted test deployment on Railway run a profile other than `prod` | Yes — leave unset. **Never `true` on production** |
+| `RAILWAY_ENVIRONMENT_ID`, `RAILWAY_SERVICE_ID`, `RAILWAY_PROJECT_ID`, `RAILWAY_DEPLOYMENT_ID` | Set automatically by Railway | empty | How the server knows it is on Railway, for the check above | Yes — Railway sets these itself |
 | `PORT` | Set automatically by Railway | `8080` | Which port the app listens on (`server.port`) | Yes — Railway sets this itself |
 | `DB_HOST` | Yes | `localhost` | Postgres host | No |
 | `DB_PORT` | Yes | `5432` | Postgres port | Usually fine as-is |
@@ -240,15 +242,24 @@ A real incident already happened here (back when this was `RESEND_API_KEY`/SMS-p
 credentials, before the Firebase migration): a deploy went out with `prod` active but required
 config unset, and Railway crash-looped the service (`restartPolicyMaxRetries: 5` in
 `railway.json` then leaves it "Crashed") — burning through the deploy's log history and free-tier
-build minutes before the cause was found. Two ways out if this happens to you:
-1. **Fix it properly** — set the real `RESEND_API_KEY` and a valid `GOOGLE_APPLICATION_CREDENTIALS`
-   (see above) and redeploy.
-2. **Unblock immediately, fix later** — remove or change `SPRING_PROFILES_ACTIVE` so it isn't
-   `prod` (e.g. delete the variable, or set it to `dev`), then redeploy. This is a deliberate,
-   temporary trade: `ProductionConfigValidator` only runs in the `prod` profile, so this reopens
-   the exact holes it exists to catch (password-reset links leaking in API responses instead of
-   being emailed; phone verification failing closed with a 503) — acceptable while you're the only
-   person using the deployment to test, not once real users' accounts are on it.
+build minutes before the cause was found. If this happens to you, **fix the setting the error
+names and redeploy**: set the real `RESEND_API_KEY` and a valid `GOOGLE_APPLICATION_CREDENTIALS`
+(see above). `railway.json` gives Railway a health check on `/health`, and a server that refuses
+to start never answers it. Whether Railway keeps the previous deployment serving in that case has
+not been tested on this project, so check the service after any refused start.
+
+**Do not get past it by removing `SPRING_PROFILES_ACTIVE` or setting it to `dev`.** This guide
+used to offer that as a quick way out, from the time nobody but the developer used the deployment.
+It turns every check above off at once and runs the server on the development defaults: the
+placeholder JWT secret and the repository's own encryption key are accepted if those variables are
+missing too, SQL and security debug logging are on, and raw exception text goes back to callers.
+Production has real customers.
+
+The server now enforces this. On Railway (any of `RAILWAY_ENVIRONMENT_ID`, `RAILWAY_SERVICE_ID`,
+`RAILWAY_PROJECT_ID`, `RAILWAY_DEPLOYMENT_ID`, which Railway sets itself) it refuses to start with
+any profile other than `prod`, before the port is bound. A hosted test deployment that no real
+user reaches, and that is meant to run another profile, sets
+`ALLOW_NON_PROD_PROFILE_ON_RAILWAY=true` as well. Never set that on production.
 
 ## Before running more than one backend instance
 

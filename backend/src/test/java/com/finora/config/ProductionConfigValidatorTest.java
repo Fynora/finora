@@ -4,6 +4,9 @@ import com.finora.security.crypto.CryptoProperties;
 import com.finora.service.PhoneVerificationProvider;
 import com.finora.service.SmsProvider;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.core.env.Environment;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -393,6 +396,110 @@ class ProductionConfigValidatorTest {
         Environment environment = envWithProfilesAndDbPassword(new String[]{}, "finora");
         JwtProperties jwt = jwtWith("change-this-to-a-long-random-secret-in-your-env-file-min-32-chars");
         var validator = new ProductionConfigValidator(environment, jwt, emailWith(null), unconfiguredFirebase(), mock(SmsProvider.class), realCrypto());
+
+        assertThat(catchNoThrow(validator)).isTrue();
+    }
+
+    // ---- a profile other than prod, on the hosting platform ----
+    //
+    // Every check above is switched by the prod profile, and the profile defaults to dev. One
+    // missing or misspelled SPRING_PROFILES_ACTIVE on the real deployment used to turn all of them
+    // off, with the server starting normally on the development defaults.
+
+    /** A validator with the development defaults in place: exactly what a deployment that lost its
+     *  profile variable, and its secrets with it, would start with. */
+    private ProductionConfigValidator onDevelopmentDefaults(Environment environment) {
+        JwtProperties jwt = jwtWith("change-this-to-a-long-random-secret-in-your-env-file-min-32-chars");
+        return new ProductionConfigValidator(environment, jwt, emailWith(null), unconfiguredFirebase(),
+                mock(SmsProvider.class), realCrypto());
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "app.hosting.railway.environment-id, RAILWAY_ENVIRONMENT_ID",
+            "app.hosting.railway.service-id, RAILWAY_SERVICE_ID",
+            "app.hosting.railway.project-id, RAILWAY_PROJECT_ID",
+            "app.hosting.railway.deployment-id, RAILWAY_DEPLOYMENT_ID"})
+    void run_onRailway_withTheDevProfile_refusesToStart_whicheverOfRailwaysVariablesIsSet(String property, String marker) {
+        Environment environment = envWithProfilesAndDbPassword(new String[]{"dev"}, "finora");
+        when(environment.getProperty(property)).thenReturn("an-id-railway-set");
+
+        assertThatThrownBy(() -> onDevelopmentDefaults(environment).validate())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Railway deployment")
+                .hasMessageContaining(marker)
+                .hasMessageContaining("[dev]")
+                .hasMessageContaining("SPRING_PROFILES_ACTIVE=prod");
+    }
+
+    /** A misspelled value is the same failure as a missing one: the profile is not prod. */
+    @Test
+    void run_onRailway_withAMisspelledProfile_refusesToStart() {
+        Environment environment = envWithProfilesAndDbPassword(new String[]{"production"}, "finora");
+        when(environment.getProperty("app.hosting.railway.environment-id")).thenReturn("an-id-railway-set");
+
+        assertThatThrownBy(() -> onDevelopmentDefaults(environment).validate())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("[production]");
+    }
+
+    @Test
+    void run_onRailway_withNoProfileAtAll_refusesToStart() {
+        Environment environment = envWithProfilesAndDbPassword(new String[]{}, "finora");
+        when(environment.getProperty("app.hosting.railway.service-id")).thenReturn("an-id-railway-set");
+
+        assertThatThrownBy(() -> onDevelopmentDefaults(environment).validate())
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void run_onRailway_withTheDevProfile_startsOnlyWhenExplicitlyAllowed() {
+        Environment environment = envWithProfilesAndDbPassword(new String[]{"dev"}, "finora");
+        when(environment.getProperty("app.hosting.railway.environment-id")).thenReturn("an-id-railway-set");
+        when(environment.getProperty("app.hosting.railway.allow-non-prod-profile")).thenReturn(" TRUE ");
+
+        assertThat(catchNoThrow(onDevelopmentDefaults(environment))).isTrue();
+    }
+
+    /** Only the word true allows it. Anything else, an empty value included, fails closed. */
+    @ParameterizedTest
+    @ValueSource(strings = {"false", "", "  ", "1", "yes", "prod"})
+    void run_onRailway_withTheDevProfile_isNotAllowedByAnyOtherValue(String value) {
+        Environment environment = envWithProfilesAndDbPassword(new String[]{"dev"}, "finora");
+        when(environment.getProperty("app.hosting.railway.environment-id")).thenReturn("an-id-railway-set");
+        when(environment.getProperty("app.hosting.railway.allow-non-prod-profile")).thenReturn(value);
+
+        assertThatThrownBy(() -> onDevelopmentDefaults(environment).validate())
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    /** A variable that exists but is empty is not Railway. Local shells and compose files do this. */
+    @Test
+    void run_withARailwayVariablePresentButBlank_isNotTreatedAsRailway() {
+        Environment environment = envWithProfilesAndDbPassword(new String[]{"dev"}, "finora");
+        when(environment.getProperty("app.hosting.railway.environment-id")).thenReturn("   ");
+
+        assertThat(catchNoThrow(onDevelopmentDefaults(environment))).isTrue();
+    }
+
+    /** The allowance is for other profiles only. With prod active every production check still
+     *  runs and still refuses the development defaults. */
+    @Test
+    void run_onRailway_inProdProfile_theAllowanceDoesNotSkipTheProductionChecks() {
+        Environment environment = envWithProfilesAndDbPassword(new String[]{"prod"}, "finora");
+        when(environment.getProperty("app.hosting.railway.environment-id")).thenReturn("an-id-railway-set");
+        when(environment.getProperty("app.hosting.railway.allow-non-prod-profile")).thenReturn("true");
+
+        assertThatThrownBy(() -> onDevelopmentDefaults(environment).validate())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("JWT_SECRET");
+    }
+
+    @Test
+    void run_onRailway_inProdProfile_withRealSecretsConfigured_doesNotThrow() {
+        Environment environment = envWithProfilesAndDbPassword(new String[]{"prod"}, "a-real-prod-db-password");
+        when(environment.getProperty("app.hosting.railway.environment-id")).thenReturn("an-id-railway-set");
+        var validator = new ProductionConfigValidator(environment, realJwt(), realEmail(), configuredFirebase(), mock(SmsProvider.class), realCrypto());
 
         assertThat(catchNoThrow(validator)).isTrue();
     }

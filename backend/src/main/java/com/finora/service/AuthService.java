@@ -140,6 +140,15 @@ public class AuthService {
     // OTP login, email channel (docs/superpowers/specs/2026-09-22-otp-login-design.md).
     private final EmailLoginOtpRepository emailLoginOtpRepository;
 
+    // Setter-injected so the many tests that build this class by hand keep compiling; only
+    // handAccountToProvenOwner uses it.
+    private com.finora.notification.repository.DeviceTokenRepository deviceTokenRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setDeviceTokenRepository(com.finora.notification.repository.DeviceTokenRepository deviceTokenRepository) {
+        this.deviceTokenRepository = deviceTokenRepository;
+    }
+
     public AuthService(UserRepository userRepository, CategoryRepository categoryRepository,
                         PasswordResetTokenRepository resetTokenRepository,
                         AccountReactivationTokenRepository reactivationTokenRepository,
@@ -244,7 +253,7 @@ public class AuthService {
         // NoOpEmailProvider's own graceful "no provider" degradation, same as the welcome email
         // block right above.
         String verifyLink = emailProperties.resolveBaseUrl(null) + "/verify-email?token="
-                + mintEmailVerificationToken(registeredUserId);
+                + mintEmailVerificationToken(registeredUserId, EmailVerificationToken.ORIGIN_SIGN_UP);
         AfterCommit.run("email verification email", () -> {
             EmailResult verifyEmailResult = emailProvider.sendEmailVerificationEmail(registeredEmail, verifyLink);
             // recordEvenOnRollback -- see the welcome-email block just above for why.
@@ -957,7 +966,7 @@ public class AuthService {
                                     + "your spam folder too), then try Sign in with " + provider.label + " again.");
                 }
                 String verifyLink = emailProperties.resolveBaseUrl(null) + "/verify-email?token="
-                        + mintEmailVerificationToken(user.getId());
+                        + mintEmailVerificationToken(user.getId(), provider.verificationOrigin);
                 UUID unverifiedUserId = user.getId();
                 String unverifiedEmail = user.getEmail();
                 AfterCommit.run("email verification email (" + provider.label + " sign-in conflict)", () -> {
@@ -1002,19 +1011,33 @@ public class AuthService {
      *  needs — the only things that actually differ between {@link #loginWithGoogle} and
      *  {@link #loginWithApple}. */
     private enum OAuthProvider {
-        GOOGLE("Google", "USER_REGISTERED_GOOGLE", "USER_LOGIN_GOOGLE", User.SIGN_IN_METHOD_GOOGLE),
-        APPLE("Apple", "USER_REGISTERED_APPLE", "USER_LOGIN_APPLE", User.SIGN_IN_METHOD_APPLE);
+        GOOGLE("Google", "USER_REGISTERED_GOOGLE", "USER_LOGIN_GOOGLE", User.SIGN_IN_METHOD_GOOGLE,
+                EmailVerificationToken.ORIGIN_GOOGLE),
+        APPLE("Apple", "USER_REGISTERED_APPLE", "USER_LOGIN_APPLE", User.SIGN_IN_METHOD_APPLE,
+                EmailVerificationToken.ORIGIN_APPLE);
 
         private final String label;
         private final String registeredAuditAction;
         private final String loginAuditAction;
         private final String signInMethod;
+        /** The origin stamped on the verification link this provider's sign-in conflict sends. */
+        private final String verificationOrigin;
 
-        OAuthProvider(String label, String registeredAuditAction, String loginAuditAction, String signInMethod) {
+        OAuthProvider(String label, String registeredAuditAction, String loginAuditAction, String signInMethod,
+                      String verificationOrigin) {
             this.label = label;
             this.registeredAuditAction = registeredAuditAction;
             this.loginAuditAction = loginAuditAction;
             this.signInMethod = signInMethod;
+            this.verificationOrigin = verificationOrigin;
+        }
+
+        /** The provider whose sign-in conflict sent a link of this origin; empty for a sign-up link. */
+        static Optional<OAuthProvider> ofVerificationOrigin(String origin) {
+            for (OAuthProvider provider : values()) {
+                if (provider.verificationOrigin.equals(origin)) return Optional.of(provider);
+            }
+            return Optional.empty();
         }
     }
 
@@ -1275,7 +1298,7 @@ public class AuthService {
      * link for this user is burned first, so an abandoned earlier link can't be replayed after a
      * later one already verified the account).
      */
-    private String mintEmailVerificationToken(UUID userId) {
+    private String mintEmailVerificationToken(UUID userId, String origin) {
         Instant now = Instant.now();
         emailVerificationTokenRepository.markAllUnusedAsUsed(userId, now);
 
@@ -1286,6 +1309,7 @@ public class AuthService {
         EmailVerificationToken evt = new EmailVerificationToken();
         evt.setUserId(userId);
         evt.setTokenHash(TokenHasher.sha256(rawToken));
+        evt.setOrigin(origin);
         evt.setExpiresAt(now.plusSeconds(EMAIL_VERIFICATION_TOKEN_TTL_MINUTES * 60));
         emailVerificationTokenRepository.save(evt);
         return rawToken;
@@ -1296,14 +1320,44 @@ public class AuthService {
      * {@link #mintEmailVerificationToken}'s callers (register(), and Google or Apple sign-in --
      * loginWithOAuthIdentity -- when it finds a matching but not-yet-verified existing account)
      * for where the link comes from.
-     * Deliberately does not re-authenticate the caller the way {@link #reactivate} does: proving
-     * email ownership is a weaker action than proving a password, and every other login path
-     * (password or Google) still runs its own independent check afterward.
+     *
+     * <p><b>What a link is allowed to do depends on which flow sent it</b> (V329,
+     * {@link EmailVerificationToken#getOrigin()}). Sign-up by password never proves the email
+     * belongs to the person signing up, so a stranger can register someone else's address with a
+     * password and phone number of their own, and both kinds of link then land in the real
+     * owner's inbox:
+     * <ul>
+     *   <li>A <b>sign-up</b> link works only when the request comes from a session of the account
+     *       it was sent for ({@code signedInUserId}). The person who signed up has that session;
+     *       an inbox owner who never signed up does not, so opening the link does not turn a
+     *       stranger's account into a verified one under their address.</li>
+     *   <li>A <b>Google or Apple conflict</b> link needs no session: its reader is by definition
+     *       not signed in. Opening it proves who owns the inbox, and at that moment everything
+     *       the account's creator set is replaced or removed ({@link #handAccountToProvenOwner}),
+     *       because the creator may not be the owner. Verifying used to flip the flag and nothing
+     *       else, which left the creator's password, phone number and sessions working on an
+     *       account the owner was then signed straight into.</li>
+     * </ul>
+     *
+     * @param signedInUserId the account the request is signed in as, or null when it is not
+     *        signed in. Resolved by {@link #signedInUser} from the access token or refresh cookie.
      */
     @Transactional
-    public VerifyEmailResponse verifyEmail(String rawToken) {
+    public VerifyEmailResponse verifyEmail(String rawToken, UUID signedInUserId) {
         EmailVerificationToken evt = emailVerificationTokenRepository.findByTokenHash(TokenHasher.sha256(rawToken))
                 .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "This verification link is invalid."));
+
+        // Before the claim, so a refusal leaves the link unspent and it works once the reader has
+        // signed in. An account that is already verified is not refused: there is nothing left for
+        // the link to change, and the branch below answers it for anyone. 403, never 401: every
+        // client reads a 401 as an expired session and starts a refresh, which for a signed-out
+        // reader ends on the sign-in screen with this message lost
+        // (scripts/check-client-auth-policy.py holds this route to "never 401" for that reason).
+        if (evt.isFromSignUp() && !evt.getUserId().equals(signedInUserId)
+                && userRepository.findById(evt.getUserId()).map(u -> !u.isEmailVerified()).orElse(false)) {
+            throw new ApiException(HttpStatus.FORBIDDEN,
+                    "Sign in to Fynora on this device, then open the link in the email again.");
+        }
 
         // Bug fix: this used to read evt.getUsedAt(), check it was null in Java, and only write
         // it back at the very end -- classic check-then-act. Two concurrent requests for the same
@@ -1359,10 +1413,88 @@ public class AuthService {
 
         user.setEmailVerified(true);
         user.setUpdatedAt(Instant.now());
+        OAuthProvider.ofVerificationOrigin(evt.getOrigin())
+                .ifPresent(provider -> handAccountToProvenOwner(user, provider));
         userRepository.save(user);
 
         auditService.record(user.getId(), "EMAIL_VERIFIED", "User", user.getId());
         return new VerifyEmailResponse("Your email has been verified.");
+    }
+
+    /**
+     * The account a request to an open route is signed in as, or null. For {@link #verifyEmail},
+     * which sits under {@code /api/v1/auth/**} where nothing has required a session, and which a
+     * client reaches cold, straight from an emailed link. Each client shows its session
+     * differently at that moment, so three things are accepted, in this order:
+     * <ol>
+     *   <li>{@code authenticatedUserId}: the request carried an access token JwtAuthFilter
+     *       accepted.</li>
+     *   <li>{@code bearerToken}: an access token this server signed that has since expired,
+     *       provided its session is still open. The phone app keeps its access token in storage
+     *       and sends whatever is there; opened from an email after a quarter of an hour closed,
+     *       that token is expired but the session behind it is not. Whether the session is open
+     *       is the same test a fresh token is held to (SessionValidator), so an expired token
+     *       shows nothing a fresh one would not. A token with a bad signature shows nothing.</li>
+     *   <li>{@code refreshCookie}: the web app keeps its access token in memory only, so a page
+     *       opened from an email has none yet. The cookie is scoped to {@code /api/v1/auth}, so
+     *       the browser sends it here. See RefreshTokenService.userOfLiveSession.</li>
+     * </ol>
+     */
+    public UUID signedInUser(UUID authenticatedUserId, String bearerToken, String refreshCookie) {
+        if (authenticatedUserId != null) return authenticatedUserId;
+        Optional<UUID> fromExpiredToken = jwtService.sessionOfSignedToken(bearerToken)
+                .filter(session -> refreshTokenService.isSessionLive(session.sessionId()))
+                .map(JwtService.SignedSession::userId);
+        return fromExpiredToken
+                .or(() -> refreshTokenService.userOfLiveSession(refreshCookie))
+                .orElse(null);
+    }
+
+    /**
+     * Runs when a Google or Apple conflict link is opened for an account whose email had never
+     * been proven. The reader has just shown they own the inbox; whoever created the account has
+     * shown nothing. So nothing the creator set may keep working:
+     * <ul>
+     *   <li>every session is ended, so a creator who is still signed in is signed out;</li>
+     *   <li>the password is replaced with one nobody knows, exactly as a new Google or Apple
+     *       account gets, and unused reset links are spent;</li>
+     *   <li>the phone number is removed, because phone sign-in finds the account by it. The owner
+     *       adds and verifies their own through the same screen a new Google or Apple account
+     *       uses;</li>
+     *   <li>push devices are removed, so the creator's phone stops receiving this account's
+     *       notifications;</li>
+     *   <li>the account is marked as signing in with that provider, which is now true.</li>
+     * </ul>
+     * A person who signed up with a password themselves and later chose Google or Apple goes
+     * through the same thing: the two cases cannot be told apart, and the cost to them is setting
+     * a password again if they ever want one.
+     *
+     * <p>Data already in the account is left alone. It was put there by the creator, and the
+     * owner can delete it.
+     */
+    private void handAccountToProvenOwner(User user, OAuthProvider provider) {
+        Instant now = Instant.now();
+        boolean hadPhone = user.getPhoneNumber() != null;
+
+        // The bulk statements first: each one flushes and clears the persistence context, and the
+        // changes to the user row below are saved by the caller after this returns.
+        resetTokenRepository.markAllUnusedAsUsed(user.getId(), now);
+        refreshTokenService.revokeAllForUser(user.getId());
+        int devicesRemoved = deviceTokenRepository.deleteByUserId(user.getId());
+
+        user.setPasswordHash(passwordEncoder.encode(randomUnguessablePassword()));
+        user.setPasswordChangedAt(now);
+        user.setPhoneNumber(null);
+        user.setPhoneVerified(false);
+        user.setSignInMethod(provider.signInMethod);
+        user.setFailedLoginAttempts(0);
+        user.setLockedUntil(null);
+        passwordHistoryService.record(user.getId(), user.getPasswordHash());
+
+        auditService.record(user.getId(), "ACCOUNT_HANDED_TO_PROVEN_EMAIL_OWNER", "User", user.getId(),
+                requestMetadata.addTo(new java.util.HashMap<>(Map.of(
+                        "provider", provider.label, "sessionsRevoked", true, "passwordReplaced", true,
+                        "phoneRemoved", hadPhone, "pushDevicesRemoved", devicesRemoved))));
     }
 
     /**

@@ -100,6 +100,43 @@ public class JwtService {
         }
     }
 
+    /** Who a token was issued to and for which session. */
+    public record SignedSession(UUID userId, UUID sessionId) {}
+
+    /**
+     * Reads the account and session out of an access token this server signed, whether or not the
+     * token has expired. Empty for anything else: no token, a bad signature, a malformed token, or
+     * one missing either value.
+     *
+     * <p>This is NOT a way to authenticate a request, and nothing here says the session is still
+     * open; the caller must check that itself. It exists for one question -- "is this client
+     * signed in to this account" -- asked by a route a client reaches cold from an emailed link,
+     * where the phone app sends the access token it has in storage and that token has usually
+     * expired while the app was closed. See AuthService.signedInUser.
+     *
+     * <p>The signature is checked before the expiry, so an expired token that reaches the
+     * {@code ExpiredJwtException} branch is one this server really did sign.
+     */
+    public java.util.Optional<SignedSession> sessionOfSignedToken(String token) {
+        if (token == null || token.isBlank()) return java.util.Optional.empty();
+        Claims claims;
+        try {
+            claims = Jwts.parser().verifyWith(signingKey).build().parseSignedClaims(token).getPayload();
+        } catch (io.jsonwebtoken.ExpiredJwtException e) {
+            claims = e.getClaims();
+        } catch (io.jsonwebtoken.JwtException | IllegalArgumentException e) {
+            return java.util.Optional.empty();
+        }
+        try {
+            String sessionId = claims.get("sid", String.class);
+            if (claims.getSubject() == null || sessionId == null) return java.util.Optional.empty();
+            return java.util.Optional.of(new SignedSession(
+                    UUID.fromString(claims.getSubject()), UUID.fromString(sessionId)));
+        } catch (IllegalArgumentException | io.jsonwebtoken.JwtException e) {
+            return java.util.Optional.empty();
+        }
+    }
+
     private <T> T extractClaim(String token, Function<Claims, T> resolver) {
         Claims claims = Jwts.parser()
                 .verifyWith(signingKey)

@@ -96,7 +96,7 @@ class AuthServiceVerifyEmailTest {
         User u = unverifiedUser();
         when(userRepository.findById(userId)).thenReturn(Optional.of(u));
 
-        var response = authService.verifyEmail("raw-token");
+        var response = authService.verifyEmail("raw-token", userId);
 
         assertThat(u.isEmailVerified()).isTrue();
         assertThat(response.message()).isNotBlank();
@@ -111,7 +111,7 @@ class AuthServiceVerifyEmailTest {
         when(emailVerificationTokenRepository.claimIfUnused(eq(t.getId()), any())).thenReturn(1);
         when(userRepository.findById(userId)).thenReturn(Optional.of(unverifiedUser()));
 
-        authService.verifyEmail("raw-token");
+        authService.verifyEmail("raw-token", userId);
 
         verify(emailVerificationTokenRepository).claimIfUnused(eq(t.getId()), any());
     }
@@ -128,7 +128,7 @@ class AuthServiceVerifyEmailTest {
         u.setEmailVerified(true);
         when(userRepository.findById(userId)).thenReturn(Optional.of(u));
 
-        var response = authService.verifyEmail("raw-token");
+        var response = authService.verifyEmail("raw-token", userId);
 
         assertThat(response.message()).isNotBlank();
         verify(emailVerificationTokenRepository).claimIfUnused(eq(t.getId()), any());
@@ -146,7 +146,7 @@ class AuthServiceVerifyEmailTest {
         u.setEmailVerified(true);
         when(userRepository.findById(userId)).thenReturn(Optional.of(u));
 
-        var response = authService.verifyEmail("raw-token");
+        var response = authService.verifyEmail("raw-token", userId);
 
         assertThat(response.message()).isNotBlank();
         verify(userRepository, never()).save(any());
@@ -163,7 +163,7 @@ class AuthServiceVerifyEmailTest {
         when(userRepository.findById(userId)).thenReturn(Optional.of(u));
 
         try {
-            authService.verifyEmail("raw-token");
+            authService.verifyEmail("raw-token", userId);
         } catch (ApiException e) {
             assertThat(e.getMessage()).contains("expired");
             // There is no resend endpoint; the message names the one way a new link is sent.
@@ -188,7 +188,7 @@ class AuthServiceVerifyEmailTest {
         when(userRepository.findById(userId)).thenReturn(Optional.of(u));
 
         try {
-            authService.verifyEmail("raw-token");
+            authService.verifyEmail("raw-token", userId);
         } catch (ApiException e) {
             assertThat(e.getMessage()).contains("can no longer be used").doesNotContain("already been used");
             assertThat(u.isEmailVerified()).isFalse();
@@ -212,7 +212,7 @@ class AuthServiceVerifyEmailTest {
         when(userRepository.findById(userId)).thenReturn(Optional.of(u));
 
         try {
-            authService.verifyEmail("raw-token");
+            authService.verifyEmail("raw-token", userId);
         } catch (ApiException e) {
             assertThat(e.getMessage()).contains("replaced by a newer one");
             assertThat(e.getMessage()).doesNotContain("already been used");
@@ -236,7 +236,7 @@ class AuthServiceVerifyEmailTest {
         u.setEmailVerified(true);
         when(userRepository.findById(userId)).thenReturn(Optional.of(u));
 
-        var response = authService.verifyEmail("raw-token");
+        var response = authService.verifyEmail("raw-token", userId);
 
         assertThat(response.message()).isNotBlank();
         verify(userRepository, never()).save(any());
@@ -256,7 +256,7 @@ class AuthServiceVerifyEmailTest {
         u.setEmailVerified(true);
         when(userRepository.findById(userId)).thenReturn(Optional.of(u));
 
-        var response = authService.verifyEmail("raw-token");
+        var response = authService.verifyEmail("raw-token", userId);
 
         assertThat(response.message()).isNotBlank();
         verify(userRepository, never()).save(any());
@@ -275,7 +275,7 @@ class AuthServiceVerifyEmailTest {
         u.setEmailVerified(true);
         when(userRepository.findById(userId)).thenReturn(Optional.of(u));
 
-        var response = authService.verifyEmail("raw-token");
+        var response = authService.verifyEmail("raw-token", userId);
 
         assertThat(response.message()).isNotBlank();
         verify(userRepository, never()).save(any());
@@ -290,7 +290,7 @@ class AuthServiceVerifyEmailTest {
         when(userRepository.findById(userId)).thenReturn(Optional.empty());
 
         try {
-            authService.verifyEmail("raw-token");
+            authService.verifyEmail("raw-token", userId);
         } catch (ApiException e) {
             assertThat(e.getMessage()).contains("can no longer be used").doesNotContain("already been used");
             return;
@@ -303,7 +303,7 @@ class AuthServiceVerifyEmailTest {
         when(emailVerificationTokenRepository.findByTokenHash(any())).thenReturn(Optional.empty());
 
         try {
-            authService.verifyEmail("bogus-token");
+            authService.verifyEmail("bogus-token", null);
         } catch (ApiException e) {
             assertThat(e.getMessage()).contains("invalid");
             // Used links are found and answered by their own branch; a link that isn't found was

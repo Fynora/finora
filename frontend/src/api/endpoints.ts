@@ -146,7 +146,9 @@ export const authApi = {
     api.post<AuthResponseDto>('/auth/apple', { idToken, fullName, referralCode, attribution }),
   // token is the raw verification token from a /verify-email?token=... link (register(), or a
   // fresh one loginWithGoogle sends when it finds a matching but not-yet-verified account -- see
-  // VerifyEmail.tsx). Not authenticated: the token itself is the proof.
+  // VerifyEmail.tsx). A link sent by sign-up also needs the request to come from a signed-in
+  // browser. Nothing extra is sent for that: the server reads the session from the refresh cookie
+  // this call already carries, and answers 403 with the reason when there is none.
   verifyEmail: (token: string) =>
     api.post<{ message: string }>('/auth/verify-email', { token }).then((r) => r.data),
 };

@@ -60,10 +60,12 @@ to leave at its default: local dev defaults, or must be explicitly set.
 | `GOOGLE_LOGIN_CLIENT_IDS` | No | empty | D-23 "Sign in with Google" — comma-separated OAuth client id(s) `GoogleIdTokenVerifierService` accepts as a valid audience. A separate registration from `GOOGLE_APPLICATION_CREDENTIALS`/Gmail-sync OAuth above — see `GoogleLoginProperties`'s own doc comment for why. | Yes — unconfigured is a supported state: `POST /api/v1/auth/google` answers 503 and the frontend hides the Google button (see `VITE_GOOGLE_LOGIN_CLIENT_ID` below) entirely; nothing else in the app is affected. |
 | `TWO_FACTOR_API_KEY` | No — soft, non-fatal check only | empty | 2Factor API key for real-time transaction alert SMS (`TwoFactorSmsProvider`) — scoped to `TransactionService.create()`'s manual-entry path only, never authentication OTPs (Firebase Phone Authentication owns those). Empty falls back to `NoOpSmsProvider` (logs instead of sending). | **Yes.** Unlike `RESEND_API_KEY`/`GOOGLE_APPLICATION_CREDENTIALS`, `ProductionConfigValidator` only logs a startup warning if this is unset — never refuses to boot — since a missed transaction alert is a degraded notification, not a security gap (see `SmsProperties`'s own doc comment). |
 | `FINORA_SETUP_KEY` | No | empty (auto-generated + written to `.finora/installation.key`) | First-run bootstrap installation key | See `docs/bootstrap-setup-future-work.md` — set explicitly rather than relying on a written file in any deployment without a persistent, host-readable filesystem |
-| `ADMIN_MFA_ENABLED` / `ADMIN_MFA_ENFORCED` | **Yes, in prod** | `false` / `false` | Admin-portal two-factor authentication (`AdminMfaService`, `AdminMfaEnrollmentFilter`). `ENABLED` turns the feature on; `ENFORCED` refuses admin-portal requests from an account that has not enrolled. See `docs/security/admin-mfa-recovery.md` for the rollout order. | **No.** With both off, a phished admin password is full access to every user's financial data. `ProductionConfigValidator` logs a warning in `prod` when `ENFORCED` is not `true`; it does not refuse to boot, because enforcement must follow enrolment. |
+| `ADMIN_MFA_ENABLED` / `ADMIN_MFA_ENFORCED` | **Yes, in prod** | `false` / `false` | Admin-portal two-factor authentication (`AdminMfaService`, `AdminMfaEnrollmentFilter`). `ENABLED` turns the feature on; `ENFORCED` refuses admin-portal requests from an account that has not enrolled. See `docs/security/admin-mfa-recovery.md` for the rollout order. | **No.** With either off, a phished admin password is full access to every user's financial data. `ProductionConfigValidator` refuses to start the `prod` profile unless both are `true`. |
+| `ALLOW_ADMIN_MFA_NOT_ENFORCED_IN_PROD` | No | `false` | The one way to start `prod` without both of the above: for a new installation whose admins have not enrolled yet, or to back enforcement out (see `docs/security/admin-mfa-recovery.md`). Only the word `true` does it. The backend logs a warning at every start while it is set. | Yes, and it should be unset on a deployment whose admins have enrolled. |
 | `SENTRY_DSN` / `SENTRY_ENVIRONMENT` | **Yes, in prod** | empty / `development` | Backend error reporting (`sentry.dsn` in `application.yml`; `send-default-pii` is off). Distinct from `VITE_SENTRY_DSN` below, which is the two SPAs' own DSN. | **No** — unset, backend exceptions are visible only in Railway's log stream, and nothing pages anyone. Set `SENTRY_ENVIRONMENT=prod` alongside it so events are filterable. |
 | `FINORA_BOOTSTRAP_ENABLED` | Recommended `false` once setup is done | `true` | Whether the first-boot bootstrap account may be created (`SetupService`). Its one-time password is written in plaintext to `.finora/installation.key` inside the container until setup completes. | Set `false` after the first SUPER_ADMIN exists; the account is suspended at that point anyway, this just removes the file-writing path. |
-| `MALWARE_SCAN_PROVIDER` | **Yes, in prod** | `none` | Which scanner every upload (statement import, admin analysis, support attachments, Fyn screenshots) goes through before a parser sees it: `none` or `clamav`. See "Malware scanning" under the Railway section. | **No** — at `none` uploads are unscanned and `ProductionConfigValidator` warns at boot. |
+| `MALWARE_SCAN_PROVIDER` | **Yes, in prod** | `none` | Which scanner every upload (statement import, admin analysis, support attachments, Fyn screenshots) goes through before a parser sees it: `none` or `clamav`. See "Malware scanning" under the Railway section. | **No** — at `none`, or any value other than `clamav`, no scanner is registered and uploads are unscanned. `ProductionConfigValidator` refuses to start the `prod` profile. |
+| `ALLOW_UNSCANNED_UPLOADS_IN_PROD` | No | `false` | The one way to start `prod` with no scanner: for a new installation before its ClamAV service exists, or while that service is being rebuilt. Only the word `true` does it. The backend logs a warning at every start while it is set. | Yes, and it should be unset once the scanner is running. |
 | `CLAMAV_HOST` / `CLAMAV_PORT` | With `clamav` | `localhost` / `3310` | Where clamd listens. On Railway: the ClamAV service's private-network hostname. | Only when the provider is `clamav`. |
 | `MALWARE_SCAN_ON_UNAVAILABLE` | No | `reject` | What an upload gets when the scanner is configured but cannot answer: `reject` (503, error-level log) or `allow` (passes unscanned, warning). | Yes — `reject` is the safe default. |
 | `MALWARE_SCAN_UNAVAILABLE_RETRY_WINDOW_MS` | No | `25000` | How long an unanswered scan is retried (backing off 0.5 s to 4 s) before `MALWARE_SCAN_ON_UNAVAILABLE` applies, so a scanner woken from App Sleeping is waited for. `0` is one attempt. | Yes — keep it under mobile's 30 s timeout for Fyn screenshots and support attachments. |
@@ -172,7 +174,9 @@ writing/logging a generated key instead (see `docs/bootstrap-setup-future-work.m
 
 Audit F-18 (2026-09-24). The backend scans every upload before any parser touches it, but only
 when a scanner is configured; the code ships with `MALWARE_SCAN_PROVIDER=none`, under which
-uploads pass unscanned and the prod profile prints one warning line at boot. To turn it on:
+uploads pass unscanned. The prod profile refuses to start in that state. A new installation
+therefore either sets the scanner up before its first production start, or starts with
+`ALLOW_UNSCANNED_UPLOADS_IN_PROD=true` and removes that variable in step 3. To turn it on:
 
 1. In the Railway project, add a new service from the Docker image `clamav/clamav:stable`.
    Give it a volume mounted at `/var/lib/clamav` (the signature database is a few hundred MB
@@ -182,8 +186,9 @@ uploads pass unscanned and the prod profile prints one warning line at boot. To 
    `clamd started`.
 2. On the backend service, set `MALWARE_SCAN_PROVIDER=clamav`, `CLAMAV_HOST=<the ClamAV
    service's private hostname, e.g. clamav.railway.internal>` and `CLAMAV_PORT=3310`.
-3. Redeploy the backend and confirm the boot log line `Upload malware scanning enabled: ClamAV
-   (clamd INSTREAM at ...)` replaces the `MALWARE_SCAN_PROVIDER is unset` warning.
+3. Remove `ALLOW_UNSCANNED_UPLOADS_IN_PROD` if it was set, redeploy the backend, and confirm the
+   boot log line `Upload malware scanning enabled: ClamAV (clamd INSTREAM at ...)` is there and
+   the `No malware scanner is configured` warning is not.
 4. Prove it end to end once: upload the EICAR test file (the 68-byte standard string, available
    from eicar.org) as a CSV statement. Expect a 400 "rejected by the malware scanner" and an
    `UPLOAD_MALWARE_REJECTED` row in the admin audit log.
@@ -191,7 +196,12 @@ uploads pass unscanned and the prod profile prints one warning line at boot. To 
 While the scanner is down, uploads answer 503 "Uploads are paused while the malware scanner is
 unreachable" and the backend logs at error level -- that is the default `reject` policy. Set
 `MALWARE_SCAN_ON_UNAVAILABLE=allow` only for a deliberate decision to keep imports running
-unscanned through a scanner incident; put it back afterwards.
+unscanned through a scanner incident; put it back afterwards. The backend logs a warning at
+every start while it is `allow`.
+
+If the ClamAV service itself has to be removed for a while, `MALWARE_SCAN_PROVIDER` cannot simply
+be unset in production: the backend would refuse to start. Set `MALWARE_SCAN_PROVIDER=none`
+together with `ALLOW_UNSCANNED_UPLOADS_IN_PROD=true`, and remove both when the service is back.
 
 **Letting the scanner sleep when idle.** clamd holds its whole signature database in memory
 (about 0.8 GB on average, measured over 2026-09-16 to 2026-10-16), whether or not anything is

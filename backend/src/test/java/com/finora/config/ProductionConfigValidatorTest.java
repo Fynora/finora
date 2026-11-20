@@ -93,6 +93,12 @@ class ProductionConfigValidatorTest {
         // here so every pre-existing test above keeps testing the thing it was written to test --
         // the storage cases get their own tests below, where the stub is overridden deliberately.
         when(environment.getProperty("app.statement-storage.provider")).thenReturn("r2");
+        // Audit F-03: production requires the admin second factor enforced and a malware scanner.
+        // Stubbed as a correct deployment has them, for the same reason as storage above. The
+        // tests for these two override the stubs.
+        when(environment.getProperty("app.admin-mfa.enabled", Boolean.class)).thenReturn(true);
+        when(environment.getProperty("app.admin-mfa.enforced", Boolean.class)).thenReturn(true);
+        when(environment.getProperty("app.malware-scan.provider")).thenReturn("clamav");
         return environment;
     }
 
@@ -251,16 +257,151 @@ class ProductionConfigValidatorTest {
         assertThat(catchNoThrow(validator)).isTrue();
     }
 
-    /** Audit F-18: an unset (or 'none') MALWARE_SCAN_PROVIDER warns and never blocks startup --
-     *  the scanner is a separate service the operator stands up first, and refusing to boot would
-     *  turn that rollout step into an outage. The mocked Environment answers null for the property,
-     *  which is the same branch an absent variable takes. */
-    @Test
-    void run_inProdProfile_withNoMalwareScanProvider_warnsButDoesNotThrow() {
-        Environment environment = envWithProfilesAndDbPassword(new String[]{"prod"}, "a-real-password");
-        var validator = new ProductionConfigValidator(environment, realJwt(), realEmail(), configuredFirebase(), mock(SmsProvider.class), realCrypto());
+    // ---- Audit F-03 (2026-11-20): the admin second factor and the malware scanner ----
+    //
+    // Both were warnings while they were being rolled out. Once both were on in production, a
+    // warning only meant either could be lost with one deleted variable and a normal start.
 
-        assertThat(catchNoThrow(validator)).isTrue();
+    /** A correctly configured production deployment, for the tests below to break one thing in. */
+    private ProductionConfigValidator correctProduction(Environment environment) {
+        return new ProductionConfigValidator(environment, realJwt(), realEmail(), configuredFirebase(),
+                mock(SmsProvider.class), realCrypto());
+    }
+
+    private Environment correctProductionEnvironment() {
+        return envWithProfilesAndDbPassword(new String[]{"prod"}, "a-real-password");
+    }
+
+    /** Each row is one way the second factor is not enforced. Null is a missing variable. */
+    @ParameterizedTest
+    @CsvSource(value = {
+            "null,  null",
+            "true,  null",
+            "true,  false",
+            "null,  true",
+            "false, true",
+            "false, false"}, nullValues = "null")
+    void run_inProdProfile_withoutTheAdminSecondFactorBothOnAndEnforced_refusesToStart(Boolean enabled, Boolean enforced) {
+        Environment environment = correctProductionEnvironment();
+        when(environment.getProperty("app.admin-mfa.enabled", Boolean.class)).thenReturn(enabled);
+        when(environment.getProperty("app.admin-mfa.enforced", Boolean.class)).thenReturn(enforced);
+
+        assertThatThrownBy(() -> correctProduction(environment).validate())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("ADMIN_MFA_ENABLED and ADMIN_MFA_ENFORCED are not both true")
+                .hasMessageContaining("ALLOW_ADMIN_MFA_NOT_ENFORCED_IN_PROD=true")
+                .satisfies(thrown -> assertThat(thrown.getMessage())
+                        .as("only the second factor is wrong, so only it is reported")
+                        .doesNotContain("MALWARE_SCAN_PROVIDER"));
+    }
+
+    @Test
+    void run_inProdProfile_withTheAdminSecondFactorNotEnforced_startsOnlyWhenExplicitlyAllowed() {
+        Environment environment = correctProductionEnvironment();
+        when(environment.getProperty("app.admin-mfa.enforced", Boolean.class)).thenReturn(false);
+        when(environment.getProperty("app.admin-mfa.allow-not-enforced-in-prod")).thenReturn(" TRUE ");
+
+        assertThat(catchNoThrow(correctProduction(environment))).isTrue();
+    }
+
+    /** Only the word true allows it. Anything else, an empty value included, fails closed. */
+    @ParameterizedTest
+    @ValueSource(strings = {"false", "", "  ", "1", "yes", "on"})
+    void run_inProdProfile_withTheAdminSecondFactorNotEnforced_isNotAllowedByAnyOtherValue(String value) {
+        Environment environment = correctProductionEnvironment();
+        when(environment.getProperty("app.admin-mfa.enforced", Boolean.class)).thenReturn(false);
+        when(environment.getProperty("app.admin-mfa.allow-not-enforced-in-prod")).thenReturn(value);
+
+        assertThatThrownBy(() -> correctProduction(environment).validate())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("ADMIN_MFA_ENFORCED");
+    }
+
+    /** Each value registers no scanner: missing, off, empty, a misspelling, a padded value. */
+    @ParameterizedTest
+    @CsvSource(value = {"null", "none", "NONE", "''", "'  '", "clamv", "clam", "'clamav '", "true"}, nullValues = "null")
+    void run_inProdProfile_withNoMalwareScanner_refusesToStart(String provider) {
+        Environment environment = correctProductionEnvironment();
+        when(environment.getProperty("app.malware-scan.provider")).thenReturn(provider);
+
+        assertThatThrownBy(() -> correctProduction(environment).validate())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("registers no scanner")
+                .hasMessageContaining("MALWARE_SCAN_PROVIDER=clamav")
+                .hasMessageContaining("ALLOW_UNSCANNED_UPLOADS_IN_PROD=true")
+                .satisfies(thrown -> assertThat(thrown.getMessage())
+                        .as("only the scanner is wrong, so only it is reported")
+                        .doesNotContain("ADMIN_MFA"));
+    }
+
+    @Test
+    void run_inProdProfile_withNoMalwareScanner_startsOnlyWhenExplicitlyAllowed() {
+        Environment environment = correctProductionEnvironment();
+        when(environment.getProperty("app.malware-scan.provider")).thenReturn("none");
+        when(environment.getProperty("app.malware-scan.allow-unscanned-in-prod")).thenReturn("true");
+
+        assertThat(catchNoThrow(correctProduction(environment))).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"false", "", "  ", "1", "yes", "on"})
+    void run_inProdProfile_withNoMalwareScanner_isNotAllowedByAnyOtherValue(String value) {
+        Environment environment = correctProductionEnvironment();
+        when(environment.getProperty("app.malware-scan.provider")).thenReturn("none");
+        when(environment.getProperty("app.malware-scan.allow-unscanned-in-prod")).thenReturn(value);
+
+        assertThatThrownBy(() -> correctProduction(environment).validate())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("MALWARE_SCAN_PROVIDER");
+    }
+
+    /** One allowance does not cover the other control. */
+    @Test
+    void run_inProdProfile_eachAllowanceCoversOnlyItsOwnControl() {
+        Environment mfaAllowedScannerMissing = correctProductionEnvironment();
+        when(mfaAllowedScannerMissing.getProperty("app.admin-mfa.allow-not-enforced-in-prod")).thenReturn("true");
+        when(mfaAllowedScannerMissing.getProperty("app.malware-scan.provider")).thenReturn("none");
+        assertThatThrownBy(() -> correctProduction(mfaAllowedScannerMissing).validate())
+                .hasMessageContaining("MALWARE_SCAN_PROVIDER");
+
+        Environment scannerAllowedMfaMissing = correctProductionEnvironment();
+        when(scannerAllowedMfaMissing.getProperty("app.malware-scan.allow-unscanned-in-prod")).thenReturn("true");
+        when(scannerAllowedMfaMissing.getProperty("app.admin-mfa.enforced", Boolean.class)).thenReturn(false);
+        assertThatThrownBy(() -> correctProduction(scannerAllowedMfaMissing).validate())
+                .hasMessageContaining("ADMIN_MFA_ENFORCED");
+    }
+
+    /** Both missing at once, as on a deployment that lost its variables: both are named. */
+    @Test
+    void run_inProdProfile_withNeitherControl_namesBoth() {
+        Environment environment = correctProductionEnvironment();
+        when(environment.getProperty("app.admin-mfa.enabled", Boolean.class)).thenReturn(null);
+        when(environment.getProperty("app.admin-mfa.enforced", Boolean.class)).thenReturn(null);
+        when(environment.getProperty("app.malware-scan.provider")).thenReturn(null);
+
+        assertThatThrownBy(() -> correctProduction(environment).validate())
+                .hasMessageContaining("ADMIN_MFA_ENFORCED")
+                .hasMessageContaining("MALWARE_SCAN_PROVIDER");
+    }
+
+    /** The scanner exists, so letting uploads through while it is down is a warning, not a refusal. */
+    @Test
+    void run_inProdProfile_withTheScannerDownPolicyOnAllow_warnsButDoesNotThrow() {
+        Environment environment = correctProductionEnvironment();
+        when(environment.getProperty("app.malware-scan.on-unavailable")).thenReturn("allow");
+
+        assertThat(catchNoThrow(correctProduction(environment))).isTrue();
+    }
+
+    /** Neither control is required outside production: tests, local development and CI run without. */
+    @Test
+    void run_outsideProdProfile_requiresNeitherControl() {
+        Environment environment = envWithProfilesAndDbPassword(new String[]{"dev"}, "finora");
+        when(environment.getProperty("app.admin-mfa.enabled", Boolean.class)).thenReturn(null);
+        when(environment.getProperty("app.admin-mfa.enforced", Boolean.class)).thenReturn(null);
+        when(environment.getProperty("app.malware-scan.provider")).thenReturn("none");
+
+        assertThat(catchNoThrow(correctProduction(environment))).isTrue();
     }
 
     /** Same soft-warning treatment as TWO_FACTOR_API_KEY -- an unset TRUST_PROXY_HEADERS must only

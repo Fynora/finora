@@ -149,6 +149,28 @@ public class AuthService {
         this.deviceTokenRepository = deviceTokenRepository;
     }
 
+    // Setter-injected for the same reason. Null in a test that builds this class by hand, where no
+    // alert is sent; see tellOwnerOfSignIn.
+    private SignInAlertNotifier signInAlertNotifier;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setSignInAlertNotifier(SignInAlertNotifier signInAlertNotifier) {
+        this.signInAlertNotifier = signInAlertNotifier;
+    }
+
+    /**
+     * Called by every path on which an existing account is signed in to, right after its session is
+     * created: password (with or without the admin second factor), emailed and phone codes, Google
+     * and Apple for a returning user, reactivation, and the session a suspended customer is given
+     * for the suspended screen. Not by sign-up. {@link SignInAlertNotifier} says why, and cannot
+     * throw.
+     */
+    private void tellOwnerOfSignIn(User user, UUID sessionId) {
+        if (signInAlertNotifier != null) {
+            signInAlertNotifier.signedIn(user, sessionId);
+        }
+    }
+
     public AuthService(UserRepository userRepository, CategoryRepository categoryRepository,
                         PasswordResetTokenRepository resetTokenRepository,
                         AccountReactivationTokenRepository reactivationTokenRepository,
@@ -698,6 +720,7 @@ public class AuthService {
      *  exactly the one thing this method does. */
     private AuthResponse issueSessionTokens(User user) {
         var issued = refreshTokenService.issue(user.getId(), user.getAccountScope());
+        tellOwnerOfSignIn(user, issued.sessionId());
         String accessToken = jwtService.generateToken(user.getId(), user.getEmail(), issued.sessionId(),
                 user.getAccountScope());
         String refreshToken = issued.rawToken();
@@ -771,6 +794,9 @@ public class AuthService {
         // sign-ins cannot pile up sessions that stay live for the refresh token's 30 days.
         refreshTokenService.revokeAllForUser(user.getId());
         var issued = refreshTokenService.issue(user.getId());
+        // Refused, but told all the same: whoever is here has proved the password and now holds a
+        // session that can read why the account is suspended and download its data.
+        tellOwnerOfSignIn(user, issued.sessionId());
         String accessToken = jwtService.generateToken(user.getId(), user.getEmail(), issued.sessionId(),
                 user.getAccountScope());
         auditService.record(user.getId(), "SUSPENDED_ACCOUNT_SIGN_IN", "User", user.getId(),
@@ -1003,6 +1029,10 @@ public class AuthService {
         }
 
         var issued = refreshTokenService.issue(user.getId(), user.getAccountScope());
+        // A returning user only. When this call created the account it is a sign-up.
+        if (!isNewAccount) {
+            tellOwnerOfSignIn(user, issued.sessionId());
+        }
         String accessToken = jwtService.generateToken(user.getId(), user.getEmail(), issued.sessionId(),
                 user.getAccountScope());
         String refreshToken = issued.rawToken();
@@ -1289,6 +1319,7 @@ public class AuthService {
         auditService.record(user.getId(), "USER_LOGIN", "User", user.getId(),
                 requestMetadata.addTo(new java.util.HashMap<>()));
         var issued = refreshTokenService.issue(user.getId(), user.getAccountScope());
+        tellOwnerOfSignIn(user, issued.sessionId());
         String accessToken = jwtService.generateToken(user.getId(), user.getEmail(), issued.sessionId(),
                 user.getAccountScope());
         return new AuthResponse(accessToken, issued.rawToken(), user.getEmail(), user.getFullName(),

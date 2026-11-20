@@ -58,6 +58,9 @@ type PushRoute = 'Settings' | 'Statements' | 'Import';
 
 const TYPE_ROUTE: Record<string, PushRoute> = {
   PASSWORD_CHANGED: 'Settings',
+  // "Your account was just signed in to": Settings is where the password and the device list are.
+  // A build from before this has no entry and opens the app without routing.
+  NEW_SIGN_IN: 'Settings',
   // "Your statement is ready to review": the review opens from the Import tab's list of statements
   // waiting to be confirmed. Statements deliberately leaves such a statement out of its recent
   // imports (listedRecentImports drops a COMPLETED job until its review expires), so a customer sent

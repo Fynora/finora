@@ -9,6 +9,11 @@ package com.finora.notification.domain;
  */
 public enum NotificationType {
     PASSWORD_CHANGED,
+    // Sent every time the account is signed in to -- see SignInAlertNotifier. Category SECURITY, so
+    // it cannot be switched off. EMAIL (a verified address only) and PUSH, templates in V332 with
+    // {{device}}, {{browser}}, {{ip}} and {{time}}: fixed labels and an address, never anything the
+    // person signing in typed. Keyed "NEW_SIGN_IN_" + the session id, so one sign-in is told once.
+    NEW_SIGN_IN,
     IMPORT_STATEMENT_READY,
     // Fired once, the first time a statement is held (parser gap or trust review) -- see
     // ImportJobWorker.recordFailure and HeldStatementService.openHold. One shared type for both

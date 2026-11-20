@@ -7,7 +7,7 @@ import { passwordChangeApi } from '../../api/endpoints';
 import { confirmPhoneVerificationCode, sendPhoneVerificationCode } from '../../lib/phoneAuth';
 import { safeStorage } from '../../lib/safeStorage';
 import { ThemeProvider } from '../../theme';
-import { expectHaptics, resetHapticCalls } from '../../test/haptics';
+import { expectHaptics } from '../../test/haptics';
 
 const mockedGoogleSignin = GoogleSignin as jest.Mocked<typeof GoogleSignin>;
 
@@ -164,7 +164,7 @@ describe('ChangePasswordSheet', () => {
     expectHaptics({ error: 1 });
   });
 
-  it('completes with the session, the choice about other devices, and this device’s refresh token', async () => {
+  it('completes with the session and this device’s refresh token', async () => {
     renderSheet();
     await reachNewPasswordStep();
 
@@ -174,7 +174,7 @@ describe('ChangePasswordSheet', () => {
     await settle();
 
     await waitFor(() =>
-      expect(api.complete).toHaveBeenCalledWith('sess-1', 'BrandNewPw1!', true, 'refresh-abc')
+      expect(api.complete).toHaveBeenCalledWith('sess-1', 'BrandNewPw1!', 'refresh-abc')
     );
     expect(onSuccess).toHaveBeenCalled();
     expect(await screen.findByText('Password updated')).toBeTruthy();
@@ -207,27 +207,16 @@ describe('ChangePasswordSheet', () => {
     expect(screen.getByText("Passwords don't match.")).toBeTruthy();
   });
 
-  it('ticks only when the other-devices choice changes', async () => {
-    renderSheet();
-    await reachNewPasswordStep();
-    resetHapticCalls();
-    fireEvent.press(screen.getByLabelText('Sign out other devices (Recommended) — this device stays signed in.'));
-    expectHaptics({});
-    fireEvent.press(screen.getByLabelText('Keep other devices signed in'));
-    expectHaptics({ selection: 1 });
-  });
-
-  it('lets the user keep other devices signed in', async () => {
+  // Audit F-04: keeping other devices signed in used to be offered here. It no longer is.
+  it('says every other device will be signed out, and offers no way to keep them', async () => {
     renderSheet();
     await reachNewPasswordStep();
 
-    fireEvent.press(screen.getByLabelText('Keep other devices signed in'));
-    fireEvent.changeText(screen.getByLabelText('New password'), 'BrandNewPw1!');
-    fireEvent.changeText(screen.getByLabelText('Confirm new password'), 'BrandNewPw1!');
-    fireEvent.press(screen.getByRole('button', { name: /Update Password/ }));
-    await settle();
-
-    await waitFor(() => expect(api.complete).toHaveBeenCalledWith('sess-1', 'BrandNewPw1!', false, 'refresh-abc'));
+    expect(screen.getByText(
+      'Changing your password signs you out on every other device. This device stays signed in.'
+    )).toBeTruthy();
+    expect(screen.queryByRole('radio')).toBeNull();
+    expect(screen.queryByText('Keep other devices signed in')).toBeNull();
   });
 
   // Without the refresh token the backend cannot tell which session to spare, and signing out

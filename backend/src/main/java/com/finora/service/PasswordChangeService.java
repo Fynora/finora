@@ -232,8 +232,8 @@ public class PasswordChangeService {
 
     /** Step 3: set the new password. Only reachable once the session itself shows OTP_VERIFIED --
      *  server-side state, not a client-supplied flag. The device making this request always stays
-     *  signed in (identified by its own sid claim, see revokeAllOtherSessionsForUser); signOutOtherDevices
-     *  only controls every OTHER active session.
+     *  signed in (identified by its own sid claim, see revokeAllOtherSessionsForUser); every OTHER
+     *  active session is ended, whatever the request says.
      *
      *  Idempotency: a session that's already COMPLETED (the frontend retried after a timeout, or
      *  network hiccup, without ever seeing the first response) returns the SAME outcome again
@@ -284,17 +284,21 @@ public class PasswordChangeService {
 
         session.setStatus(PasswordChangeSession.Status.COMPLETED);
         session.setCompletedAt(now);
-        session.setSignedOutOtherDevices(request.signOutOtherDevices());
+        session.setSignedOutOtherDevices(true);
         sessionRepository.save(session);
 
-        if (request.signOutOtherDevices()) {
-            // The session making this request, from the access token's sid claim -- not a token
-            // the client had to be able to read. See revokeAllOtherSessionsForUser.
-            refreshTokenService.revokeAllOtherSessionsForUser(userId, currentSessionId);
-            auditService.record(userId, "OTHER_SESSIONS_REVOKED", "User", userId);
-        } else {
-            auditService.record(userId, "OTHER_SESSIONS_PRESERVED", "User", userId);
-        }
+        // Every other session ends, always. This used to be the caller's choice
+        // (request.signOutOtherDevices()), and "keep other devices signed in" was the wrong thing
+        // to offer at exactly this moment: the commonest reason to change a password is the
+        // suspicion that someone else has it, and whoever that is may already be signed in. Left
+        // signed in, they stayed in for as long as their session lasted, which for a phone
+        // session had no end (audit F-04, 2026-11-20). Email and phone changes never offered the
+        // choice; this now matches them. The request field is still accepted and decides nothing.
+        //
+        // The session making this request, from the access token's sid claim -- not a token
+        // the client had to be able to read. See revokeAllOtherSessionsForUser.
+        refreshTokenService.revokeAllOtherSessionsForUser(userId, currentSessionId);
+        auditService.record(userId, "OTHER_SESSIONS_REVOKED", "User", userId);
 
         auditService.record(userId, "PASSWORD_CHANGED", "User", userId, Map.of("method", "authenticated_settings_otp_gated"));
         // BH-016: after commit. Same reasoning as AuthService's three sends -- the provider is an
@@ -308,7 +312,7 @@ public class PasswordChangeService {
                     "success", changedEmailResult.success()));
         });
 
-        return new CompleteResponse(completeMessage(request.signOutOtherDevices()), request.signOutOtherDevices());
+        return new CompleteResponse(completeMessage(true), true);
     }
 
     /** Shared by all three steps -- a suspended/deactivated account's own still-valid JWT (issued
@@ -357,6 +361,8 @@ public class PasswordChangeService {
         sessionRepository.save(session);
     }
 
+    /** The second message is only ever replayed: for a change completed before other devices were
+     *  always signed out, by a caller that had chosen to keep them. */
     private String completeMessage(boolean signedOutOtherDevices) {
         return signedOutOtherDevices
                 ? "Your password has been updated. This device stays signed in; every other device has been signed out."

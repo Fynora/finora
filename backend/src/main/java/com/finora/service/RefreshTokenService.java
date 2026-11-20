@@ -607,7 +607,7 @@ public class RefreshTokenService {
     }
 
     /**
-     * Used by PasswordChangeService's "sign out other devices" choice -- unlike
+     * Used when a password, phone number or email is changed from a signed-in session -- unlike
      * {@link #revokeAllForUser}, the device that just completed the change stays signed in rather
      * than also being forced to re-authenticate.
      *

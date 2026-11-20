@@ -1677,9 +1677,12 @@ export const passwordChangeApi = {
     api.post<{ message: string }>(
       '/users/me/password-change/verify-otp', { sessionId, firebaseIdToken }
     ).then((r) => r.data),
-  complete: (sessionId: string, newPassword: string, signOutOtherDevices: boolean, currentRefreshToken: string) =>
+  // signOutOtherDevices is always true. The backend ends every other session whatever this says
+  // (audit F-04). It is still sent, and sent as true, because a backend from before that change
+  // reads a missing value as false and would keep the other devices signed in.
+  complete: (sessionId: string, newPassword: string, currentRefreshToken: string) =>
     api.post<{ message: string; otherDevicesSignedOut: boolean }>(
-      '/users/me/password-change/complete', { sessionId, newPassword, signOutOtherDevices, currentRefreshToken }
+      '/users/me/password-change/complete', { sessionId, newPassword, signOutOtherDevices: true, currentRefreshToken }
     ).then((r) => r.data),
 };
 

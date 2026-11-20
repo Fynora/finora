@@ -34,8 +34,9 @@ import static org.mockito.Mockito.when;
 /**
  * Phone and web sessions live by different limits (design: 2026-11-10 mobile PIN unlock).
  *
- * <p>A phone session, guarded on the device by a required PIN, ends after 90 days unused and has no
- * absolute cap. A web session keeps the 24-hour idle limit and the 30-day cap. Which kind a session
+ * <p>A phone session, guarded on the device by a required PIN, ends after 90 days unused, and a
+ * year after sign-in however it is used (audit F-04; it had no cap before). A web session keeps
+ * the 24-hour idle limit and the 30-day cap. Which kind a session
  * is gets decided once, at sign-in, and every rotation copies it: a later request can never change
  * it, so a stolen web token cannot be turned into a long phone session by sending phone headers.
  */
@@ -44,6 +45,7 @@ class RefreshTokenSessionKindTest {
     private static final Duration WEB_IDLE = Duration.ofHours(24);
     private static final Duration WEB_ABSOLUTE = Duration.ofDays(30);
     private static final Duration MOBILE_IDLE = Duration.ofDays(90);
+    private static final Duration MOBILE_ABSOLUTE = Duration.ofDays(365);
     private static final String RAW_TOKEN = "raw-refresh-token";
 
     private RefreshTokenRepository repository;
@@ -59,7 +61,7 @@ class RefreshTokenSessionKindTest {
         props.setIdleTimeoutMs(WEB_IDLE.toMillis());
         props.setAbsoluteSessionMs(WEB_ABSOLUTE.toMillis());
         props.setMobileIdleTimeoutMs(MOBILE_IDLE.toMillis());
-        props.setMobileAbsoluteSessionMs(0);
+        props.setMobileAbsoluteSessionMs(MOBILE_ABSOLUTE.toMillis());
         props.setRefreshReuseGraceMs(Duration.ofSeconds(30).toMillis());
         ReflectionTestUtils.setField(props, "refreshExpirationMs", Duration.ofDays(30).toMillis());
         service = new RefreshTokenService(repository, props, request, mock(ClientIpResolver.class),
@@ -123,12 +125,40 @@ class RefreshTokenSessionKindTest {
     }
 
     @Test
-    void mobileSessionHasNoAbsoluteCapByDefault() {
+    void mobileSessionOutlivesTheWebCap() {
         existingToken(SessionKind.MOBILE, Duration.ofHours(1), Duration.ofDays(200));
 
         service.rotate(RAW_TOKEN);
 
         assertThat(lastSaved().getSessionKind()).isEqualTo(SessionKind.MOBILE);
+    }
+
+    /** Right up to the cap a phone session in daily use carries on. */
+    @Test
+    void mobileSessionInDailyUseSurvivesTheDayBeforeItsCap() {
+        existingToken(SessionKind.MOBILE, Duration.ofHours(1), MOBILE_ABSOLUTE.minusDays(1));
+
+        service.rotate(RAW_TOKEN);
+
+        assertThat(lastSaved().getSessionKind()).isEqualTo(SessionKind.MOBILE);
+    }
+
+    /**
+     * Audit F-04. The headers that select a phone session are the client's own claim, so anyone who
+     * can sign in at all can ask for one. With no cap, a session obtained that way with a stolen
+     * password never ended as long as it was used. It now ends a year after sign-in however
+     * recently it was used, and only that session is ended.
+     */
+    @Test
+    void mobileSessionInDailyUseEndsAtItsCap() {
+        RefreshToken rt = existingToken(SessionKind.MOBILE, Duration.ofHours(1), MOBILE_ABSOLUTE.plusDays(1));
+
+        assertThatThrownBy(() -> service.rotate(RAW_TOKEN))
+                .isInstanceOf(ApiException.class)
+                .extracting(RefreshTokenSessionKindTest::codeOf)
+                .isEqualTo(ErrorCode.AUTH_SESSION_MAX_AGE);
+        assertThat(rt.getRevokedAt()).isNotNull();
+        verify(repository, org.mockito.Mockito.never()).save(org.mockito.ArgumentMatchers.argThat(saved -> saved != rt));
     }
 
     @Test

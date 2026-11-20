@@ -266,13 +266,15 @@ describe('ChangePasswordModal', () => {
       expect(screen.getByText(/an uppercase letter/i)).toBeInTheDocument();
     });
 
-    it('defaults to "sign out other devices" selected', async () => {
+    // Audit F-04: keeping other devices signed in used to be offered here. It no longer is.
+    it('says every other device will be signed out, and offers no way to keep them', async () => {
       const user = userEvent.setup();
       renderModal();
       await advanceToNewPasswordStep(user);
 
-      expect(screen.getByRole('radio', { name: /sign out other devices/i })).toBeChecked();
-      expect(screen.getByRole('radio', { name: /keep other devices signed in/i })).not.toBeChecked();
+      expect(screen.getByText(/signs you out on every other device\. this device stays signed in\./i)).toBeInTheDocument();
+      expect(screen.queryByRole('radio')).not.toBeInTheDocument();
+      expect(screen.queryByText(/keep other devices signed in/i)).not.toBeInTheDocument();
     });
 
     it('submits via passwordChangeApi.complete with the stored refresh token and shows success', async () => {
@@ -285,25 +287,10 @@ describe('ChangePasswordModal', () => {
       await user.click(screen.getByRole('button', { name: /update password/i }));
 
       await waitFor(() => expect(passwordChangeApi.complete).toHaveBeenCalledWith(
-        'session-1', 'NewPass456!', true,
+        'session-1', 'NewPass456!',
       ));
       expect(await screen.findByText(/password updated/i)).toBeInTheDocument();
       expect(screen.getByText(/every other device has been signed out/i)).toBeInTheDocument();
-    });
-
-    it('passes signOutOtherDevices=false when "keep other devices signed in" is chosen', async () => {
-      const user = userEvent.setup();
-      renderModal();
-      await advanceToNewPasswordStep(user);
-
-      await user.click(screen.getByRole('radio', { name: /keep other devices signed in/i }));
-      await user.type(screen.getByLabelText(/^new password$/i), 'NewPass456!');
-      await user.type(screen.getByLabelText(/^confirm new password$/i), 'NewPass456!');
-      await user.click(screen.getByRole('button', { name: /update password/i }));
-
-      await waitFor(() => expect(passwordChangeApi.complete).toHaveBeenCalledWith(
-        'session-1', 'NewPass456!', false,
-      ));
     });
 
     it('shows the server error inline without closing the modal', async () => {

@@ -10,7 +10,7 @@ import { GoogleReauthPrompt } from '../../components/GoogleReauthPrompt';
 import { ProgressBar } from '../../components/ProgressBar';
 import { TextField } from '../../components/TextField';
 import { passwordChangeApi } from '../../api/endpoints';
-import { hapticError, hapticSelectionIfChanged, hapticSuccess } from '../../lib/haptics';
+import { hapticError, hapticSuccess } from '../../lib/haptics';
 import { safeStorage } from '../../lib/safeStorage';
 import { toUserMessage } from '../../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../../lib/monitoring';
@@ -38,8 +38,8 @@ import { GlassSurface } from '../../components/GlassSurface';
  * natively, so the entire class of auth/argument-error retry bugs documented in that file cannot
  * occur here (see src/lib/phoneAuth.ts).
  *
- * The device completing this flow is never signed out -- the "sign out other devices" choice only
- * affects OTHER sessions -- so success simply closes the sheet.
+ * The device completing this flow is never signed out -- every OTHER session always is (it was a
+ * choice on the last step until audit F-04) -- so success simply closes the sheet.
  *
  * Phase 4 (Medium-Tier Parity): the first step is "prove who you are", not "type your current
  * password" specifically -- a GOOGLE/APPLE-method account has no password to type (see
@@ -97,7 +97,6 @@ export function ChangePasswordSheet({ onClose, onSuccess, signInMethod }: {
 
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [signOutOtherDevices, setSignOutOtherDevices] = useState(true);
   const [successMessage, setSuccessMessage] = useState('');
 
   const meter = passwordStrengthMeter(newPassword);
@@ -185,9 +184,7 @@ export function ChangePasswordSheet({ onClose, onSuccess, signInMethod }: {
           setError('Your session information is missing. Please sign in again and retry.');
           return;
         }
-        const res = await passwordChangeApi.complete(
-          sessionId, newPassword, signOutOtherDevices, currentRefreshToken
-        );
+        const res = await passwordChangeApi.complete(sessionId, newPassword, currentRefreshToken);
         hapticSuccess();
         setSuccessMessage(res.message);
         setStep('success');
@@ -343,24 +340,9 @@ export function ChangePasswordSheet({ onClose, onSuccess, signInMethod }: {
                     />
 
                     <Text style={[styles.groupLabel, { color: c.muted }]}>Other devices</Text>
-                    {[
-                      { value: true, label: 'Sign out other devices (Recommended) — this device stays signed in.' },
-                      { value: false, label: 'Keep other devices signed in' },
-                    ].map((option) => (
-                      <Pressable
-                        key={String(option.value)}
-                        onPress={() => { hapticSelectionIfChanged(signOutOtherDevices, option.value); setSignOutOtherDevices(option.value); }}
-                        style={[styles.radioRow, { borderColor: c.border }]}
-                        accessibilityRole="radio"
-                        accessibilityState={{ checked: signOutOtherDevices === option.value }}
-                        accessibilityLabel={option.label}
-                      >
-                        <Text style={[styles.radioMark, { color: c.primary }]}>
-                          {signOutOtherDevices === option.value ? '◉' : '○'}
-                        </Text>
-                        <Text style={[styles.radioLabel, { color: c.ink }]}>{option.label}</Text>
-                      </Pressable>
-                    ))}
+                    <Text style={[styles.otherDevicesNote, { color: c.ink, borderColor: c.border }]}>
+                      Changing your password signs you out on every other device. This device stays signed in.
+                    </Text>
 
                     {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
                     <View style={styles.action}>
@@ -402,18 +384,14 @@ const styles = StyleSheet.create({
   meter: { marginBottom: spacing.sm },
   meterLabel: { fontSize: 11, marginTop: 4 },
   groupLabel: { fontSize: 12, fontWeight: '500', marginTop: spacing.sm, marginBottom: 6 },
-  radioRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.sm,
+  otherDevicesNote: {
+    fontSize: 12,
+    lineHeight: 17,
     borderWidth: 1,
     borderRadius: radius.md,
     padding: 12,
     marginBottom: spacing.xs,
-    minHeight: 44,
   },
-  radioMark: { fontSize: 15 },
-  radioLabel: { fontSize: 12, flex: 1, lineHeight: 17 },
   successBlock: { alignItems: 'center', paddingVertical: spacing.lg },
   successMark: { fontSize: 34, fontWeight: '700', marginBottom: spacing.sm },
 });

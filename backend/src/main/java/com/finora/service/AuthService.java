@@ -2065,7 +2065,7 @@ public class AuthService {
         // PasswordChangeService.complete -- the authenticated change-password path -- already
         // does this; RefreshTokenService's own class docs name password change as one of the
         // cases warranting account-wide revocation. The forgot-password path was never wired to
-        // it. Unconditional here, unlike complete()'s opt-in signOutOtherDevices: whoever
+        // it. Every session here, where complete() spares the one making the change: whoever
         // completes a reset is not holding a session to preserve.
         refreshTokenService.revokeAllForUser(user.getId());
 

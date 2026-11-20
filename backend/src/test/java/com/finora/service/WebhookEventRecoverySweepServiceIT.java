@@ -312,4 +312,101 @@ class WebhookEventRecoverySweepServiceIT extends AbstractIntegrationTest {
         assertThat(webhookEventRepository.findById(eventId).orElseThrow().getStatus())
                 .isEqualTo(WebhookEvent.STATUS_FAILED);
     }
+
+    /** A failed event that can never succeed: a cancellation naming a Razorpay subscription nothing
+     *  here has ever heard of. Its handler throws on every attempt. */
+    private String failedEventThatCanNeverSucceed(int minutesAgo) {
+        String eventId = "evt_test_" + UUID.randomUUID();
+        Map<String, Object> fullBody = Map.of("payload", Map.of("subscription", Map.of("entity",
+                Map.of("id", "sub_unknown_" + UUID.randomUUID()))));
+        assertThat(webhookEventService.claim(eventId, "RAZORPAY", "subscription.cancelled", fullBody)).isTrue();
+        assertThat(webhookEventService.markFailed(eventId)).isTrue();
+        backdate(eventId, minutesAgo);
+        return eventId;
+    }
+
+    private int recoveryAttempts(String eventId) {
+        Integer attempts = jdbcTemplate.queryForObject(
+                "SELECT recovery_attempts FROM webhook_events WHERE event_id = ?", Integer.class, eventId);
+        assertThat(attempts).isNotNull();
+        return attempts;
+    }
+
+    /** How many retries the sweep allows, read from the bean so the tests follow the setting. */
+    private int maxAttempts() {
+        Object value = org.springframework.test.util.ReflectionTestUtils.getField(sweepService, "maxAttempts");
+        assertThat(value).isInstanceOf(Integer.class);
+        return (Integer) value;
+    }
+
+    @Test
+    void everyRetryOfAFailedEventIsCounted_andItStaysFailedWhenTheRetryFailsAgain() {
+        String eventId = failedEventThatCanNeverSucceed(10);
+        assertThat(recoveryAttempts(eventId)).isZero();
+
+        sweepService.sweep();
+        assertThat(recoveryAttempts(eventId)).isEqualTo(1);
+        sweepService.sweep();
+        assertThat(recoveryAttempts(eventId)).isEqualTo(2);
+
+        assertThat(webhookEventRepository.findById(eventId).orElseThrow().getStatus())
+                .isEqualTo(WebhookEvent.STATUS_FAILED);
+    }
+
+    @Test
+    void anEventThatHasUsedAllItsRetriesIsLeftAlone_stillFailedForAPersonToFind() {
+        int max = maxAttempts();
+        String eventId = failedEventThatCanNeverSucceed(10);
+        jdbcTemplate.update("UPDATE webhook_events SET recovery_attempts = ? WHERE event_id = ?", max - 1, eventId);
+
+        sweepService.sweep();
+        assertThat(recoveryAttempts(eventId)).as("the last allowed retry is made").isEqualTo(max);
+
+        sweepService.sweep();
+        sweepService.sweep();
+        assertThat(recoveryAttempts(eventId)).as("and then no more").isEqualTo(max);
+        assertThat(webhookEventRepository.findById(eventId).orElseThrow().getStatus())
+                .isEqualTo(WebhookEvent.STATUS_FAILED);
+        assertThat(webhookEventRepository.countGivenUp(max)).isGreaterThanOrEqualTo(1);
+        assertThat(webhookEventService.reclaimFailed(eventId, max))
+                .as("the limit holds on the reclaim itself, not only on the candidate list").isFalse();
+    }
+
+    /**
+     * The starvation this ordering exists to stop. Old events that can never succeed used to hold
+     * the front of the queue by age alone, so with enough of them a run never reached anything
+     * newer. Asserted on the candidate list rather than on a whole run, because other test classes
+     * share this table and their rows would decide how far a size-limited run gets.
+     */
+    @Test
+    void aNewlyFailedEventIsTakenBeforeOlderOnesThatHaveAlreadyBeenRetried_andSpentOnesAreNotTakenAtAll() {
+        int max = maxAttempts();
+        String oldAndRetried = failedEventThatCanNeverSucceed(600);
+        jdbcTemplate.update("UPDATE webhook_events SET recovery_attempts = 5 WHERE event_id = ?", oldAndRetried);
+        String oldAndSpent = failedEventThatCanNeverSucceed(600);
+        jdbcTemplate.update("UPDATE webhook_events SET recovery_attempts = ? WHERE event_id = ?", max, oldAndSpent);
+        String newlyFailed = failedEventThatCanNeverSucceed(10);
+
+        List<String> order = webhookEventRepository.findFailed(Instant.now(), 100_000, max).stream()
+                .map(WebhookEvent::getEventId).toList();
+
+        assertThat(order).contains(newlyFailed, oldAndRetried).doesNotContain(oldAndSpent);
+        assertThat(order.indexOf(newlyFailed))
+                .as("never retried comes before retried five times, however much older that one is")
+                .isLessThan(order.indexOf(oldAndRetried));
+    }
+
+    /** A failed Setu event is never retried (see the test above), so its count never rises. Listed
+     *  as a candidate it would sit at the front of the least-retried-first order for good. */
+    @Test
+    void aFailedSetuEventIsNotACandidateForRetry() {
+        Map<String, Object> fullBody = Map.of("event", "consent.approved", "consentHandleId", "handle-irrelevant");
+        String eventId = "evt_test_" + UUID.randomUUID();
+        assertThat(webhookEventService.claim(eventId, "SETU", "consent.approved", fullBody)).isTrue();
+        assertThat(webhookEventService.markFailed(eventId)).isTrue();
+        backdate(eventId, 10);
+
+        assertThat(webhookEventRepository.findFailed(Instant.now(), 100_000, maxAttempts()))
+                .extracting(WebhookEvent::getEventId).doesNotContain(eventId);
+    }
 }

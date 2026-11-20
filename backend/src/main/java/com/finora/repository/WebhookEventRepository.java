@@ -75,22 +75,35 @@ public interface WebhookEventRepository extends JpaRepository<WebhookEvent, Stri
      * FAILED} row is already fully resolved ({@code dispatch()} is {@code @Transactional}, so a
      * handler throwing means every DB write from that attempt was rolled back). It exists as an
      * operational rate limit: without it, a handler that fails deterministically (e.g. a missing
-     * {@code Plan} row) would be retried on every sweep tick indefinitely, and a moment's grace
-     * gives a human a chance to notice and intervene before that.
+     * {@code Plan} row) would be retried the instant it failed, and a moment's grace gives a human
+     * a chance to notice and intervene before that.
      *
      * <p>Without this method at all, a {@code FAILED} row is a dead end: {@code claim()}'s {@code
      * INSERT ... ON CONFLICT DO NOTHING} treats "row already exists" as the only signal, so a
      * genuine Razorpay/RevenueCat retry of the same event id after this point is silently swallowed
      * as a duplicate and the sender stops retrying, believing it succeeded -- the event is then
      * lost until someone notices and reprocesses it by hand.
+     *
+     * <p>Two things keep one hopeless event from starving the rest (V330). Events that have used
+     * up {@code maxAttempts} retries are not returned at all: they stay {@code FAILED} for a
+     * person to look at. And the rest come least-retried first, then oldest, so a newly failed
+     * event is always reached ahead of one that has already been tried many times. Ordering by
+     * age alone let events that can never succeed hold the front of the queue for good, and a
+     * run's whole {@code limit} could go on them.
+     *
+     * <p>{@code SETU} events are left out for the same reason: the sweep never retries a failed one
+     * (see {@code WebhookEventRecoverySweepService.recoverOne} for why that is not safe), so their
+     * count never rises, and returned here they would sit at the front of this list for good.
      */
     @Query(value = """
            SELECT * FROM webhook_events
-           WHERE status = 'FAILED' AND created_at < :cutoff
-           ORDER BY created_at
+           WHERE status = 'FAILED' AND created_at < :cutoff AND recovery_attempts < :maxAttempts
+             AND provider <> 'SETU'
+           ORDER BY recovery_attempts, created_at
            LIMIT :limit
            """, nativeQuery = true)
-    List<WebhookEvent> findFailed(@Param("cutoff") Instant cutoff, @Param("limit") int limit);
+    List<WebhookEvent> findFailed(@Param("cutoff") Instant cutoff, @Param("limit") int limit,
+                                  @Param("maxAttempts") int maxAttempts);
 
     /**
      * Reclaims a {@code FAILED} row for the recovery sweep, atomically flipping it back to the same
@@ -103,11 +116,23 @@ public interface WebhookEventRepository extends JpaRepository<WebhookEvent, Stri
      * the second's {@code WHERE} clause re-evaluates against the now-{@code NULL} status after
      * waiting for the lock, matches nothing, and is a harmless no-op.
      *
+     * <p>Each reclaim counts as one retry ({@code recovery_attempts}, V330), in the same statement,
+     * so the count can never fall behind the retries actually made. The limit is checked here as
+     * well as in {@link #findFailed}: the candidate list is read before the loop that reclaims
+     * from it, and an overlapping run could have spent an event's last retry in between.
+     *
      * @return the number of rows updated -- 1 if this call reclaimed the row, 0 if it was not (or no
-     *     longer) {@code FAILED}.
+     *     longer) {@code FAILED}, or has no retries left.
      */
     @Modifying
-    @Query(value = "UPDATE webhook_events SET status = NULL, processed_at = NULL " +
-            "WHERE event_id = :eventId AND status = 'FAILED'", nativeQuery = true)
-    int reclaimFailed(@Param("eventId") String eventId);
+    @Query(value = "UPDATE webhook_events SET status = NULL, processed_at = NULL, " +
+            "recovery_attempts = recovery_attempts + 1 " +
+            "WHERE event_id = :eventId AND status = 'FAILED' AND recovery_attempts < :maxAttempts",
+            nativeQuery = true)
+    int reclaimFailed(@Param("eventId") String eventId, @Param("maxAttempts") int maxAttempts);
+
+    /** How many failed events the recovery sweep has stopped retrying. Each needs a person. */
+    @Query(value = "SELECT count(*) FROM webhook_events WHERE status = 'FAILED' AND recovery_attempts >= :maxAttempts",
+            nativeQuery = true)
+    long countGivenUp(@Param("maxAttempts") int maxAttempts);
 }

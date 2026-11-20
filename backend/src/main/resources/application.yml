@@ -281,12 +281,14 @@ app:
     # stolen copy -- the "signed out everywhere" response fired on an ordinary network hiccup.
     # Outside the window, and for a token revoked for any reason other than rotation (logout, the
     # limits above, an earlier theft response), a replay is still theft. Trade-off stated plainly:
-    # a token stolen and replayed inside this window is NOT detected, then or later. The thief's
-    # pair and the owner's pair rotate as two independent chains from then on and never collide,
-    # so nothing surfaces it automatically; what does is the session appearing twice in the
-    # owner's device list once both copies are in use (an unused retry leftover is hidden there,
-    # see RefreshTokenService#listActiveSessions), the idle and absolute caps ending it on
-    # schedule (a phone session has no absolute cap), and "sign out everywhere". A thief who
+    # a token stolen and replayed inside this window is NOT detected at that moment: the thief is
+    # given a token of their own. Since audit F-05 (2026-11-20) it is detected at the next refresh
+    # that shows both tokens are in use -- a client that was only retrying keeps one and never
+    # presents the other -- and every session of the user is ended then, as for any other stolen
+    # token (RefreshTokenService#rotate; counted as finora.auth.refresh_both_copies_used). What
+    # is still not detected: a copy whose other half is never used again, for example a thief's
+    # token after the owner stops using that device. The idle and absolute caps end that on
+    # schedule (365 days for a phone session), and so does "sign out everywhere". A thief who
     # replays after the window, or whose stolen token the owner has not rotated, is caught exactly
     # as before. Sized for the races it covers, which land within seconds (two app instances
     # refreshing at once, a duplicated delivery of one request, and the phone app's single retry

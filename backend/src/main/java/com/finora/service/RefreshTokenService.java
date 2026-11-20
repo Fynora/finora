@@ -48,11 +48,13 @@ import java.util.function.IntSupplier;
  * request or a second app instance produces, and before the window it was indistinguishable from
  * theft. A consequence worth knowing: a session that took the grace path holds two live rows,
  * children of the same parent token, until the orphaned one ages out. The device list hides the
- * orphan while it goes unused and lists the session twice once both copies are in use (see
- * {@link #listActiveSessions}); "sign out this device" on any row ends them all, because it ends
- * the session rather than the row. The security cost is stated in {@code application.yml}: a thief
- * who replays inside the window is not detected then or later, because the two chains never
- * collide again; the device list, the caps and "sign out everywhere" are what bound that session.
+ * orphan while it goes unused (see {@link #listActiveSessions}); "sign out this device" on any
+ * row ends them all, because it ends the session rather than the row. The security cost is
+ * stated in {@code application.yml}: a thief who replays inside the window is not detected at
+ * that moment. Since audit F-05 (2026-11-20) they are detected at the first refresh that shows
+ * both copies are in use, and every session ends then (see {@link #rotate}). Until that refresh,
+ * and for a copy whose other half is never used again, the caps and "sign out everywhere" are
+ * what bound the session.
  *
  * <p>A second exception: a token ended REMOTELY ({@link RefreshToken#getRevokedRemotelyAt()} --
  * "sign out this device" from another device, "sign out other devices", or an account-wide
@@ -274,7 +276,9 @@ public class RefreshTokenService {
         // lock the second request waits for the first to commit, then reads the row as already
         // rotated and lands in the grace branch below -- a definite, correct answer rather than
         // a conflict.
-        RefreshToken rt = refreshTokenRepository.findByTokenHashForUpdate(TokenHasher.sha256(rawToken))
+        String tokenHash = TokenHasher.sha256(rawToken);
+        queueBehindTheOtherCopy(tokenHash);
+        RefreshToken rt = refreshTokenRepository.findByTokenHashForUpdate(tokenHash)
                 .orElseThrow(() -> new ApiException(ErrorCode.AUTH_TOKEN_EXPIRED, "Invalid refresh token"));
         Instant now = Instant.now();
 
@@ -287,8 +291,10 @@ public class RefreshTokenService {
                 // rotation was ordinary, so this is answered with another token pair for the same
                 // session rather than treated as theft. The previously issued successor stays
                 // valid too -- revoking it would end the session for whichever instance already
-                // stored it, which is the outcome this branch exists to avoid. The orphaned one
-                // simply ages out. See app.jwt.refresh-reuse-grace-ms for the trade-off.
+                // stored it, which is the outcome this branch exists to avoid. The client keeps
+                // one of the two and the orphaned one simply ages out; if BOTH are ever used,
+                // that is two holders and is answered further down as theft. See
+                // app.jwt.refresh-reuse-grace-ms for the trade-off.
                 IssuedToken replacement = issue(rt.getUserId(), rt.getSessionStartedAt(), rt.getSessionId(), rt.getSessionKind(), rt.getId());
                 authMetrics.refreshReplayedWithinGrace();
                 return new RotationResult(rt.getUserId(), replacement);
@@ -352,6 +358,27 @@ public class RefreshTokenService {
             throw new ApiException(ErrorCode.AUTH_SESSION_MAX_AGE);
         }
 
+        // Audit F-05 (2026-11-20). This token is one of two or more answers to a refresh that was
+        // presented more than once inside the reuse window, and another of those answers has
+        // already been used. A client that was only retrying stores one answer and never presents
+        // the other (traced through all three clients: the browsers keep the token in one cookie,
+        // the phone in one stored value, and none of them holds a second copy). Two answers in
+        // use means two holders, and one of them is not the owner. The window made that
+        // impossible to tell when the token was replayed; this is where it becomes visible, so
+        // this is where the theft response that the window put off is given: every session ends,
+        // exactly as for a token replayed outside the window. It can only be seen here, at the
+        // first use of the second copy -- the successors of the two copies share no parent, so a
+        // check that missed this moment would never get another.
+        if (rt.getParentTokenId() != null && refreshTokenRepository
+                .existsByParentTokenIdAndIdNotAndRotatedAtIsNotNull(rt.getParentTokenId(), rt.getId())) {
+            log.warn("Refresh token copies from one replayed refresh were both used: user {} session {}. "
+                    + "Ending every session of the user.", rt.getUserId(), rt.getSessionId());
+            revokeAllForUser(rt.getUserId());
+            authMetrics.refreshBothCopiesUsed();
+            throw new ApiException(ErrorCode.AUTH_SESSION_REVOKED,
+                    "This session was in use from two places at once. All sessions have been signed out as a precaution.");
+        }
+
         rt.setRevokedAt(now);
         // rotatedAt is what marks this revocation as an ORDINARY rotation. The idle and absolute
         // branches above and logout write revokedAt alone, so a replay of any of those is still
@@ -364,6 +391,28 @@ public class RefreshTokenService {
         IssuedToken newToken = issue(rt.getUserId(), rt.getSessionStartedAt(), rt.getSessionId(), rt.getSessionKind(), rt.getId());
         authMetrics.refreshSucceeded();
         return new RotationResult(rt.getUserId(), newToken);
+    }
+
+    /**
+     * Makes two copies of one replayed refresh take turns, so the second to be used always sees
+     * that the first was (the check itself is in {@link #rotate}).
+     *
+     * <p>{@link #rotate} locks only the row it was handed. Two copies presented at the same moment
+     * are two different rows, so each would read the other as unused, both would be rotated, and
+     * their successors share no parent: the pair would never be noticed again. Both copies have
+     * the same parent, so both lock that row first.
+     *
+     * <p>Before the token's own row, never after: a request that held its own row while waiting
+     * here could be waited on in turn by the revocation another copy's request is running.
+     *
+     * <p>Skipped unless a second copy exists, which is the case for almost every refresh: one
+     * indexed read, no lock. A copy minted between that read and the token's own lock is too new
+     * to have been used, and when it is, it finds this one already rotated.
+     */
+    private void queueBehindTheOtherCopy(String tokenHash) {
+        refreshTokenRepository.findParentTokenIdByTokenHash(tokenHash)
+                .filter(parentId -> refreshTokenRepository.countByParentTokenId(parentId) > 1)
+                .ifPresent(refreshTokenRepository::lockById);
     }
 
     /**
@@ -498,12 +547,12 @@ public class RefreshTokenService {
      *       {@code parentTokenId}) and is not its session's most recently seen row.</li>
      * </ul>
      *
-     * <p>What is deliberately still shown twice: a session with two copies of its token both in
-     * use. That is how a token stolen and replayed inside the reuse window shows up (see the class
-     * comment) -- once either copy is presented, its successor has no sibling and is listed beside
-     * the other. Phone sessions have no absolute cap, so this entry is one of the few things that
-     * surfaces such a copy. "Sign out this device" on any row ends every row of the session
-     * ({@link #revokeSession}), hidden ones included.
+     * <p>A session with two copies of its token both in use is no longer something this list has
+     * to show. It used to be listed twice, and that second entry was the only thing that surfaced
+     * a token stolen and replayed inside the reuse window. Since audit F-05 (2026-11-20)
+     * {@link #rotate} refuses the second copy at its first use and ends every session. "Sign out
+     * this device" on any row ends every row of the session ({@link #revokeSession}), hidden ones
+     * included.
      */
     public List<RefreshToken> listActiveSessions(UUID userId) {
         Instant now = Instant.now();

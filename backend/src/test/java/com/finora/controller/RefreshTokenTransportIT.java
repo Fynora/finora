@@ -450,7 +450,8 @@ class RefreshTokenTransportIT extends AbstractIntegrationTest {
      * Audit F-11 (2026-09-24). The same replay as above, a moment after the rotation instead of
      * half a minute later: what a retried POST or a second app instance produces. It is answered
      * with another token pair for the same session, the untouched second device is left alone,
-     * and both successors stay usable.
+     * and the client carries on with the answer it kept. Either answer would have done; using
+     * both is two holders and is refused (audit F-05, RefreshTokenBothCopiesInUseIT).
      */
     @Test
     void replayInsideTheGraceWindowIsAnsweredWithAnotherTokenPair() throws Exception {
@@ -471,15 +472,11 @@ class RefreshTokenTransportIT extends AbstractIntegrationTest {
         String secondSuccessor = cookieValue(replay.getResponse().getHeader("Set-Cookie"));
         assertThat(secondSuccessor).isNotEqualTo(rawToken).isNotEqualTo(firstSuccessor);
 
-        // Nothing was signed out: the other device, and both successors, all still rotate.
+        // Nothing was signed out: the other device, and the answer the client kept, still rotate.
         mockMvc.perform(post("/api/v1/auth/refresh")
                         .with(fromIp("10.0.2.2"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(otherDevice)))
-                .andExpect(status().isOk());
-        mockMvc.perform(post("/api/v1/auth/refresh")
-                        .with(fromIp("10.0.2.3"))
-                        .cookie(new Cookie(RefreshTokenCookie.NAME, firstSuccessor)))
                 .andExpect(status().isOk());
         mockMvc.perform(post("/api/v1/auth/refresh")
                         .with(fromIp("10.0.2.4"))

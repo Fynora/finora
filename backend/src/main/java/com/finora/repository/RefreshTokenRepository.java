@@ -136,6 +136,32 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, UUID
      *  parent twice. Backs the device list's leftover check (RefreshTokenService#listActiveSessions). */
     boolean existsByParentTokenIdAndIdNot(UUID parentTokenId, UUID id);
 
+    // The three reads below back RefreshTokenService#rotate's "both copies in use" check (audit
+    // F-05, 2026-11-20). See that method for what they are for and the order they run in.
+
+    /** The parent of a token, as a bare column: read before the token itself is locked, and not as
+     *  the entity for the reason given on {@link #findUserIdByTokenHash}. Empty for an unknown
+     *  token and for one with no parent (a sign-in's first token, or a row from before V314). */
+    @Query("SELECT r.parentTokenId FROM RefreshToken r WHERE r.tokenHash = :tokenHash")
+    Optional<UUID> findParentTokenIdByTokenHash(@Param("tokenHash") String tokenHash);
+
+    /**
+     * Takes the row lock on one token and reads nothing else: every token minted from the same
+     * parent queues here before it is rotated. Native, and the id alone, so the parent entity
+     * never enters the persistence context. Empty when the row is gone (a parent expires before
+     * its children and is swept); there is then nothing to queue on. Must run in a transaction.
+     */
+    @Query(value = "SELECT id FROM refresh_tokens WHERE id = :id FOR UPDATE", nativeQuery = true)
+    Optional<UUID> lockById(@Param("id") UUID id);
+
+    /** How many tokens were minted from this one: more than one means the reuse window answered
+     *  it more than once. */
+    long countByParentTokenId(UUID parentTokenId);
+
+    /** Whether another token minted from the same parent has itself been rotated: the other
+     *  answer to a refresh presented twice is in use by somebody. */
+    boolean existsByParentTokenIdAndIdNotAndRotatedAtIsNotNull(UUID parentTokenId, UUID id);
+
     /** AccountPurgeSweepService -- every row already revoked by requestDeletion() by this point;
      *  this removes the residual device/IP labels too. Hard delete, no soft-delete concern. */
     void deleteByUserId(UUID userId);

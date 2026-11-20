@@ -621,6 +621,10 @@ app:
     # See ClientIpResolver, which also reads CF-Connecting-IP when that client entry is a
     # Cloudflare edge.
     trusted-proxy-hops: ${TRUSTED_PROXY_HOPS:2}
+    # SignInAlertNotifier: an email and a push every time an account is signed in to. On by default.
+    # This is the switch to turn it off without a deploy, for example if the volume of mail it adds
+    # becomes a problem with the email provider. Sign-ins themselves are unaffected either way.
+    sign-in-alert-enabled: ${SIGN_IN_ALERT_ENABLED:true}
 
   diagnostics:
     # Counts how many requests one signed-in user makes in a minute, to size a per-user request

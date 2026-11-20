@@ -45,6 +45,17 @@ describe('usePushNotificationNavigation', () => {
     expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Settings' });
   });
 
+  it('navigates to Settings for a NEW_SIGN_IN tap, where the password and device list are', async () => {
+    const navigationRef = fakeNavigationRef();
+    const messaging = fakeMessaging();
+    renderHook(() => usePushNotificationNavigation(navigationRef, true, true, { messaging }));
+    await Promise.resolve();
+
+    messaging.__emitOpened(readyMessage('NEW_SIGN_IN'));
+
+    expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Settings' });
+  });
+
   // A customer on 2026-11-09 was sent to Statements by this notification and found nothing to
   // review: a statement waiting to be confirmed is reopened from the Import tab, never Statements.
   it('navigates to the Import tab for IMPORT_STATEMENT_READY, where the waiting statement is reviewed', async () => {

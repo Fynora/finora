@@ -956,10 +956,14 @@ public class AuthService {
         if (!isNewAccount) {
             if (!user.isEmailVerified()) {
                 Instant now = Instant.now();
-                if (emailVerificationTokenRepository.existsByUserIdAndUsedAtIsNullAndExpiresAtAfterAndCreatedAtAfter(
-                        user.getId(), now, now.minusSeconds(EMAIL_VERIFICATION_RESEND_COOLDOWN_MINUTES * 60))) {
+                if (emailVerificationTokenRepository
+                        .existsByUserIdAndOriginNotAndUsedAtIsNullAndExpiresAtAfterAndCreatedAtAfter(
+                                user.getId(), EmailVerificationToken.ORIGIN_SIGN_UP, now,
+                                now.minusSeconds(EMAIL_VERIFICATION_RESEND_COOLDOWN_MINUTES * 60))) {
                     // A link sent minutes ago is still live: leave it live rather than burning it
-                    // with a replacement, and send nothing.
+                    // with a replacement, and send nothing. Only a link this branch sent counts. A
+                    // sign-up link from minutes ago is no use to this reader, who is not signed in
+                    // to the account, so a link they can use is sent instead.
                     throw new ApiException(HttpStatus.FORBIDDEN,
                             "An account with this email already exists but hasn't been verified yet. "
                                     + "We emailed you a verification link a few minutes ago -- open it (check "
@@ -1353,7 +1357,14 @@ public class AuthService {
         // client reads a 401 as an expired session and starts a refresh, which for a signed-out
         // reader ends on the sign-in screen with this message lost
         // (scripts/check-client-auth-policy.py holds this route to "never 401" for that reason).
-        if (evt.isFromSignUp() && !evt.getUserId().equals(signedInUserId)
+        //
+        // Only while the link could still do something. One that is already spent or expired
+        // verifies nothing for anyone, so it goes on to the branches below, which say what
+        // happened to it. Telling a signed-out reader to sign in and try again would send them
+        // round to be told, once signed in, that the link was replaced: the usual case is the
+        // sign-up email opened after a Google or Apple attempt has already sent a newer one.
+        boolean stillUsable = evt.getUsedAt() == null && !evt.getExpiresAt().isBefore(Instant.now());
+        if (stillUsable && evt.isFromSignUp() && !evt.getUserId().equals(signedInUserId)
                 && userRepository.findById(evt.getUserId()).map(u -> !u.isEmailVerified()).orElse(false)) {
             throw new ApiException(HttpStatus.FORBIDDEN,
                     "Sign in to Fynora on this device, then open the link in the email again.");
@@ -1479,6 +1490,12 @@ public class AuthService {
         // The bulk statements first: each one flushes and clears the persistence context, and the
         // changes to the user row below are saved by the caller after this returns.
         resetTokenRepository.markAllUnusedAsUsed(user.getId(), now);
+        // A reactivation link is handed to whoever signs in to a deactivated account with its
+        // password, and using one opens a session with nothing else asked. No path was found by
+        // which the creator could still use one after this point (it needs the account to be
+        // deactivated at that moment, and they can no longer make it so), but it is a way in that
+        // the creator may hold, so it is spent with the rest.
+        reactivationTokenRepository.markAllUnusedAsUsed(user.getId(), now);
         refreshTokenService.revokeAllForUser(user.getId());
         int devicesRemoved = deviceTokenRepository.deleteByUserId(user.getId());
 

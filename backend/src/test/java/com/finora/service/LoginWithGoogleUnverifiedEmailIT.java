@@ -70,16 +70,21 @@ class LoginWithGoogleUnverifiedEmailIT extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("a Google attempt minutes after a link was sent mints nothing, so the link already in the inbox still verifies")
+    @DisplayName("a Google attempt minutes after a Google link was sent mints nothing, so the link already in the inbox still verifies")
     void unverifiedAutoLinkAttemptInsideTheCooldown_leavesTheLiveLinkAlone() {
         String email = "google-unverified-cooldown-" + UUID.randomUUID() + "@example.test";
         String phone = "+919" + String.format("%09d", java.util.concurrent.ThreadLocalRandom.current().nextInt(1_000_000_000));
         authService.register(new RegisterRequest(email, "SecurePass123", "Jane Doe", phone, null));
         User registered = userRepository.findByEmailIgnoreCaseAndAccountScope(email, User.SCOPE_USER).orElseThrow();
+        assertThat(countLiveLinks(registered.getId())).as("register() leaves exactly one live link").isEqualTo(1);
+
+        // The first attempt is owed a link of its own: register()'s only works for a reader signed
+        // in to the account, so it does not count towards the cooldown.
+        assertThat(catchThrowableOfType(() -> authService.loginWithGoogle(new GoogleIdentity(email, "Jane Doe")),
+                ApiException.class).getMessage()).contains("sent a new verification link");
 
         long tokensBefore = emailVerificationTokenRepository.count();
-        long liveBefore = countLiveLinks(registered.getId());
-        assertThat(liveBefore).as("register() leaves exactly one live link").isEqualTo(1);
+        assertThat(countLiveLinks(registered.getId())).as("the Google link replaced register()'s").isEqualTo(1);
 
         for (int attempt = 0; attempt < 3; attempt++) {
             ApiException thrown = catchThrowableOfType(
@@ -93,7 +98,7 @@ class LoginWithGoogleUnverifiedEmailIT extends AbstractIntegrationTest {
                 .as("no new link is minted inside the cooldown")
                 .isEqualTo(tokensBefore);
         assertThat(countLiveLinks(registered.getId()))
-                .as("register()'s link is not burned by the repeated attempts")
+                .as("the link in the inbox is not burned by the repeated attempts")
                 .isEqualTo(1);
     }
 
@@ -104,6 +109,9 @@ class LoginWithGoogleUnverifiedEmailIT extends AbstractIntegrationTest {
         String phone = "+919" + String.format("%09d", java.util.concurrent.ThreadLocalRandom.current().nextInt(1_000_000_000));
         authService.register(new RegisterRequest(email, "SecurePass123", "Jane Doe", phone, null));
         UUID userId = userRepository.findByEmailIgnoreCaseAndAccountScope(email, User.SCOPE_USER).orElseThrow().getId();
+        // The link whose age is measured is one a Google attempt sent. register()'s does not count.
+        assertThat(catchThrowableOfType(() -> authService.loginWithGoogle(new GoogleIdentity(email, "Jane Doe")),
+                ApiException.class).getMessage()).contains("sent a new verification link");
 
         shiftVerificationLinks(userId, "9 minutes");
         long before = emailVerificationTokenRepository.count();

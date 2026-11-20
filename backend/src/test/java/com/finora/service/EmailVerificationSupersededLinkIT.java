@@ -50,24 +50,29 @@ class EmailVerificationSupersededLinkIT extends AbstractIntegrationTest {
         authService.register(new RegisterRequest(email, "SecurePass123", "Jane Doe", phone, null));
         UUID userId = userRepository.findByEmailIgnoreCaseAndAccountScope(email, User.SCOPE_USER).orElseThrow().getId();
 
-        // Straight after register(): inside the resend cooldown, so nothing new is sent and
-        // register()'s link is left alone.
+        // Straight after register(). The sign-up link is minutes old and live, but it only works for
+        // a reader signed in to the account, which someone at this point is not. So it does not hold
+        // the resend cooldown: this attempt sends a link the reader can use.
+        assertThat(catchThrowableOfType(
+                () -> authService.loginWithGoogle(new GoogleIdentity(email, "Jane Doe")),
+                ApiException.class).getMessage()).contains("sent a new verification link");
+        verify(emailProvider, times(2)).sendEmailVerificationEmail(eq(email), org.mockito.ArgumentMatchers.anyString());
+
+        // A second attempt straight away: that link holds the cooldown, and nothing more is sent.
         assertThat(catchThrowableOfType(
                 () -> authService.loginWithGoogle(new GoogleIdentity(email, "Jane Doe")),
                 ApiException.class).getMessage()).contains("a few minutes ago");
-        verify(emailProvider, times(1)).sendEmailVerificationEmail(eq(email), org.mockito.ArgumentMatchers.anyString());
+        verify(emailProvider, times(2)).sendEmailVerificationEmail(eq(email), org.mockito.ArgumentMatchers.anyString());
 
-        // Two later attempts, each past the cooldown: each sends a new link and burns the older ones.
-        for (int attempt = 0; attempt < 2; attempt++) {
-            jdbcTemplate.update(
-                    "UPDATE email_verification_tokens SET created_at = created_at - interval '1 hour' WHERE user_id = ?",
-                    userId);
-            ApiException refused = catchThrowableOfType(
-                    () -> authService.loginWithGoogle(new GoogleIdentity(email, "Jane Doe")),
-                    ApiException.class);
-            assertThat(refused).as("Google sign-in into an unverified account is refused").isNotNull();
-            assertThat(refused.getMessage()).contains("sent a new verification link");
-        }
+        // One later attempt, past the cooldown: it sends a new link and burns the older ones.
+        jdbcTemplate.update(
+                "UPDATE email_verification_tokens SET created_at = created_at - interval '1 hour' WHERE user_id = ?",
+                userId);
+        ApiException refused = catchThrowableOfType(
+                () -> authService.loginWithGoogle(new GoogleIdentity(email, "Jane Doe")),
+                ApiException.class);
+        assertThat(refused).as("Google sign-in into an unverified account is refused").isNotNull();
+        assertThat(refused.getMessage()).contains("sent a new verification link");
 
         ArgumentCaptor<String> links = ArgumentCaptor.forClass(String.class);
         verify(emailProvider, times(3)).sendEmailVerificationEmail(eq(email), links.capture());
@@ -79,10 +84,16 @@ class EmailVerificationSupersededLinkIT extends AbstractIntegrationTest {
         String newest = tokens.get(2);
 
         for (String superseded : List.of(fromRegister, fromFirstGoogleAttempt)) {
-            ApiException rejected = catchThrowableOfType(() -> authService.verifyEmail(superseded, userId), ApiException.class);
-            assertThat(rejected).as("an older email's link must not verify").isNotNull();
-            assertThat(rejected.getMessage()).contains("replaced by a newer one");
-            assertThat(rejected.getMessage()).doesNotContain("already been used");
+            // Signed in to the account or not, the answer is the same. In particular a signed-out
+            // reader of the replaced SIGN-UP link is not told to sign in and try again: signing in
+            // would not make a replaced link work.
+            for (UUID reader : java.util.Arrays.asList(userId, null)) {
+                ApiException rejected = catchThrowableOfType(() -> authService.verifyEmail(superseded, reader), ApiException.class);
+                assertThat(rejected).as("an older email's link must not verify").isNotNull();
+                assertThat(rejected.getStatus()).isEqualTo(org.springframework.http.HttpStatus.BAD_REQUEST);
+                assertThat(rejected.getMessage()).contains("replaced by a newer one");
+                assertThat(rejected.getMessage()).doesNotContain("already been used");
+            }
         }
         assertThat(userRepository.findById(userId).orElseThrow().isEmailVerified()).isFalse();
 

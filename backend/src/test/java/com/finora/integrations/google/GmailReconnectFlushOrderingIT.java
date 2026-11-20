@@ -184,7 +184,32 @@ class GmailReconnectFlushOrderingIT extends AbstractIntegrationTest {
         String rawState = UriComponentsBuilder.fromUriString(
                         objectMapper.readTree(connectResponse.getBody()).at("/data/authorizationUrl").asText())
                 .build().getQueryParams().getFirst("state");
-        return ticketFrom(callbackWithoutFollowingRedirects("?code=mock-code&state=" + rawState));
+        lastCallbackQuery = "?code=mock-code&state=" + rawState;
+        return ticketFrom(callbackWithoutFollowingRedirects(lastCallbackQuery));
+    }
+
+    /** The query string Google's redirect last carried, so a test can replay that exact URL. */
+    private String lastCallbackQuery;
+
+    /**
+     * The callback URL sits in the browser's history. Opened a second time it must do nothing: no
+     * new ticket, and the ticket the first visit handed out must still be the one that works. Over
+     * real HTTP on purpose, with the controller's own read of the state before the claim in play,
+     * which a direct call to the service does not exercise.
+     */
+    @Test
+    @DisplayName("replaying Google's redirect issues no second ticket and leaves the first one working")
+    void replayingTheCallback_issuesNoSecondTicket() throws Exception {
+        User user = createUser();
+        String ticket = startAndReturnFromGoogle(user, "replay-google-sub-" + UUID.randomUUID());
+
+        ResponseEntity<Void> replay = callbackWithoutFollowingRedirects(lastCallbackQuery);
+
+        assertThat(replay.getHeaders().getLocation().toString())
+                .contains("gmail=failed")
+                .doesNotContain("ticket=");
+        assertThat(confirm(user, ticket).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(connections.findByUserIdOrderByCreatedAtDesc(user.getId())).hasSize(1);
     }
 
     /**

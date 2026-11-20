@@ -442,8 +442,8 @@ public class RazorpayWebhookDispatcher {
             // landed. See ignoreForDeletedAccount's own doc for the one case that must NOT throw:
             // the account was deleted, so this will never resolve no matter how many times it's
             // retried. A genuinely unknown/garbage razorpaySubscriptionId still fails the same way
-            // on every retry, until it has used the retries WebhookEventRepository.findFailed
-            // allows (V330); it then stays FAILED for manual follow-up and is not retried again.
+            // on every retry. Once it has used the retries WebhookEventRepository.findFailed allows
+            // at the normal pace (V330) it stays FAILED for manual follow-up and is tried once a day.
             if (ignoreForDeletedAccount(razorpaySubscriptionId, subscriptionEntity, "subscription.charged")) return;
             throw new IllegalStateException(
                     "subscription.charged for unknown razorpaySubscriptionId " + LogSanitizer.sanitize(razorpaySubscriptionId));

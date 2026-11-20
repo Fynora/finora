@@ -353,23 +353,89 @@ class WebhookEventRecoverySweepServiceIT extends AbstractIntegrationTest {
                 .isEqualTo(WebhookEvent.STATUS_FAILED);
     }
 
+    private static Instant aDayAgo() {
+        return Instant.now().minus(24, ChronoUnit.HOURS);
+    }
+
+    /** An order this application activated for {@code razorpaySubscriptionId}, with no
+     *  subscription row carrying that id any more: what an upgrade leaves behind for the old one. */
+    private void completedOrderFor(String razorpaySubscriptionId) {
+        User user = createUser();
+        SubscriptionOrder order = new SubscriptionOrder();
+        order.setUserId(user.getId());
+        order.setPlanId(planRepository.findByCode("PREMIUM").orElseThrow().getId());
+        order.setBillingCycle("MONTHLY");
+        order.setRazorpaySubscriptionId(razorpaySubscriptionId);
+        order.setStatus(SubscriptionOrder.STATUS_COMPLETED);
+        order.setAmount(new BigDecimal("799.00"));
+        subscriptionOrderRepository.save(order);
+    }
+
     @Test
-    void anEventThatHasUsedAllItsRetriesIsLeftAlone_stillFailedForAPersonToFind() {
+    void anEventThatHasUsedAllItsRetriesIsNotRetriedAgainTheSameDay_stillFailedForAPersonToFind() {
         int max = maxAttempts();
         String eventId = failedEventThatCanNeverSucceed(10);
         jdbcTemplate.update("UPDATE webhook_events SET recovery_attempts = ? WHERE event_id = ?", max - 1, eventId);
 
         sweepService.sweep();
-        assertThat(recoveryAttempts(eventId)).as("the last allowed retry is made").isEqualTo(max);
+        assertThat(recoveryAttempts(eventId)).as("the last retry at the normal pace is made").isEqualTo(max);
 
         sweepService.sweep();
         sweepService.sweep();
-        assertThat(recoveryAttempts(eventId)).as("and then no more").isEqualTo(max);
+        assertThat(recoveryAttempts(eventId)).as("and then no more for now").isEqualTo(max);
         assertThat(webhookEventRepository.findById(eventId).orElseThrow().getStatus())
                 .isEqualTo(WebhookEvent.STATUS_FAILED);
         assertThat(webhookEventRepository.countGivenUp(max)).isGreaterThanOrEqualTo(1);
-        assertThat(webhookEventService.reclaimFailed(eventId, max))
-                .as("the limit holds on the reclaim itself, not only on the candidate list").isFalse();
+        assertThat(webhookEventService.reclaimFailed(eventId, max, aDayAgo()))
+                .as("the pace holds on the reclaim itself, not only on the candidate list").isFalse();
+    }
+
+    /**
+     * Slowed, never stopped. An event fails for a whole day mostly because of a fault on this side,
+     * and when retries stopped for good, the events that had waited longest were the ones never
+     * tried again after the fault was fixed. A day after its last failure it gets one more try,
+     * and then waits another day.
+     */
+    @Test
+    void anEventPastItsRetriesIsTriedAgainADayAfterItLastFailed_once() {
+        int max = maxAttempts();
+        String eventId = failedEventThatCanNeverSucceed(60 * 48);
+        jdbcTemplate.update("UPDATE webhook_events SET recovery_attempts = ?, processed_at = now() - interval '25 hours' "
+                + "WHERE event_id = ?", max, eventId);
+
+        sweepService.sweep();
+        assertThat(recoveryAttempts(eventId)).as("a day on, it is tried once more").isEqualTo(max + 1);
+        assertThat(webhookEventRepository.findById(eventId).orElseThrow().getStatus())
+                .as("it failed again and says so").isEqualTo(WebhookEvent.STATUS_FAILED);
+
+        sweepService.sweep();
+        assertThat(recoveryAttempts(eventId)).as("and not again until another day has passed").isEqualTo(max + 1);
+    }
+
+    /**
+     * What the daily try is for. The fault is fixed (here, the subscription the event names now
+     * exists as one this application activated and replaced), and an event that had long used up
+     * its retries is handled on its next daily try with nobody touching it.
+     */
+    @Test
+    void anEventPastItsRetriesSucceedsOnItsDailyTry_onceWhatMadeItFailIsFixed() {
+        int max = maxAttempts();
+        String razorpaySubscriptionId = "sub_retired_" + UUID.randomUUID();
+        String eventId = "evt_test_" + UUID.randomUUID();
+        Map<String, Object> fullBody = Map.of("payload", Map.of("subscription", Map.of("entity",
+                Map.of("id", razorpaySubscriptionId))));
+        assertThat(webhookEventService.claim(eventId, "RAZORPAY", "subscription.cancelled", fullBody)).isTrue();
+        assertThat(webhookEventService.markFailed(eventId)).isTrue();
+        backdate(eventId, 60 * 48);
+        jdbcTemplate.update("UPDATE webhook_events SET recovery_attempts = ?, processed_at = now() - interval '25 hours' "
+                + "WHERE event_id = ?", max + 3, eventId);
+
+        completedOrderFor(razorpaySubscriptionId);
+
+        sweepService.sweep();
+
+        assertThat(webhookEventRepository.findById(eventId).orElseThrow().getStatus())
+                .isEqualTo(WebhookEvent.STATUS_PROCESSED);
     }
 
     /**
@@ -379,21 +445,27 @@ class WebhookEventRecoverySweepServiceIT extends AbstractIntegrationTest {
      * share this table and their rows would decide how far a size-limited run gets.
      */
     @Test
-    void aNewlyFailedEventIsTakenBeforeOlderOnesThatHaveAlreadyBeenRetried_andSpentOnesAreNotTakenAtAll() {
+    void aNewlyFailedEventIsTakenFirst_aSpentOneTriedTodayNotAtAll_andASpentOneDueForItsDailyTryLast() {
         int max = maxAttempts();
         String oldAndRetried = failedEventThatCanNeverSucceed(600);
         jdbcTemplate.update("UPDATE webhook_events SET recovery_attempts = 5 WHERE event_id = ?", oldAndRetried);
-        String oldAndSpent = failedEventThatCanNeverSucceed(600);
-        jdbcTemplate.update("UPDATE webhook_events SET recovery_attempts = ? WHERE event_id = ?", max, oldAndSpent);
+        String spentAndTriedToday = failedEventThatCanNeverSucceed(600);
+        jdbcTemplate.update("UPDATE webhook_events SET recovery_attempts = ? WHERE event_id = ?", max, spentAndTriedToday);
+        String spentAndDue = failedEventThatCanNeverSucceed(600);
+        jdbcTemplate.update("UPDATE webhook_events SET recovery_attempts = ?, processed_at = now() - interval '25 hours' "
+                + "WHERE event_id = ?", max, spentAndDue);
         String newlyFailed = failedEventThatCanNeverSucceed(10);
 
-        List<String> order = webhookEventRepository.findFailed(Instant.now(), 100_000, max).stream()
+        List<String> order = webhookEventRepository.findFailed(Instant.now(), 100_000, max, aDayAgo()).stream()
                 .map(WebhookEvent::getEventId).toList();
 
-        assertThat(order).contains(newlyFailed, oldAndRetried).doesNotContain(oldAndSpent);
+        assertThat(order).contains(newlyFailed, oldAndRetried, spentAndDue).doesNotContain(spentAndTriedToday);
         assertThat(order.indexOf(newlyFailed))
                 .as("never retried comes before retried five times, however much older that one is")
                 .isLessThan(order.indexOf(oldAndRetried));
+        assertThat(order.indexOf(oldAndRetried))
+                .as("and an event on its daily try comes after both, so it can never crowd them out")
+                .isLessThan(order.indexOf(spentAndDue));
     }
 
     /** A failed Setu event is never retried (see the test above), so its count never rises. Listed
@@ -406,7 +478,12 @@ class WebhookEventRecoverySweepServiceIT extends AbstractIntegrationTest {
         assertThat(webhookEventService.markFailed(eventId)).isTrue();
         backdate(eventId, 10);
 
-        assertThat(webhookEventRepository.findFailed(Instant.now(), 100_000, maxAttempts()))
+        assertThat(webhookEventRepository.findFailed(Instant.now(), 100_000, maxAttempts(), aDayAgo()))
+                .extracting(WebhookEvent::getEventId).doesNotContain(eventId);
+
+        // Nor when it last failed long ago, which is what makes any other event due again.
+        jdbcTemplate.update("UPDATE webhook_events SET processed_at = now() - interval '25 hours' WHERE event_id = ?", eventId);
+        assertThat(webhookEventRepository.findFailed(Instant.now(), 100_000, maxAttempts(), aDayAgo()))
                 .extracting(WebhookEvent::getEventId).doesNotContain(eventId);
     }
 }

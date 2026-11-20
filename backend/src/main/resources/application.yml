@@ -567,9 +567,12 @@ app:
       initial-delay-ms: ${WEBHOOK_EVENT_RECOVERY_SWEEP_INITIAL_DELAY_MS:300000}
       grace-minutes: ${WEBHOOK_EVENT_RECOVERY_SWEEP_GRACE_MINUTES:5}
       batch-size: ${WEBHOOK_EVENT_RECOVERY_SWEEP_BATCH_SIZE:50}
-      # How many times one failed event is retried before the sweep leaves it for a person (V330).
-      # 96 runs at the 15-minute interval above is a day.
+      # How many times one failed event is retried at the normal pace (V330). 96 runs at the
+      # 15-minute interval above is a day. Past that it is tried once every slow-retry-hours: slowed,
+      # never stopped, so an event that failed because of a fault on this side is picked up once the
+      # fault is fixed.
       max-attempts: ${WEBHOOK_EVENT_RECOVERY_SWEEP_MAX_ATTEMPTS:96}
+      slow-retry-hours: ${WEBHOOK_EVENT_RECOVERY_SWEEP_SLOW_RETRY_HOURS:24}
   security:
     # RateLimitFilter's own doc comment already flagged this: request.getRemoteAddr() only
     # returns the real client IP when nothing sits between the client and this app. Railway (like

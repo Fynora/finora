@@ -238,6 +238,14 @@ public class RefreshTokenService {
                 .orElseThrow(() -> new ApiException(ErrorCode.AUTH_TOKEN_EXPIRED, "Invalid refresh token"));
     }
 
+    /** Whether this session still has an unrevoked, unexpired refresh token: the same test
+     *  SessionValidator applies to every access token. */
+    @Transactional(readOnly = true)
+    public boolean isSessionLive(UUID sessionId) {
+        return sessionId != null
+                && refreshTokenRepository.existsBySessionIdAndRevokedAtIsNullAndExpiresAtAfter(sessionId, Instant.now());
+    }
+
     /**
      * Whose still-live session this refresh token belongs to, without rotating it or changing
      * anything. Empty for an unknown token and for a token whose session has ended.
@@ -249,14 +257,6 @@ public class RefreshTokenService {
      * start-up refresh can land first, and what matters here is that its session is still open,
      * which is the same test every access token is held to ({@code SessionValidator}).
      */
-    /** Whether this session still has an unrevoked, unexpired refresh token: the same test
-     *  SessionValidator applies to every access token. */
-    @Transactional(readOnly = true)
-    public boolean isSessionLive(UUID sessionId) {
-        return sessionId != null
-                && refreshTokenRepository.existsBySessionIdAndRevokedAtIsNullAndExpiresAtAfter(sessionId, Instant.now());
-    }
-
     @Transactional(readOnly = true)
     public Optional<UUID> userOfLiveSession(String rawToken) {
         if (rawToken == null || rawToken.isBlank()) return Optional.empty();

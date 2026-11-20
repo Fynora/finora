@@ -84,26 +84,34 @@ public interface WebhookEventRepository extends JpaRepository<WebhookEvent, Stri
      * as a duplicate and the sender stops retrying, believing it succeeded -- the event is then
      * lost until someone notices and reprocesses it by hand.
      *
-     * <p>Two things keep one hopeless event from starving the rest (V330). Events that have used
-     * up {@code maxAttempts} retries are not returned at all: they stay {@code FAILED} for a
-     * person to look at. And the rest come least-retried first, then oldest, so a newly failed
-     * event is always reached ahead of one that has already been tried many times. Ordering by
-     * age alone let events that can never succeed hold the front of the queue for good, and a
-     * run's whole {@code limit} could go on them.
+     * <p>Two things keep one hopeless event from starving the rest (V330). Events come
+     * least-retried first, then oldest, so a newly failed event is always reached ahead of one that
+     * has already been tried many times. Ordering by age alone let events that can never succeed
+     * hold the front of the queue for good, and a run's whole {@code limit} could go on them. And
+     * an event that has used up {@code maxAttempts} retries is slowed down: it is returned only
+     * when its last failure ({@code processed_at}, which {@link #markStatusIfUnset} writes) is
+     * older than {@code slowRetryCutoff}, a day by default.
      *
-     * <p>{@code SETU} events are left out for the same reason: the sweep never retries a failed one
-     * (see {@code WebhookEventRecoverySweepService.recoverOne} for why that is not safe), so their
-     * count never rises, and returned here they would sit at the front of this list for good.
+     * <p>Slowed, not stopped. The first version of this stopped retrying such an event for good.
+     * But the usual reason a billing event fails for a whole day is a fault on this side (a
+     * missing plan row, a bug in a handler), and stopping meant that once the fault was fixed the
+     * events that had waited longest, a customer's recorded payment among them, were the ones
+     * never tried again. One try a day costs nothing and picks them up.
+     *
+     * <p>{@code SETU} events are left out: the sweep never retries a failed one (see {@code
+     * WebhookEventRecoverySweepService.recoverOne} for why that is not safe), so their count never
+     * rises, and returned here they would sit at the front of this list for good.
      */
     @Query(value = """
            SELECT * FROM webhook_events
-           WHERE status = 'FAILED' AND created_at < :cutoff AND recovery_attempts < :maxAttempts
-             AND provider <> 'SETU'
+           WHERE status = 'FAILED' AND created_at < :cutoff AND provider <> 'SETU'
+             AND (recovery_attempts < :maxAttempts OR processed_at IS NULL OR processed_at < :slowRetryCutoff)
            ORDER BY recovery_attempts, created_at
            LIMIT :limit
            """, nativeQuery = true)
     List<WebhookEvent> findFailed(@Param("cutoff") Instant cutoff, @Param("limit") int limit,
-                                  @Param("maxAttempts") int maxAttempts);
+                                  @Param("maxAttempts") int maxAttempts,
+                                  @Param("slowRetryCutoff") Instant slowRetryCutoff);
 
     /**
      * Reclaims a {@code FAILED} row for the recovery sweep, atomically flipping it back to the same
@@ -117,21 +125,24 @@ public interface WebhookEventRepository extends JpaRepository<WebhookEvent, Stri
      * waiting for the lock, matches nothing, and is a harmless no-op.
      *
      * <p>Each reclaim counts as one retry ({@code recovery_attempts}, V330), in the same statement,
-     * so the count can never fall behind the retries actually made. The limit is checked here as
-     * well as in {@link #findFailed}: the candidate list is read before the loop that reclaims
-     * from it, and an overlapping run could have spent an event's last retry in between.
+     * so the count can never fall behind the retries actually made. Whether the event is due is
+     * checked here with the same rule as in {@link #findFailed}: the candidate list is read before
+     * the loop that reclaims from it, and an overlapping run could have retried it in between.
      *
      * @return the number of rows updated -- 1 if this call reclaimed the row, 0 if it was not (or no
-     *     longer) {@code FAILED}, or has no retries left.
+     *     longer) {@code FAILED}, or is past its retries and was last tried too recently.
      */
     @Modifying
     @Query(value = "UPDATE webhook_events SET status = NULL, processed_at = NULL, " +
             "recovery_attempts = recovery_attempts + 1 " +
-            "WHERE event_id = :eventId AND status = 'FAILED' AND recovery_attempts < :maxAttempts",
+            "WHERE event_id = :eventId AND status = 'FAILED' AND (recovery_attempts < :maxAttempts " +
+            "OR processed_at IS NULL OR processed_at < :slowRetryCutoff)",
             nativeQuery = true)
-    int reclaimFailed(@Param("eventId") String eventId, @Param("maxAttempts") int maxAttempts);
+    int reclaimFailed(@Param("eventId") String eventId, @Param("maxAttempts") int maxAttempts,
+                      @Param("slowRetryCutoff") Instant slowRetryCutoff);
 
-    /** How many failed events the recovery sweep has stopped retrying. Each needs a person. */
+    /** How many failed events have used up their retries and are now tried only once a day. Each
+     *  needs a person: a day of failing is not a passing fault. */
     @Query(value = "SELECT count(*) FROM webhook_events WHERE status = 'FAILED' AND recovery_attempts >= :maxAttempts",
             nativeQuery = true)
     long countGivenUp(@Param("maxAttempts") int maxAttempts);

@@ -42,8 +42,15 @@ public interface EmailVerificationTokenRepository extends JpaRepository<EmailVer
     boolean existsByUserIdAndCreatedAtAfter(UUID userId, Instant createdAt);
 
     /** AuthService's Google/Apple sign-in conflict branch -- whether a still-live link (unused,
-     *  unexpired) was sent recently enough that it should be pointed at instead of replaced. */
-    boolean existsByUserIdAndUsedAtIsNullAndExpiresAtAfterAndCreatedAtAfter(UUID userId, Instant now, Instant since);
+     *  unexpired) was sent recently enough that it should be pointed at instead of replaced.
+     *
+     *  <p>Links of {@code excludedOrigin} do not count. The caller passes the sign-up origin: a
+     *  sign-up link only works for a reader signed in to that account (AuthService.verifyEmail),
+     *  and the person in this branch is by definition not signed in. Counting it told them to
+     *  open a link that would then refuse them, and sent nothing they could use, until the
+     *  cooldown ran out. */
+    boolean existsByUserIdAndOriginNotAndUsedAtIsNullAndExpiresAtAfterAndCreatedAtAfter(
+            UUID userId, String excludedOrigin, Instant now, Instant since);
 
     /** AccountPurgeSweepService -- moot after purge (the account can never log in again to use
      *  it) but cheap to clean up. Hard delete, no soft-delete concern. */

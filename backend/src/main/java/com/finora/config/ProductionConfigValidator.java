@@ -206,6 +206,30 @@ public class ProductionConfigValidator implements SmartInitializingSingleton {
         return value == null ? null : value.trim();
     }
 
+    /** Lets {@code prod} start with the admin second factor not enforced. See {@link #validate()}. */
+    static final String ALLOW_ADMIN_MFA_NOT_ENFORCED = "ALLOW_ADMIN_MFA_NOT_ENFORCED_IN_PROD";
+    private static final String ALLOW_ADMIN_MFA_NOT_ENFORCED_PROPERTY = "app.admin-mfa.allow-not-enforced-in-prod";
+
+    /** Lets {@code prod} start with no malware scanner. See {@link #validate()}. */
+    static final String ALLOW_UNSCANNED_UPLOADS = "ALLOW_UNSCANNED_UPLOADS_IN_PROD";
+    private static final String ALLOW_UNSCANNED_UPLOADS_PROPERTY = "app.malware-scan.allow-unscanned-in-prod";
+
+    /** Only the word true allows anything. Every other value, an empty one included, does not. */
+    private boolean allowed(String property) {
+        return "true".equalsIgnoreCase(trimmed(environment.getProperty(property)));
+    }
+
+    /**
+     * Whether this value of {@code app.malware-scan.provider} makes {@code MalwareScanConfig}
+     * register a scanner. It has to be the same answer Spring's own condition gives there
+     * ({@code havingValue = "clamav"}), not a looser one: a value that is merely "not none", a
+     * misspelling for example, registers nothing and uploads pass unscanned.
+     * {@code MalwareScanProviderAgreementTest} holds the two together against the real condition.
+     */
+    static boolean namesAScanner(String provider) {
+        return "clamav".equalsIgnoreCase(provider);
+    }
+
     /** The checks themselves, separated from the lifecycle hook that triggers them so a test can
      *  invoke them directly without standing up a context -- and so the hook above stays a single
      *  line whose only job is to say WHEN this runs. */
@@ -402,30 +426,66 @@ public class ProductionConfigValidator implements SmartInitializingSingleton {
         // envWithProfilesAndDbPasswordAndTrustProxyHeaders's own comment on the identical trap for
         // the boolean trust-proxy-headers check above), so this guards against null explicitly
         // instead of depending on a mock behaving like the real Environment.
-        // Warn, not refuse: MFA enforcement is a rollout decision (every admin must be enrolled
-        // first -- see docs/security/admin-mfa-recovery.md), and refusing to boot would turn a
-        // rollout step into an outage. But an admin portal holding every user's financial data
-        // with password-only sign-in is not a state to be in silently. Null-guarded because the
-        // Boolean overload returns null when a test's mocked Environment leaves it unstubbed.
-        if (!Boolean.TRUE.equals(environment.getProperty("app.admin-mfa.enforced", Boolean.class, false))) {
-            log.warn("ADMIN_MFA_ENFORCED is not true. Admin-portal accounts can sign in with a "
-                    + "password alone; a phished admin password is then full access to every user's "
-                    + "financial data. Set ADMIN_MFA_ENABLED=true and ADMIN_MFA_ENFORCED=true once "
-                    + "every admin has enrolled.");
+        // Both of the next two were warnings until the 2026-11-20 audit (F-03), for a reason that
+        // held while they were being rolled out: every admin has to enrol before enforcement can
+        // go on, and the scanner is a separate service that has to exist first. Both rollouts are
+        // finished in production. A warning from then on only meant that either control could be
+        // lost with one deleted variable, the server starting normally, and a line in a log
+        // nobody was reading. Each is now required, and each has its own named allowance for the
+        // one situation that needs it. The allowance is a second variable someone has to type, so
+        // losing a variable fails closed.
+        //
+        // Read through the same Boolean conversion the running code uses (AdminMfaService binds
+        // both with @Value), so this cannot disagree with it about a value such as "yes" or "on".
+        // The two-argument form returns null for a missing value, and for an unstubbed mock.
+        boolean adminMfaEnforced =
+                Boolean.TRUE.equals(environment.getProperty("app.admin-mfa.enabled", Boolean.class))
+                        && Boolean.TRUE.equals(environment.getProperty("app.admin-mfa.enforced", Boolean.class));
+        if (!adminMfaEnforced) {
+            if (allowed(ALLOW_ADMIN_MFA_NOT_ENFORCED_PROPERTY)) {
+                log.warn("Admin second factor is NOT enforced, and this deployment starts anyway "
+                        + "because {}=true. Admin-portal accounts can sign in with a password alone, "
+                        + "or with a code sent to their email; either is then full access to every "
+                        + "user's financial data. Remove {} as soon as ADMIN_MFA_ENABLED=true and "
+                        + "ADMIN_MFA_ENFORCED=true are back.",
+                        ALLOW_ADMIN_MFA_NOT_ENFORCED, ALLOW_ADMIN_MFA_NOT_ENFORCED);
+            } else {
+                problems.append("- ADMIN_MFA_ENABLED and ADMIN_MFA_ENFORCED are not both true. Without ")
+                        .append("them an admin-portal account signs in with a password alone, or with ")
+                        .append("a code sent to its email, and that is full access to every user's ")
+                        .append("financial data. Set both to true. If enforcement has to be off for a ")
+                        .append("while (see docs/security/admin-mfa-recovery.md, \"Rollback\"), set ")
+                        .append(ALLOW_ADMIN_MFA_NOT_ENFORCED).append("=true as well.\n");
+            }
         }
 
-        // Audit F-18 (2026-09-24). Warn, not refuse, for the same reason as admin MFA above: the
-        // scanner is a separate service the operator has to stand up first, and refusing to boot
-        // would turn that rollout step into an outage. But uploads reaching PDFBox, OpenCSV and
-        // Tesseract unscanned -- and admins downloading held statements to their own machines --
-        // is not a state to be in silently. Read as the 1-arg form and null-guarded for the same
-        // mocked-Environment reason the checks above give.
+        // Audit F-18 (2026-09-24), required since F-03. Without a scanner, uploads reach PDFBox,
+        // OpenCSV and Tesseract unscanned, and admins download held statements to their own
+        // machines.
         String scanProvider = environment.getProperty("app.malware-scan.provider");
-        if (scanProvider == null || scanProvider.isBlank() || "none".equalsIgnoreCase(scanProvider)) {
-            log.warn("MALWARE_SCAN_PROVIDER is unset or 'none'. Every upload (statement imports, "
-                    + "support attachments, Fyn screenshots, admin analyses) reaches the parsers "
-                    + "unscanned. Run a clamd service and set MALWARE_SCAN_PROVIDER=clamav with "
-                    + "CLAMAV_HOST/CLAMAV_PORT -- see the deployment guide, \"Malware scanning\".");
+        if (!namesAScanner(scanProvider)) {
+            if (allowed(ALLOW_UNSCANNED_UPLOADS_PROPERTY)) {
+                log.warn("No malware scanner is configured (MALWARE_SCAN_PROVIDER is [{}]), and this "
+                        + "deployment starts anyway because {}=true. Every upload (statement imports, "
+                        + "support attachments, Fyn screenshots, admin analyses) reaches the parsers "
+                        + "unscanned. Remove {} as soon as MALWARE_SCAN_PROVIDER=clamav is back.",
+                        scanProvider, ALLOW_UNSCANNED_UPLOADS, ALLOW_UNSCANNED_UPLOADS);
+            } else {
+                problems.append("- MALWARE_SCAN_PROVIDER is [").append(scanProvider).append("], which ")
+                        .append("registers no scanner. Every upload (statement imports, support ")
+                        .append("attachments, Fyn screenshots, admin analyses) would reach the parsers ")
+                        .append("unscanned. Set MALWARE_SCAN_PROVIDER=clamav with CLAMAV_HOST and ")
+                        .append("CLAMAV_PORT (see the deployment guide, \"Malware scanning\"). If the ")
+                        .append("scanner has to be out for a while, set ")
+                        .append(ALLOW_UNSCANNED_UPLOADS).append("=true as well.\n");
+            }
+        } else if ("allow".equalsIgnoreCase(environment.getProperty("app.malware-scan.on-unavailable"))) {
+            // Not refused: this is a choice about what happens while the scanner is down, and the
+            // scanner exists. But it is the other way an upload gets through unscanned, so it is
+            // not left silent either. Same comparison UploadScanGate makes.
+            log.warn("MALWARE_SCAN_ON_UNAVAILABLE is 'allow'. Whenever the scanner cannot answer, "
+                    + "uploads are let through unscanned. The default, 'reject', refuses them until "
+                    + "it is back.");
         }
 
         String corsOrigins = environment.getProperty("app.cors.allowed-origins");
@@ -448,6 +508,6 @@ public class ProductionConfigValidator implements SmartInitializingSingleton {
             throw new IllegalStateException(message);
         }
 
-        log.info("Production configuration validated: JWT_SECRET and DB_PASSWORD are not using their local-dev defaults.");
+        log.info("Production configuration validated: no required setting is missing or on a local-dev default.");
     }
 }

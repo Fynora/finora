@@ -102,7 +102,16 @@ class ProductionConfigValidatorApplicationStartupIT {
                 "--app.email.api-key=",
                 // Not a hard-fail check (see ProductionConfigValidator/SmsProperties), but pinned
                 // explicitly so a missing value can't be mistaken for the failure under test.
-                "--app.security.trust-proxy-headers=true"
+                "--app.security.trust-proxy-headers=true",
+                // Hard-fail checks since audit F-03. Set as a correct deployment has them, so
+                // RESEND_API_KEY stays the only thing wrong. Given under the variable names
+                // production sets, not the property names, so they reach the validator through
+                // application.yml's own ${...} placeholders as they do there. That makes the
+                // "does not mention ADMIN_MFA or MALWARE_SCAN_PROVIDER" assertion below the proof
+                // that production's real values are accepted.
+                "--ADMIN_MFA_ENABLED=true",
+                "--ADMIN_MFA_ENFORCED=true",
+                "--MALWARE_SCAN_PROVIDER=clamav"
         };
 
         assertThatThrownBy(() -> builder.run(args))
@@ -124,7 +133,9 @@ class ProductionConfigValidatorApplicationStartupIT {
                             .contains("RESEND_API_KEY")
                             .doesNotContain("JWT_SECRET is unset")
                             .doesNotContain("DB_PASSWORD is")
-                            .doesNotContain("app.statement-storage.provider is unset");
+                            .doesNotContain("app.statement-storage.provider is unset")
+                            .doesNotContain("ADMIN_MFA")
+                            .doesNotContain("MALWARE_SCAN_PROVIDER");
                 });
 
         assertThat(webServerBound)
@@ -177,6 +188,58 @@ class ProductionConfigValidatorApplicationStartupIT {
 
         assertThat(webServerBound)
                 .as("the server must not accept a single request on the development defaults")
+                .isFalse();
+    }
+
+    /**
+     * Audit F-03. The same proofs for the two controls that used to be warnings: a real production
+     * boot with every other requirement met, and the admin second factor and malware scanner left
+     * exactly as a deployment that lost those variables would have them, on application.yml's own
+     * defaults. Nothing about either is passed here, so this also proves the defaults are what
+     * the validator refuses, through the real property binding and not a stub.
+     */
+    @Test
+    void applicationFailsToStart_inProdProfile_withoutTheAdminSecondFactorOrAScanner_andNeverBindsAPort() throws IOException {
+        Path storageRoot = Files.createTempDirectory("finora-prod-controls-it-storage");
+        AtomicBoolean webServerBound = new AtomicBoolean(false);
+
+        SpringApplicationBuilder builder = new SpringApplicationBuilder(
+                FinoraApplication.class, TestPhoneVerificationConfig.class)
+                .web(WebApplicationType.SERVLET)
+                .listeners((ApplicationListener<WebServerInitializedEvent>) event -> webServerBound.set(true));
+
+        String[] args = {
+                "--spring.profiles.active=prod",
+                "--server.port=0",
+                "--spring.datasource.url=" + POSTGRES.getJdbcUrl(),
+                "--spring.datasource.username=" + POSTGRES.getUsername(),
+                "--spring.datasource.password=" + POSTGRES.getPassword(),
+                "--app.jwt.secret=a-genuinely-long-random-secret-value-used-only-by-this-test",
+                "--app.statement-storage.provider=filesystem",
+                "--app.statement-storage.filesystem.root=" + storageRoot,
+                "--app.email.api-key=re_a_key_used_only_by_this_test",
+                "--app.security.trust-proxy-headers=true"
+        };
+
+        assertThatThrownBy(() -> builder.run(args))
+                .satisfies(thrown -> {
+                    Throwable cause = rootCause(thrown);
+                    assertThat(cause).isInstanceOf(IllegalStateException.class);
+                    assertThat(cause.getMessage())
+                            .as("both controls are named, and nothing else is: every other "
+                                    + "requirement was met")
+                            .contains("ADMIN_MFA_ENABLED and ADMIN_MFA_ENFORCED are not both true")
+                            .contains("ALLOW_ADMIN_MFA_NOT_ENFORCED_IN_PROD=true")
+                            .contains("MALWARE_SCAN_PROVIDER is [none]")
+                            .contains("ALLOW_UNSCANNED_UPLOADS_IN_PROD=true")
+                            .doesNotContain("RESEND_API_KEY")
+                            .doesNotContain("JWT_SECRET is unset")
+                            .doesNotContain("DB_PASSWORD is")
+                            .doesNotContain("app.statement-storage.provider is unset");
+                });
+
+        assertThat(webServerBound)
+                .as("production must not accept a single request without these two controls")
                 .isFalse();
     }
 

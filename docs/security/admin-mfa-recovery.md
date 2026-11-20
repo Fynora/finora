@@ -16,6 +16,11 @@ if an admin loses both their authenticator and their recovery codes.
 
 `ADMIN_MFA_ENFORCED` has no effect unless `ADMIN_MFA_ENABLED` is also true.
 
+**In production both must be true, or the backend refuses to start.** The first two rows of the
+table are reachable there only with `ALLOW_ADMIN_MFA_NOT_ENFORCED_IN_PROD=true` set as well. That
+variable exists for the two situations below, a rollout that has not reached step 5 and a
+rollback, and the backend logs a warning at every start while it is set.
+
 The check is made on every request, not only at login. An admin who was already signed in when
 enforcement was switched on is therefore stopped on their next request and walked through enrolment;
 their existing session is not left running.
@@ -27,7 +32,9 @@ Only accounts with `account_scope = 'ADMIN'` are affected. Customer accounts nev
 The risk is locking out the only admin. Enforcement is safe only after that admin has enrolled and
 saved their recovery codes.
 
-1. **Deploy the release with `ADMIN_MFA_ENFORCED` unset.** Nothing changes for anyone.
+1. **Deploy with `ADMIN_MFA_ENABLED=true`, `ADMIN_MFA_ENFORCED` unset, and
+   `ALLOW_ADMIN_MFA_NOT_ENFORCED_IN_PROD=true`.** Enrolment is available and optional. Without the
+   third variable a production backend does not start.
 2. **List the admin accounts and who has enrolled** (query below). Every row with `enrolled = false`
    will be forced through enrolment on their next request once enforcement is on.
    Also check whether any script, integration or scheduled job signs in as an admin-scope account.
@@ -37,8 +44,8 @@ saved their recovery codes.
    authentication", set it up, and store the ten recovery codes somewhere that is not the same
    device as the authenticator app. They are shown once.
 4. **Check enrolment worked.** Sign out, sign in again, and confirm the portal asks for a code.
-5. **Set `ADMIN_MFA_ENFORCED=true`** in Railway (Finora Tech, backend service, Variables) and let it
-   restart.
+5. **Set `ADMIN_MFA_ENFORCED=true` and remove `ALLOW_ADMIN_MFA_NOT_ENFORCED_IN_PROD`** in Railway
+   (Finora Tech, backend service, Variables) and let it restart.
 6. **Check as an admin who has not enrolled**, if one exists, that they land on the setup screen
    rather than an error page.
 
@@ -77,9 +84,19 @@ Rolling back the backend leaves the column in place, harmlessly.
 
 ## Rollback
 
-Unset `ADMIN_MFA_ENFORCED` (or set it to `false`) in Railway and restart the backend. Behaviour
-returns to optional enrolment. Nobody's enrolment is touched: an admin who has enrolled is still
-asked for a code at login.
+Two variables, changed together, in Railway:
+
+1. Set `ALLOW_ADMIN_MFA_NOT_ENFORCED_IN_PROD=true`.
+2. Set `ADMIN_MFA_ENFORCED=false` (or unset it).
+
+Then let the backend restart. **Do not do the second without the first.** A production backend
+with enforcement off and no allowance refuses to start, and the error it logs names the variable
+to add. Whether Railway keeps the previous deployment serving while a new one fails to start has
+not been tested here, so treat a missed first step as an outage for every user, not only admins.
+
+Behaviour returns to optional enrolment. Nobody's enrolment is touched: an admin who has enrolled
+is still asked for a code at login. When the reason for the rollback is gone, set
+`ADMIN_MFA_ENFORCED=true` again and remove the allowance.
 
 If the admin portal itself is the problem (for example the setup screen will not load), this is also
 the way out: it takes effect for every session on the next request after the restart.

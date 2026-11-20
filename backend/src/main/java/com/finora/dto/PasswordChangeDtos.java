@@ -45,10 +45,15 @@ public class PasswordChangeDtos {
     @Schema(name = "PasswordChangeVerifyOtpResponse")
     public record VerifyOtpResponse(String message) {}
 
-    /** signOutOtherDevices controls whether every OTHER active session gets revoked once the
-     *  password is updated -- the device completing this flow always stays signed in either way,
-     *  unlike the old single-step flow this replaces, which unconditionally logged out every
-     *  device including the one making the change.
+    /** The device completing this flow always stays signed in, and every OTHER active session is
+     *  always ended.
+     *
+     *  <p>signOutOtherDevices is IGNORED. It used to decide whether the other sessions were ended;
+     *  see PasswordChangeService.complete for why that stopped being a choice. Kept on the record
+     *  for the same reason as currentRefreshToken below: installed phone builds still send it,
+     *  and removing a request field is breaking under
+     *  docs/engineering/api-compatibility-policy.md. A build that sends false is shown the
+     *  response's own message, which says the other devices were signed out.
      *
      *  <p>currentRefreshToken is DEPRECATED AND IGNORED. Its comment used to say "an access token
      *  alone doesn't carry enough information to know which refresh token belongs to this browser

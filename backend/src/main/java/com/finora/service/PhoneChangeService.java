@@ -185,11 +185,11 @@ public class PhoneChangeService {
         session.setCompletedAt(now);
         sessionRepository.save(session);
 
-        // Phase 3.5 (session invalidation audit) -- unconditional, unlike PasswordChangeService's
-        // opt-in signOutOtherDevices: this flow proves control of the number the account is
-        // MOVING TO with no "re-verify current credential" step first (see this class's own doc
-        // comment), a lower bar than a password change, so leaving every other session alive by
-        // default would be worse here, not better. Current device spared, same as password change.
+        // Phase 3.5 (session invalidation audit) -- unconditional: this flow proves control of the
+        // number the account is MOVING TO with no "re-verify current credential" step first (see
+        // this class's own doc comment), a lower bar than a password change, so leaving every
+        // other session alive would be worse here, not better. Current device spared, same as
+        // password change, which has ended the others unconditionally too since audit F-04.
         refreshTokenService.revokeAllOtherSessionsForUser(userId, currentSessionId);
 
         auditService.record(userId, "PHONE_NUMBER_CHANGED", "User", userId, Map.of("method", "firebase"));

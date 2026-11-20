@@ -36,10 +36,10 @@ function friendlyFirebaseError(err: any): string {
  * -> ResetPassword): that flow assumes the user CAN'T log in (proof of identity via email/OTP);
  * this assumes they already are logged in and know their current password.
  *
- * Unlike the earlier version, the device completing this flow is NEVER logged out -- the
- * "sign out other devices" choice on the last step only ever affects OTHER sessions (see
- * CompleteRequest.currentRefreshToken's own doc comment on the backend), so there's no forced
- * redirect to /login here; success just closes the modal in place.
+ * Unlike the earlier version, the device completing this flow is NEVER logged out -- every
+ * OTHER session always is (it was a choice on the last step until audit F-04; see
+ * PasswordChangeService.complete on the backend), so there's no forced redirect to /login here;
+ * success just closes the modal in place.
  */
 
 type Step = 'password' | 'otp' | 'newPassword' | 'success';
@@ -116,7 +116,6 @@ export function ChangePasswordModal({ onClose, onSuccess, signInMethod }: {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showNew, setShowNew] = useState(false);
   const [showRecommendations, setShowRecommendations] = useState(false);
-  const [signOutOtherDevices, setSignOutOtherDevices] = useState(true);
   const [successMessage, setSuccessMessage] = useState('');
 
   useEffect(() => () => resetPhoneVerification(), []);
@@ -218,7 +217,7 @@ export function ChangePasswordModal({ onClose, onSuccess, signInMethod }: {
     setSubmitting(true);
     setError(null);
     try {
-      const res = await passwordChangeApi.complete(sessionId, newPassword, signOutOtherDevices);
+      const res = await passwordChangeApi.complete(sessionId, newPassword);
       setSuccessMessage(res.message);
       setStep('success');
       onSuccess?.();
@@ -393,26 +392,9 @@ export function ChangePasswordModal({ onClose, onSuccess, signInMethod }: {
 
                 <div className="border border-border rounded-lg px-3 py-2.5 space-y-2">
                   <p className="text-xs uppercase text-muted">Other devices</p>
-                  <label className="flex items-start gap-2 text-xs text-ink cursor-pointer">
-                    <input
-                      type="radio"
-                      name="signOutOtherDevices"
-                      checked={signOutOtherDevices}
-                      onChange={() => setSignOutOtherDevices(true)}
-                      className="mt-0.5"
-                    />
-                    <span>Sign out other devices <span className="text-muted">(Recommended)</span> — this device stays signed in.</span>
-                  </label>
-                  <label className="flex items-start gap-2 text-xs text-ink cursor-pointer">
-                    <input
-                      type="radio"
-                      name="signOutOtherDevices"
-                      checked={!signOutOtherDevices}
-                      onChange={() => setSignOutOtherDevices(false)}
-                      className="mt-0.5"
-                    />
-                    <span>Keep other devices signed in</span>
-                  </label>
+                  <p className="text-xs text-ink">
+                    Changing your password signs you out on every other device. This device stays signed in.
+                  </p>
                 </div>
 
                 {error && <p className="text-danger text-xs">{error}</p>}

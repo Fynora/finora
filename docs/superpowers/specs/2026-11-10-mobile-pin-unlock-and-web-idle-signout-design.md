@@ -70,6 +70,10 @@ timeout were not confirmed from an official source.
   so.
 - Both new limits are configuration values like the existing ones (`app.jwt.mobile-idle-timeout-ms`,
   `app.jwt.mobile-absolute-session-ms`, 0 = off).
+- **Amended 2026-11-20 (audit F-04, approved by Sid):** phone sessions now have an absolute cap of
+  365 days. With no cap, a session obtained by faking the headers after signing in with a stolen
+  password or code never ended. In the same change, a password change always signs out every other
+  device; it was optional before.
 
 ### 2. The lock (mobile)
 

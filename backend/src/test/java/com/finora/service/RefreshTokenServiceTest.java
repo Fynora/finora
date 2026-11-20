@@ -43,13 +43,13 @@ class RefreshTokenServiceTest {
         return rt;
     }
 
-    /** The production limits: web 24 h idle and 30 days, phone 90 days idle and no cap. */
+    /** The production limits: web 24 h idle and 30 days, phone 90 days idle and 365 days. */
     private RefreshTokenService serviceWithRealLimits() {
         JwtProperties limits = new JwtProperties();
         limits.setIdleTimeoutMs(86_400_000L);
         limits.setAbsoluteSessionMs(2_592_000_000L);
         limits.setMobileIdleTimeoutMs(7_776_000_000L);
-        limits.setMobileAbsoluteSessionMs(0);
+        limits.setMobileAbsoluteSessionMs(31_536_000_000L);
         return new RefreshTokenService(refreshTokenRepository, limits, mock(HttpServletRequest.class),
                 mock(ClientIpResolver.class), mock(AuthMetrics.class));
     }
@@ -77,12 +77,14 @@ class RefreshTokenServiceTest {
         RefreshToken webToday = row(UUID.randomUUID(), SessionKind.WEB, Duration.ofHours(23), Duration.ofDays(2));
         RefreshToken webIdle = row(UUID.randomUUID(), SessionKind.WEB, Duration.ofHours(25), Duration.ofDays(2));
         RefreshToken webPastCap = row(UUID.randomUUID(), SessionKind.WEB, Duration.ofHours(1), Duration.ofDays(31));
-        RefreshToken phone89 = row(UUID.randomUUID(), SessionKind.MOBILE, Duration.ofDays(89), Duration.ofDays(400));
+        RefreshToken phone89 = row(UUID.randomUUID(), SessionKind.MOBILE, Duration.ofDays(89), Duration.ofDays(364));
         RefreshToken phone91 = row(UUID.randomUUID(), SessionKind.MOBILE, Duration.ofDays(91), Duration.ofDays(91));
-        repositoryReturns(userId, webToday, webIdle, webPastCap, phone89, phone91);
+        // Audit F-04: a phone session used every day still ends a year after sign-in.
+        RefreshToken phonePastCap = row(UUID.randomUUID(), SessionKind.MOBILE, Duration.ofHours(1), Duration.ofDays(366));
+        repositoryReturns(userId, webToday, webIdle, webPastCap, phone89, phone91, phonePastCap);
 
-        // Exactly the rows rotate() would still honour: 23 h web, and a phone unused 89 days even
-        // though it signed in 400 days ago (phone sessions have no cap).
+        // Exactly the rows rotate() would still honour: 23 h web, and a phone unused 89 days that
+        // signed in 364 days ago, which is far past the web cap and inside the phone one.
         assertThat(serviceWithRealLimits().listActiveSessions(userId)).containsExactly(webToday, phone89);
     }
 

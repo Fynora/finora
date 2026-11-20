@@ -273,8 +273,10 @@ class PasswordChangeFlowIT extends AbstractIntegrationTest {
         assertThat(refresh(otherDeviceRefreshToken).getStatusCode()).isNotEqualTo(HttpStatus.OK);
     }
 
+    /** Audit F-04. This request used to leave the other device signed in. Over real HTTP, with a
+     *  real second session: asking to keep other devices no longer keeps them. */
     @Test
-    void complete_withSignOutOtherDevicesFalse_preservesEveryOtherSession() throws Exception {
+    void complete_withSignOutOtherDevicesFalse_stillSignsOutEveryOtherSession() throws Exception {
         RegisteredUser user = registerVerifiedUser();
 
         HttpHeaders loginHeaders = new HttpHeaders();
@@ -292,9 +294,12 @@ class PasswordChangeFlowIT extends AbstractIntegrationTest {
         verifyOtp(user, sessionId, FakePhoneVerificationProvider.tokenFor(user.phoneNumber()));
         ResponseEntity<String> completeResponse = complete(user, sessionId, "BrandNewPass456", false, user.refreshToken());
         assertThat(completeResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(mapper.readTree(completeResponse.getBody()).get("data").get("otherDevicesSignedOut").asBoolean()).isFalse();
+        JsonNode data = mapper.readTree(completeResponse.getBody()).get("data");
+        assertThat(data.get("otherDevicesSignedOut").asBoolean()).isTrue();
+        assertThat(data.get("message").asText()).contains("every other device has been signed out");
 
+        // This device stays signed in. The other one does not.
         assertThat(refresh(user.refreshToken()).getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(refresh(otherDeviceRefreshToken).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(refresh(otherDeviceRefreshToken).getStatusCode()).isNotEqualTo(HttpStatus.OK);
     }
 }

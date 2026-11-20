@@ -466,8 +466,11 @@ class PasswordChangeServiceTest {
 
     // --- complete() ---
 
+    /** Audit F-04. "Keep other devices signed in" used to be honoured. Someone changing their
+     *  password because another person may have it then left that person signed in. The request
+     *  field is still sent by installed phone builds; it no longer decides anything. */
     @Test
-    void complete_afterOtpVerified_updatesThePasswordAndKeepsThisDeviceSignedIn_whenSignOutOtherDevicesIsFalse() {
+    void complete_afterOtpVerified_signsOutEveryOtherDevice_evenWhenTheRequestAsksToKeepThem() {
         PasswordChangeSession session = sessionWith(PasswordChangeSession.Status.OTP_VERIFIED, Instant.now().plusSeconds(600));
         when(sessionRepository.findByIdAndUserId(session.getId(), userId)).thenReturn(Optional.of(session));
         User user = existingUser();
@@ -482,11 +485,16 @@ class PasswordChangeServiceTest {
         assertThat(user.getPasswordHash()).isEqualTo("hashed-new-password");
         assertThat(user.getPasswordChangedAt()).isNotNull();
         assertThat(session.getStatus()).isEqualTo(PasswordChangeSession.Status.COMPLETED);
-        assertThat(session.getSignedOutOtherDevices()).isFalse();
-        assertThat(response.otherDevicesSignedOut()).isFalse();
-        verify(refreshTokenService, never()).revokeAllOtherSessionsForUser(any(), any());
-        verify(auditService, never()).record(any(), eq("OTHER_SESSIONS_REVOKED"), any(), any());
-        verify(auditService).record(userId, "OTHER_SESSIONS_PRESERVED", "User", userId);
+        assertThat(session.getSignedOutOtherDevices()).isTrue();
+        assertThat(response.otherDevicesSignedOut()).isTrue();
+        assertThat(response.message())
+                .as("a build that offered the choice shows this message, so it must say what happened")
+                .contains("every other device has been signed out");
+        // This device is spared: the others are ended by session, not all of them.
+        verify(refreshTokenService).revokeAllOtherSessionsForUser(userId, THIS_DEVICES_SESSION);
+        verify(refreshTokenService, never()).revokeAllForUser(any());
+        verify(auditService).record(userId, "OTHER_SESSIONS_REVOKED", "User", userId);
+        verify(auditService, never()).record(any(), eq("OTHER_SESSIONS_PRESERVED"), any(), any());
         verify(auditService).record(eq(userId), eq("EMAIL_SENT"), eq("User"), eq(userId),
                 argThat(metadata -> "password_changed".equals(metadata.get("type")) && Boolean.TRUE.equals(metadata.get("success"))));
     }
@@ -566,6 +574,23 @@ class PasswordChangeServiceTest {
         verify(userRepository, never()).save(any());
         verify(refreshTokenService, never()).revokeAllOtherSessionsForUser(any(), any());
         verify(auditService, never()).record(any(), eq("PASSWORD_CHANGED"), any(), any(), any());
+    }
+
+    /** A change completed before other devices were always signed out, by someone who chose to
+     *  keep them, is replayed as what actually happened then. Nothing is signed out now. */
+    @Test
+    void complete_onASessionCompletedUnderTheOldChoice_stillReportsThatTheOtherDevicesWereKept() {
+        PasswordChangeSession session = sessionWith(PasswordChangeSession.Status.COMPLETED, Instant.now().plusSeconds(600));
+        session.setSignedOutOtherDevices(false);
+        when(sessionRepository.findByIdAndUserId(session.getId(), userId)).thenReturn(Optional.of(session));
+
+        var response = service.complete(userId,
+                new CompleteRequest(session.getId().toString(), "NewPass456!", true, null),
+                THIS_DEVICES_SESSION);
+
+        assertThat(response.otherDevicesSignedOut()).isFalse();
+        assertThat(response.message()).contains("remain signed in");
+        verify(refreshTokenService, never()).revokeAllOtherSessionsForUser(any(), any());
     }
 
     /** Same regression as verifyOtp_onASuspendedAccount_... -- complete() is the step that

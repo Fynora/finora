@@ -253,13 +253,20 @@ app:
     # Phone sessions (SessionKind.MOBILE): a sign-in from a phone-app build that requires a PIN (and
     # optionally Face ID / fingerprint) every time the app is opened, the way Google Pay and Paytm
     # keep you signed in behind an app lock. The device lock is what guards the session day to day,
-    # so the server limit only ends a phone nobody has opened in 90 days. The kind is stamped at
+    # so the idle limit only ends a phone nobody has opened in 90 days. The kind is stamped at
     # sign-in and copied by every rotation; see RefreshTokenService#issue(UUID) and ClientIdentity
     # for why reading the client's own headers is acceptable at that one point and nowhere else.
     # 0 disables either limit. Sessions that existed before this shipped are WEB and keep the
     # limits above until their next sign-in.
+    #
+    # The absolute cap was 0, no cap, until audit F-04 (2026-11-20). The headers that select a phone
+    # session are the client's own claim, so anyone who can sign in at all, with a stolen password
+    # or one phished code, can ask for one, and with no cap that session never ended as long as it
+    # was used once every 90 days. A year is long enough that a real phone user signs in again
+    # about once a year, and short enough that such a session is no longer permanent. It applies
+    # to phone sessions that already exist: one older than this ends at its next refresh.
     mobile-idle-timeout-ms: ${JWT_MOBILE_IDLE_TIMEOUT_MS:7776000000}         # 90 days
-    mobile-absolute-session-ms: ${JWT_MOBILE_ABSOLUTE_SESSION_MS:0}          # no cap
+    mobile-absolute-session-ms: ${JWT_MOBILE_ABSOLUTE_SESSION_MS:31536000000} # 365 days
     #
     # Both accept 0 to disable, which exists for tests and for a deliberate, documented decision --
     # not as a convenient way to silence an inconvenient logout.

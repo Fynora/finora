@@ -168,11 +168,9 @@ public class EmailChangeService {
      *  re-running the side effects -- same pattern as PhoneChangeService.complete()/
      *  PasswordChangeService.complete().
      *
-     *  Session revocation is unconditional (no signOutOtherDevices toggle, unlike
-     *  PasswordChangeService): there is no frontend UI for this flow yet to carry such a flag, and
-     *  the safer default absent one -- established by the Phase 3.5 session-invalidation audit's
-     *  identical fix to PhoneChangeService -- is to revoke rather than leave every other session
-     *  alive by default, especially for the field a password reset is delivered through. */
+     *  Session revocation is unconditional, as it is for a phone change and, since audit F-04, a
+     *  password change: every other session is ended rather than left alive, especially for the
+     *  field a password reset is delivered through. */
     @Transactional(noRollbackFor = ApiException.class)
     public CompleteResponse complete(UUID userId, CompleteRequest request, UUID currentSessionId) {
         EmailChangeSession session = resolveSession(userId, request.sessionId());

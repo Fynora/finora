@@ -1553,16 +1553,17 @@ export const passwordChangeApi = {
     api.post<{ message: string }>(
       '/users/me/password-change/verify-otp', { sessionId, firebaseIdToken }
     ).then((r) => r.data),
-  // currentRefreshToken lets the backend positively identify (and exclude) this device from
-  // revocation when signOutOtherDevices is true -- an access token alone doesn't carry enough
-  // information to know which refresh token belongs to this browser tab.
   // BH-012: no currentRefreshToken. This browser can no longer read its own refresh token (it is
   // HttpOnly now) and does not need to -- the backend identifies "this device" from the access
   // token's sid claim, which names the session directly and survives rotation. The field is
   // deprecated and ignored server-side; mobile still sends it and is unaffected.
-  complete: (sessionId: string, newPassword: string, signOutOtherDevices: boolean) =>
+  //
+  // signOutOtherDevices is always true. The backend now ends every other session whatever this
+  // says (audit F-04). It is still sent, and sent as true, because a backend from before that
+  // change reads a missing value as false and would keep the other devices signed in.
+  complete: (sessionId: string, newPassword: string) =>
     api.post<{ message: string; otherDevicesSignedOut: boolean }>(
-      '/users/me/password-change/complete', { sessionId, newPassword, signOutOtherDevices }
+      '/users/me/password-change/complete', { sessionId, newPassword, signOutOtherDevices: true }
     ).then((r) => r.data),
 };
 

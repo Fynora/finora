@@ -333,9 +333,8 @@ class PhoneChangeServiceTest {
      * is MOVING TO, with no "re-verify current credential" step the way PasswordChangeService.
      * start() has one (see this class's own doc comment). That's a lower bar than a password
      * change to begin with, which makes it worse, not better, that it left every existing session
-     * -- including one an attacker already holds -- untouched. Unconditional, not opt-in, unlike
-     * PasswordChangeService's signOutOtherDevices: there is no UI flag here to make it optional,
-     * and the current device is spared the same way password-change spares it.
+     * -- including one an attacker already holds -- untouched. Unconditional, not opt-in, and the
+     * current device is spared the same way password-change spares it.
      */
     @Test
     void complete_afterOtpVerified_revokesEveryOtherSession_sparingOnlyThisDevice() {

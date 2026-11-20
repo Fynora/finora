@@ -407,14 +407,26 @@ class ActivationReportIT extends AbstractIntegrationTest {
     /** V300: the landing tracking start is when V300 was applied, and the page list is aggregates only. */
     @Test
     void landingPathsStartIsWhenV300WasApplied_andCarryNoPersonalFields() throws Exception {
-        JsonNode landing = report(admin(), null, null).get("landingPaths");
+        // Its own row, so the field check below always has something to check. It used to loop
+        // over whatever rows other tests had left in the shared database: with none it asserted
+        // nothing, and with some it failed, because the expected list was never given the fourth
+        // field the row gained later. Whether it passed depended on the order the tests ran in.
+        // A week no other test here counts: countsEachUserAtTheirFurthestStep asserts exact
+        // totals for WEEK_A, and a sign-up added to that week from here breaks it.
+        String page = "/it-" + tag("fields-").toLowerCase();
+        landed(signupAt(Instant.parse("2032-09-08T06:00:00Z")), page);
+
+        JsonNode report = report(admin(), null, null);
+        JsonNode landing = report.get("landingPaths");
 
         Instant applied = jdbc.queryForObject(
                 "SELECT installed_on::timestamptz FROM flyway_schema_history WHERE version = '300'", Timestamp.class)
                 .toInstant();
         assertThat(Instant.parse(landing.get("trackingStart").asText())).isEqualTo(applied);
+        assertThat(landingPage(report, page)).as("this test's own page row").isNotNull();
         for (JsonNode row : landing.get("pages")) {
-            assertThat(row.fieldNames()).toIterable().containsExactlyInAnyOrder("path", "signups", "gotDataIn");
+            assertThat(row.fieldNames()).toIterable()
+                    .containsExactlyInAnyOrder("path", "signups", "gotDataIn", "cameBackLaterDay");
         }
     }
 

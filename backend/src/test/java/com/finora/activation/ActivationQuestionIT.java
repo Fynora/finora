@@ -423,6 +423,13 @@ class ActivationQuestionIT extends AbstractIntegrationTest {
                 String.class);
     }
 
+    /**
+     * A statement imported well before anything a test here pins. The time is written rather than
+     * left to the column's {@code now()} default: that is the real clock, and the question compares
+     * it with expiry times set against the pinned {@link #NOW}. Left to the default,
+     * {@code notConfirmedAskedEvenWithDataIn} began failing on every run after the real date passed
+     * its expiry (a day before {@code NOW}), because the import then counted as coming after it.
+     */
     private void statementImported(User user, boolean deleted) {
         Account account = new Account();
         account.setUserId(user.getId());
@@ -430,10 +437,10 @@ class ActivationQuestionIT extends AbstractIntegrationTest {
         account.setAccountType(Account.Type.SAVINGS);
         account.setBalance(BigDecimal.ZERO);
         UUID accountId = accountRepository.save(account).getId();
-        jdbc.update("INSERT INTO statement_imports (user_id, account_id, file_name, file_content, deleted_at) "
-                        + "VALUES (?, ?, ?, ?, ?)",
+        jdbc.update("INSERT INTO statement_imports (user_id, account_id, file_name, file_content, deleted_at, imported_at) "
+                        + "VALUES (?, ?, ?, ?, ?, ?)",
                 user.getId(), accountId, "statement.csv", JULY.getBytes(StandardCharsets.UTF_8),
-                deleted ? Timestamp.from(NOW) : null);
+                deleted ? Timestamp.from(NOW) : null, Timestamp.from(NOW.minus(30, ChronoUnit.DAYS)));
     }
 
     private void statementImportedAt(User user, Instant importedAt) {

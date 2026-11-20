@@ -1046,6 +1046,10 @@ export const gmailApi = {
     api.post<{ authorizationUrl: string }>('/integrations/google/gmail/connect', null, {
       params: { platform: 'MOBILE' },
     }).then((r) => r.data),
+  /** Finishes a connection. Google's redirect only hands back a one-time ticket; the server
+   *  connects the mailbox when the signed-in account that started the flow posts it here. */
+  confirmConnect: (ticket: string) =>
+    api.post('/integrations/google/gmail/connect/confirm', { ticket }),
   disconnect: () => api.delete('/integrations/google/gmail/connection'),
   syncNow: () => api.post('/integrations/google/gmail/sync-now'),
   reviewQueue: () =>

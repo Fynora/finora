@@ -1,12 +1,15 @@
 package com.finora.integrations.google;
 
+import com.finora.security.crypto.EncryptedValue;
 import jakarta.persistence.*;
 
 import java.time.Instant;
 import java.util.UUID;
 
 /**
- * One pending "user pressed Connect Gmail", redeemed when Google redirects back.
+ * One pending "user pressed Connect Gmail". Google's redirect redeems the state and parks its
+ * answer here; the signed-in app then confirms with a one-time ticket, and only that connects
+ * anything (V331). The state proves who started the flow, never who is finishing it.
  *
  * <h2>Why this exists at all</h2>
  *
@@ -67,6 +70,60 @@ public class GmailOAuthState {
      *  an entirely unknown state. */
     @Column(name = "consumed_at")
     private Instant consumedAt;
+
+    /**
+     * SHA-256 of the one-time ticket the callback hands the browser (V331). The connection is made
+     * only when the signed-in app posts that ticket back, as the user this row belongs to. Hashed
+     * for the same reason {@link #stateHash} is. Null until Google has redirected back.
+     */
+    @Column(name = "ticket_hash", length = 64)
+    private String ticketHash;
+
+    @Column(name = "ticket_expires_at")
+    private Instant ticketExpiresAt;
+
+    /** Google's authorization code, encrypted, held only between the callback and the app's
+     *  confirmation. Cleared when the ticket is redeemed, whatever the outcome. */
+    @Column(name = "encrypted_code")
+    private String encryptedCode;
+
+    @Column(name = "code_encryption_key_id", length = 64)
+    private String codeEncryptionKeyId;
+
+    /** Set when the ticket is redeemed. Non-null means a second post of the same ticket is a
+     *  replay. */
+    @Column(name = "confirmed_at")
+    private Instant confirmedAt;
+
+    /**
+     * Holds what Google returned until the signed-in app confirms. Pushes {@link #expiresAt} out to
+     * the ticket's own expiry when that is later, so the expiry sweep cannot remove a row whose
+     * ticket is still good.
+     */
+    public void park(String ticketHash, EncryptedValue code, Instant ticketExpiresAt) {
+        this.ticketHash = ticketHash;
+        this.encryptedCode = code.ciphertext();
+        this.codeEncryptionKeyId = code.keyId();
+        this.ticketExpiresAt = ticketExpiresAt;
+        if (expiresAt == null || expiresAt.isBefore(ticketExpiresAt)) {
+            this.expiresAt = ticketExpiresAt;
+        }
+    }
+
+    /** The parked authorization code, or null once it has been taken. */
+    public EncryptedValue parkedCode() {
+        if (encryptedCode == null || codeEncryptionKeyId == null) return null;
+        return new EncryptedValue(codeEncryptionKeyId, encryptedCode);
+    }
+
+    public void clearParkedCode() {
+        this.encryptedCode = null;
+        this.codeEncryptionKeyId = null;
+    }
+
+    public String getTicketHash() { return ticketHash; }
+    public Instant getTicketExpiresAt() { return ticketExpiresAt; }
+    public Instant getConfirmedAt() { return confirmedAt; }
 
     public boolean isConsumed() { return consumedAt != null; }
 

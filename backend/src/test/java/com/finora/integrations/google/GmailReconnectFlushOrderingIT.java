@@ -129,6 +129,45 @@ class GmailReconnectFlushOrderingIT extends AbstractIntegrationTest {
         stale = connections.save(stale);
         UUID staleId = stale.getId();
 
+        // Starting the flow answers 200 here: REAUTH_REQUIRED must not be refused the same way
+        // CONNECTED is (PR #986). startAndReturnFromGoogle asserts it.
+        String ticket = startAndReturnFromGoogle(user, googleSub);
+        assertThat(connections.findByUserIdOrderByCreatedAtDesc(user.getId()))
+                .as("Google's redirect alone connects nothing: still only the stale row")
+                .hasSize(1);
+
+        ResponseEntity<String> confirmResponse = confirm(user, ticket);
+        assertThat(confirmResponse.getStatusCode())
+                .as("the exact production symptom: a real Hibernate flush-ordering bug failed "
+                        + "here on the unique index instead of connecting")
+                .isEqualTo(HttpStatus.OK);
+
+        List<GmailConnection> rows = connections.findByUserIdOrderByCreatedAtDesc(user.getId());
+        assertThat(rows).hasSize(2);
+        GmailConnection fresh = rows.stream().filter(c -> !c.getId().equals(staleId)).findFirst().orElseThrow();
+        GmailConnection retired = rows.stream().filter(c -> c.getId().equals(staleId)).findFirst().orElseThrow();
+        assertThat(fresh.getStatus()).isEqualTo(GmailConnection.Status.CONNECTED);
+        assertThat(retired.getStatus())
+                .as("the stale row must actually be retired in the database -- not just in an "
+                        + "unflushed persistence context")
+                .isEqualTo(GmailConnection.Status.DISCONNECTED);
+    }
+
+    private String ticketFrom(ResponseEntity<Void> callbackResponse) {
+        String location = callbackResponse.getHeaders().getLocation().toString();
+        assertThat(location).contains("gmail=confirm").doesNotContain("gmail=connected");
+        return UriComponentsBuilder.fromUriString(location).build().getQueryParams().getFirst("ticket");
+    }
+
+    private ResponseEntity<String> confirm(User user, String ticket) {
+        HttpHeaders headers = bearerFor(user);
+        headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+        return restTemplate.exchange(BASE + "/connect/confirm", HttpMethod.POST,
+                new HttpEntity<>(java.util.Map.of("ticket", ticket), headers), String.class);
+    }
+
+    /** A fresh flow for {@code user}, taken as far as Google redirecting back. Returns the ticket. */
+    private String startAndReturnFromGoogle(User user, String googleSub) throws Exception {
         when(googleClient.buildAuthorizationUrl(anyString()))
                 .thenAnswer(inv -> "https://accounts.google.com/mock-auth?state=" + inv.getArgument(0));
         when(googleClient.exchangeCode(anyString())).thenReturn(
@@ -141,32 +180,44 @@ class GmailReconnectFlushOrderingIT extends AbstractIntegrationTest {
 
         ResponseEntity<String> connectResponse = restTemplate.exchange(
                 BASE + "/connect", HttpMethod.POST, new HttpEntity<>(bearerFor(user)), String.class);
-        assertThat(connectResponse.getStatusCode())
-                .as("REAUTH_REQUIRED must not be refused the same way CONNECTED is (PR #986)")
-                .isEqualTo(HttpStatus.OK);
-
-        String authorizationUrl = objectMapper.readTree(connectResponse.getBody())
-                .at("/data/authorizationUrl").asText();
-        String rawState = UriComponentsBuilder.fromUriString(authorizationUrl)
+        assertThat(connectResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+        String rawState = UriComponentsBuilder.fromUriString(
+                        objectMapper.readTree(connectResponse.getBody()).at("/data/authorizationUrl").asText())
                 .build().getQueryParams().getFirst("state");
+        return ticketFrom(callbackWithoutFollowingRedirects("?code=mock-code&state=" + rawState));
+    }
 
-        ResponseEntity<Void> callbackResponse =
-                callbackWithoutFollowingRedirects("?code=mock-code&state=" + rawState);
+    /**
+     * The attack this step closes, over real HTTP. One account starts a connect and gets somebody
+     * else to approve Google's consent screen. Google redirects that person's browser, so the ticket
+     * is theirs. Whatever they do with it, nothing is connected: posted from their own account it is
+     * refused, posted signed out it is refused, and it is spent by the first try.
+     */
+    @Test
+    @DisplayName("a consent link opened by someone else connects nothing to either account")
+    void aFlowFinishedBySomeoneElse_connectsNothing() throws Exception {
+        User starter = createUser();
+        User whoeverOpenedTheLink = createUser();
+        String ticket = startAndReturnFromGoogle(starter, "other-persons-google-sub-" + UUID.randomUUID());
 
-        assertThat(callbackResponse.getHeaders().getLocation())
-                .as("the exact production symptom: a real Hibernate flush-ordering bug redirected "
-                        + "here with gmail=failed instead of gmail=connected")
-                .isNotNull();
-        assertThat(callbackResponse.getHeaders().getLocation().toString()).contains("gmail=connected");
+        ResponseEntity<String> signedOut = restTemplate.exchange(BASE + "/connect/confirm", HttpMethod.POST,
+                new HttpEntity<>(java.util.Map.of("ticket", ticket), jsonHeaders()), String.class);
+        assertThat(signedOut.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
 
-        List<GmailConnection> rows = connections.findByUserIdOrderByCreatedAtDesc(user.getId());
-        assertThat(rows).hasSize(2);
-        GmailConnection fresh = rows.stream().filter(c -> !c.getId().equals(staleId)).findFirst().orElseThrow();
-        GmailConnection retired = rows.stream().filter(c -> c.getId().equals(staleId)).findFirst().orElseThrow();
-        assertThat(fresh.getStatus()).isEqualTo(GmailConnection.Status.CONNECTED);
-        assertThat(retired.getStatus())
-                .as("the stale row must actually be retired in the database -- not just in an "
-                        + "unflushed persistence context")
-                .isEqualTo(GmailConnection.Status.DISCONNECTED);
+        assertThat(confirm(whoeverOpenedTheLink, ticket).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+
+        assertThat(confirm(starter, ticket).getStatusCode())
+                .as("the refusal spent the ticket; the starter cannot pick it up afterwards")
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+
+        assertThat(connections.findByUserIdOrderByCreatedAtDesc(starter.getId())).isEmpty();
+        assertThat(connections.findByUserIdOrderByCreatedAtDesc(whoeverOpenedTheLink.getId())).isEmpty();
+        org.mockito.Mockito.verify(googleClient, org.mockito.Mockito.never()).exchangeCode(anyString());
+    }
+
+    private static HttpHeaders jsonHeaders() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+        return headers;
     }
 }

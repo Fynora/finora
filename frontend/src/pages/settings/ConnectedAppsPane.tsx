@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { RefreshCw, Crown } from 'lucide-react';
 import { gmailApi, type GmailConnectionStatus } from '../../api/endpoints';
@@ -11,12 +11,17 @@ import { FinoraCard } from '../../design-system/FinoraCard';
 import { SectionHeader } from '../../design-system/SectionHeader';
 import { trackNavigation } from '../../lib/trackNavigation';
 
+type GmailNotice = { text: string; isError: boolean };
+
 /** One-shot message for the `?gmail=` query param GoogleOAuthController's callback redirect
- *  lands with -- the outcome travels as a query parameter specifically so no token or error
- *  detail can end up in it. Null for anything else (including no param at all). */
-function gmailCallbackMessage(gmail: string | null): { text: string; isError: boolean } | null {
+ *  lands with. Null for anything else (including no param at all).
+ *
+ *  There is no 'connected' here on purpose. The callback cannot know who is finishing the flow,
+ *  so it never connects anything: a successful return arrives as `gmail=confirm` with a one-time
+ *  ticket, and "Gmail connected." is shown only after the server has accepted that ticket from
+ *  this signed-in account (see the effect below). A link carrying `gmail=connected` shows nothing. */
+function gmailCallbackMessage(gmail: string | null): GmailNotice | null {
   switch (gmail) {
-    case 'connected': return { text: 'Gmail connected.', isError: false };
     case 'declined': return { text: 'Gmail connection was cancelled.', isError: false };
     case 'invalid':
     case 'failed':
@@ -70,7 +75,12 @@ export function ConnectedAppsPane() {
   const [gmailSyncError, setGmailSyncError] = useState<string | null>(null);
   const [gmailActionError, setGmailActionError] = useState<string | null>(null);
   const [gmailDisconnecting, setGmailDisconnecting] = useState(false);
-  const [gmailCallbackNotice] = useState(() => gmailCallbackMessage(searchParams.get('gmail')));
+  const [gmailCallbackNotice, setGmailCallbackNotice] =
+    useState(() => gmailCallbackMessage(searchParams.get('gmail')));
+  // The ticket is single-use, so it must be posted exactly once. A ref, not state: React's
+  // StrictMode runs a mount effect twice in development, and a second post would be refused and
+  // overwrite the first one's success with an error.
+  const gmailConfirmStarted = useRef(false);
 
   function loadGmailStatus() {
     setGmailLoading(true);
@@ -82,13 +92,38 @@ export function ConnectedAppsPane() {
   }
 
   useEffect(() => {
-    loadGmailStatus();
-    // Strip ?gmail=... from the URL once read (gmailCallbackNotice's initializer already
-    // captured it) so a page refresh doesn't replay a stale "Gmail connected" message. Copies
-    // searchParams first and deletes only this one key, so the shell's own ?tab= survives.
-    if (searchParams.has('gmail')) {
+    // Back from Google with a ticket: the mailbox is not connected yet. Posting the ticket from
+    // this signed-in session is what connects it, and the server refuses unless this account is
+    // the one that started the flow. The status is loaded after the answer, either way.
+    const ticket = searchParams.get('gmail') === 'confirm' ? searchParams.get('ticket') : null;
+    if (ticket && !gmailConfirmStarted.current) {
+      gmailConfirmStarted.current = true;
+      gmailApi.confirmConnect(ticket)
+        .then(() => setGmailCallbackNotice({ text: 'Gmail connected.', isError: false }))
+        .catch((err) => {
+          const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+          setGmailCallbackNotice({
+            text: message || "Couldn't connect Gmail -- please try again.",
+            isError: true,
+          });
+        })
+        .finally(loadGmailStatus);
+    } else if (!ticket) {
+      if (searchParams.get('gmail') === 'confirm') {
+        setGmailCallbackNotice({ text: "Couldn't connect Gmail -- please try again.", isError: true });
+      }
+      loadGmailStatus();
+    }
+    // Strip ?gmail=... and the ticket from the URL once read, so a page refresh doesn't replay a
+    // stale message or post a spent ticket. Copies searchParams first and deletes only these
+    // keys. Sets ?tab= to this pane: Settings opened it because of ?gmail= (the redirect carries
+    // no ?tab=), and without this the page would fall back to General the moment ?gmail= is gone,
+    // unmounting this pane before it can show the result.
+    if (searchParams.has('gmail') || searchParams.has('ticket')) {
       const next = new URLSearchParams(searchParams);
       next.delete('gmail');
+      next.delete('ticket');
+      next.set('tab', 'connected-apps');
       setSearchParams(next, { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

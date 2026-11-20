@@ -92,6 +92,7 @@ class GmailOAuthStateRedemptionIT extends AbstractIntegrationTest {
     @Autowired private EncryptionService encryptionService;
     @Autowired private GoogleOAuthClient fakeGoogle;
     @Autowired private org.springframework.transaction.support.TransactionTemplate transactionTemplate;
+    @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbc;
 
     /**
      * Runs one claim in its own committed transaction — which is what production does, and what the
@@ -186,22 +187,144 @@ class GmailOAuthStateRedemptionIT extends AbstractIntegrationTest {
      */
     @Test
     @DisplayName("a replayed callback is rejected end to end, without contacting Google")
-    void completeConnect_cannotBeReplayed() {
+    void parkCallback_cannotBeReplayed() {
         User user = newUser();
         String raw = persistState(user.getId(), Instant.now().plus(10, ChronoUnit.MINUTES));
         when(fakeGoogle.fetchUserInfo(anyString())).thenReturn(
                 new GoogleOAuthClient.UserInfo("google-sub-" + UUID.randomUUID(), "mailbox@example.test"));
 
-        GmailConnection connected = service.completeConnect(raw, "auth-code");
+        GmailConnection connected = connect(user, raw);
         assertThat(connected.getStatus()).isEqualTo(GmailConnection.Status.CONNECTED);
 
         clearInvocations(fakeGoogle);
 
-        assertThatThrownBy(() -> service.completeConnect(raw, "auth-code"))
+        assertThatThrownBy(() -> service.parkCallback(raw, "auth-code"))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("expired or was already used");
 
         verify(fakeGoogle, never()).exchangeCode(anyString());
+    }
+
+    /** The whole flow as production runs it: Google's redirect parks, the signed-in app confirms. */
+    private GmailConnection connect(User user, String rawState) {
+        return service.confirmConnect(service.parkCallback(rawState, "auth-code"), user.getId());
+    }
+
+    // ---- the confirmation step, against the real table ----
+
+    /**
+     * The callback alone connects nothing. This is the property the confirmation step exists for,
+     * asserted on real rows: after Google has redirected back there is a parked, encrypted code
+     * and no connection.
+     */
+    @Test
+    @DisplayName("Google's redirect on its own connects nothing")
+    void parkCallback_leavesNoConnection() {
+        User user = newUser();
+        String raw = persistState(user.getId(), Instant.now().plus(10, ChronoUnit.MINUTES));
+        clearInvocations(fakeGoogle);
+
+        String ticket = service.parkCallback(raw, "auth-code");
+
+        assertThat(connections.findByUserIdOrderByCreatedAtDesc(user.getId())).isEmpty();
+        GmailOAuthState parked = states.findByTicketHash(TokenHasher.sha256(ticket)).orElseThrow();
+        assertThat(parked.getUserId()).isEqualTo(user.getId());
+        assertThat(parked.parkedCode().ciphertext()).doesNotContain("auth-code");
+        assertThat(encryptionService.decrypt(parked.parkedCode())).isEqualTo("auth-code");
+        verify(fakeGoogle, never()).exchangeCode(anyString());
+    }
+
+    /**
+     * Someone starts a connect in their own account and gets another person to approve the consent
+     * screen. The ticket lands in that other person's browser. Posted from their account it is
+     * refused, nobody is connected, Google is never asked for a token, and the ticket is spent, so
+     * it is no use to the starter afterwards either.
+     */
+    @Test
+    @DisplayName("a flow started by one account cannot be finished from another, and the ticket is spent")
+    void confirmConnect_refusesAnotherAccount_endToEnd() {
+        User starter = newUser();
+        User whoeverOpenedTheLink = newUser();
+        String raw = persistState(starter.getId(), Instant.now().plus(10, ChronoUnit.MINUTES));
+        String ticket = service.parkCallback(raw, "auth-code");
+        clearInvocations(fakeGoogle);
+
+        assertThatThrownBy(() -> service.confirmConnect(ticket, whoeverOpenedTheLink.getId()))
+                .isInstanceOfSatisfying(ApiException.class, e ->
+                        assertThat(e.getStatus()).isEqualTo(org.springframework.http.HttpStatus.FORBIDDEN));
+
+        assertThat(connections.findByUserIdOrderByCreatedAtDesc(starter.getId())).isEmpty();
+        assertThat(connections.findByUserIdOrderByCreatedAtDesc(whoeverOpenedTheLink.getId())).isEmpty();
+        assertThat(states.findByTicketHash(TokenHasher.sha256(ticket)).orElseThrow().parkedCode())
+                .as("the parked code is cleared in the database, not only on the loaded entity")
+                .isNull();
+
+        assertThatThrownBy(() -> service.confirmConnect(ticket, starter.getId()))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("expired or was already used");
+        assertThat(connections.findByUserIdOrderByCreatedAtDesc(starter.getId())).isEmpty();
+        verify(fakeGoogle, never()).exchangeCode(anyString());
+    }
+
+    @Test
+    @DisplayName("a ticket connects once: a second post of it is refused without contacting Google")
+    void confirmConnect_cannotBeReplayed() {
+        User user = newUser();
+        String raw = persistState(user.getId(), Instant.now().plus(10, ChronoUnit.MINUTES));
+        when(fakeGoogle.fetchUserInfo(anyString())).thenReturn(
+                new GoogleOAuthClient.UserInfo("google-sub-" + UUID.randomUUID(), "mailbox@example.test"));
+        String ticket = service.parkCallback(raw, "auth-code");
+        service.confirmConnect(ticket, user.getId());
+        clearInvocations(fakeGoogle);
+
+        assertThatThrownBy(() -> service.confirmConnect(ticket, user.getId()))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("expired or was already used");
+
+        verify(fakeGoogle, never()).exchangeCode(anyString());
+        assertThat(connections.findByUserIdOrderByCreatedAtDesc(user.getId())).hasSize(1);
+    }
+
+    /** The expiry is in the claim's own predicate, so the database refuses it, as for the state. */
+    @Test
+    @DisplayName("an expired ticket is refused by the claim itself")
+    void confirmConnect_refusesAnExpiredTicket() {
+        User user = newUser();
+        String raw = persistState(user.getId(), Instant.now().plus(10, ChronoUnit.MINUTES));
+        String ticket = service.parkCallback(raw, "auth-code");
+        transactionTemplate.executeWithoutResult(tx -> jdbc.update(
+                "UPDATE gmail_oauth_states SET ticket_expires_at = now() - interval '1 second' WHERE ticket_hash = ?",
+                TokenHasher.sha256(ticket)));
+        clearInvocations(fakeGoogle);
+
+        assertThatThrownBy(() -> service.confirmConnect(ticket, user.getId()))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("expired or was already used");
+
+        verify(fakeGoogle, never()).exchangeCode(anyString());
+        assertThat(connections.findByUserIdOrderByCreatedAtDesc(user.getId())).isEmpty();
+    }
+
+    /**
+     * A callback in the state's last moments still gets a full-length ticket. The sweep deletes
+     * rows by {@code expires_at}, so parking has to move that out, or a sweep in between would
+     * delete a row whose ticket is still good.
+     */
+    @Test
+    @DisplayName("the expiry sweep does not remove a row whose ticket is still good")
+    void sweep_keepsARowWithALiveTicket() {
+        User user = newUser();
+        String raw = persistState(user.getId(), Instant.now().plus(2, ChronoUnit.SECONDS));
+        String ticket = service.parkCallback(raw, "auth-code");
+
+        GmailOAuthState parked = states.findByTicketHash(TokenHasher.sha256(ticket)).orElseThrow();
+        assertThat(parked.getExpiresAt())
+                .as("pushed out from the state's own two seconds to the ticket's expiry")
+                .isAfter(Instant.now().plus(1, ChronoUnit.MINUTES));
+
+        service.sweepExpiredStates();
+
+        assertThat(states.findByTicketHash(TokenHasher.sha256(ticket))).isPresent();
     }
 
     /**
@@ -210,13 +333,13 @@ class GmailOAuthStateRedemptionIT extends AbstractIntegrationTest {
      * column is what an attacker with a database dump would actually see.
      */
     @Test
-    void completeConnect_persistsTheRefreshTokenEncrypted() {
+    void confirmConnect_persistsTheRefreshTokenEncrypted() {
         User user = newUser();
         String raw = persistState(user.getId(), Instant.now().plus(10, ChronoUnit.MINUTES));
         when(fakeGoogle.fetchUserInfo(anyString())).thenReturn(
                 new GoogleOAuthClient.UserInfo("google-sub-" + UUID.randomUUID(), "mailbox@example.test"));
 
-        GmailConnection saved = service.completeConnect(raw, "auth-code");
+        GmailConnection saved = connect(user, raw);
 
         GmailConnection reloaded = connections.findById(saved.getId()).orElseThrow();
         assertThat(reloaded.getEncryptedRefreshToken())
@@ -242,11 +365,11 @@ class GmailOAuthStateRedemptionIT extends AbstractIntegrationTest {
         when(fakeGoogle.tryRevoke(anyString())).thenReturn(true);
 
         String first = persistState(user.getId(), Instant.now().plus(10, ChronoUnit.MINUTES));
-        service.completeConnect(first, "auth-code");
+        connect(user, first);
         service.disconnect(user.getId(), user.getId());
 
         String second = persistState(user.getId(), Instant.now().plus(10, ChronoUnit.MINUTES));
-        GmailConnection reconnected = service.completeConnect(second, "auth-code");
+        GmailConnection reconnected = connect(user, second);
 
         assertThat(reconnected.getStatus()).isEqualTo(GmailConnection.Status.CONNECTED);
         assertThat(connections.findByUserIdOrderByCreatedAtDesc(user.getId()))

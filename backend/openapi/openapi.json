@@ -3899,6 +3899,36 @@
                 }
             }
         },
+        "/api/v1/integrations/google/gmail/connect/confirm": {
+            "post": {
+                "tags": [
+                    "google-o-auth-controller"
+                ],
+                "operationId": "confirmConnect",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/GmailConnectConfirmRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/insights/story": {
             "get": {
                 "tags": [
@@ -20499,6 +20529,19 @@
                         "additionalProperties": {}
                     }
                 }
+            },
+            "GmailConnectConfirmRequest": {
+                "type": "object",
+                "properties": {
+                    "ticket": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 0
+                    }
+                },
+                "required": [
+                    "ticket"
+                ]
             },
             "StoryRequest": {
                 "type": "object",

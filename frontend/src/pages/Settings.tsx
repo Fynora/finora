@@ -15,7 +15,11 @@ const DEFAULT_TAB = 'general';
 
 export default function Settings() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const rawTab = searchParams.get('tab');
+  // Google's redirect lands on /app/settings?gmail=... with no ?tab=. Connected Apps has to be the
+  // pane that opens then: it is the one that posts the one-time ticket back, and until it does
+  // the mailbox is not connected. ConnectedAppsPane puts ?tab=connected-apps in the URL as it
+  // strips ?gmail=, so the pane stays open after that.
+  const rawTab = searchParams.get('tab') ?? (searchParams.has('gmail') ? 'connected-apps' : null);
   // Below md, an absent ?tab= means "show the list, nothing selected yet" -- at md and up it
   // means "show General in the pane column." Both are satisfied by keeping `tab` possibly-null
   // here and letting the two responsive branches below interpret it differently.

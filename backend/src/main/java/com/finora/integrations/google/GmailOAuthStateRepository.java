@@ -43,6 +43,20 @@ public interface GmailOAuthStateRepository extends JpaRepository<GmailOAuthState
             + "WHERE s.stateHash = :stateHash AND s.consumedAt IS NULL AND s.expiresAt > :now")
     int claimForRedemption(@Param("stateHash") String stateHash, @Param("now") Instant now);
 
+    Optional<GmailOAuthState> findByTicketHash(String ticketHash);
+
+    /**
+     * Atomically claims a confirmation ticket (V331): the same single conditional UPDATE as
+     * {@link #claimForRedemption}, for the same reason. Two posts of one ticket cannot both go on
+     * to exchange the parked authorization code.
+     *
+     * @return 1 if this caller claimed the ticket, 0 if it was unknown, already used, or expired
+     */
+    @Modifying
+    @Query("UPDATE GmailOAuthState s SET s.confirmedAt = :now "
+            + "WHERE s.ticketHash = :ticketHash AND s.confirmedAt IS NULL AND s.ticketExpiresAt > :now")
+    int claimTicket(@Param("ticketHash") String ticketHash, @Param("now") Instant now);
+
     /** Bounded, oldest-first — the same shape {@code ImportSessionRepository}'s expiry sweep uses,
      *  so a backlog drains across runs instead of in one unbounded delete. */
     List<GmailOAuthState> findByExpiresAtBeforeOrderByExpiresAtAsc(Instant cutoff, Pageable pageable);

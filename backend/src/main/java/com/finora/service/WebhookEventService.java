@@ -65,12 +65,13 @@ public class WebhookEventService {
      *  {@code reclaimFailed} is a {@code @Modifying} native query, which Spring Data refuses to run
      *  outside an active transaction. See {@code WebhookEventRepository.reclaimFailed}'s own doc for
      *  what this actually does.
-     *  @param maxAttempts how many retries an event is allowed in total; one that has used them
-     *         all is not reclaimed.
+     *  @param maxAttempts how many retries an event gets at the normal pace.
+     *  @param slowRetryCutoff an event past {@code maxAttempts} is reclaimed only if it last
+     *         failed before this moment.
      *  @return true if this call reclaimed the row, false if it was not (or no longer) FAILED, or
-     *          has no retries left. */
+     *          is past its retries and was last tried too recently. */
     @Transactional
-    public boolean reclaimFailed(String eventId, int maxAttempts) {
-        return webhookEventRepository.reclaimFailed(eventId, maxAttempts) > 0;
+    public boolean reclaimFailed(String eventId, int maxAttempts, java.time.Instant slowRetryCutoff) {
+        return webhookEventRepository.reclaimFailed(eventId, maxAttempts, slowRetryCutoff) > 0;
     }
 }

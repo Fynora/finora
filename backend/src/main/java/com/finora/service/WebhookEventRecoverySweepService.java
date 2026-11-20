@@ -125,11 +125,17 @@ public class WebhookEventRecoverySweepService {
     @Value("${app.webhook-event-recovery.sweep.batch-size:50}")
     private int batchSize;
 
-    /** How many times a failed event is retried before the sweep leaves it for a person (V330).
-     *  96 runs at the default 15-minute interval is a day: an event that arrived out of order
-     *  succeeds within a run or two, so one still failing after a day is not going to. */
+    /** How many times a failed event is retried at the normal pace (V330). 96 runs at the default
+     *  15-minute interval is a day: an event that arrived out of order succeeds within a run or
+     *  two, so one still failing after a day has a cause that will not pass by itself. */
     @Value("${app.webhook-event-recovery.sweep.max-attempts:96}")
     private int maxAttempts;
+
+    /** How long an event past {@link #maxAttempts} waits between tries. It is slowed, never
+     *  stopped: see WebhookEventRepository.findFailed for why stopping lost events for good once
+     *  the fault behind them was fixed. */
+    @Value("${app.webhook-event-recovery.sweep.slow-retry-hours:24}")
+    private long slowRetryHours;
 
     public WebhookEventRecoverySweepService(WebhookEventRepository webhookEventRepository,
                                              WebhookEventService webhookEventService,
@@ -160,21 +166,22 @@ public class WebhookEventRecoverySweepService {
         Instant cutoff = Instant.now().minus(graceMinutes, ChronoUnit.MINUTES);
         List<WebhookEvent> candidates = new ArrayList<>(
                 webhookEventRepository.findStuckUnprocessed(cutoff, batchSize));
-        candidates.addAll(webhookEventRepository.findFailed(cutoff, batchSize, maxAttempts));
+        Instant slowRetryCutoff = Instant.now().minus(slowRetryHours, ChronoUnit.HOURS);
+        candidates.addAll(webhookEventRepository.findFailed(cutoff, batchSize, maxAttempts, slowRetryCutoff));
 
         // Said on every run while any exist, not once: this line is the only thing that tells a
-        // person an event has been given up on, and a single line is easy to miss.
+        // person an event has been failing for this long, and a single line is easy to miss.
         long givenUp = webhookEventRepository.countGivenUp(maxAttempts);
         if (givenUp > 0) {
-            log.error("Webhook recovery sweep: {} failed event(s) have used all {} retries and are no longer "
-                    + "retried -- each needs manual follow-up (webhook_events, status FAILED, "
-                    + "recovery_attempts >= {}).", givenUp, maxAttempts, maxAttempts);
+            log.error("Webhook recovery sweep: {} failed event(s) have used all {} retries and are now tried "
+                    + "only once every {} hour(s) -- each needs manual follow-up (webhook_events, status "
+                    + "FAILED, recovery_attempts >= {}).", givenUp, maxAttempts, slowRetryHours, maxAttempts);
         }
 
         int recovered = 0;
         for (WebhookEvent event : candidates) {
             try {
-                if (recoverOne(event)) {
+                if (recoverOne(event, slowRetryCutoff)) {
                     recovered++;
                 }
             } catch (RuntimeException e) {
@@ -212,7 +219,7 @@ public class WebhookEventRecoverySweepService {
     }
 
     @SuppressWarnings("unchecked")
-    private boolean recoverOne(WebhookEvent event) {
+    private boolean recoverOne(WebhookEvent event, Instant slowRetryCutoff) {
         if (WebhookEvent.STATUS_FAILED.equals(event.getStatus())) {
             // FAILED-origin candidate: reclaimFailed() IS the fresh re-check + claim, combined and
             // atomic (see its own doc) -- a FAILED row has no "still legitimately in flight" case to
@@ -234,7 +241,7 @@ public class WebhookEventRecoverySweepService {
             // that gap (which also pre-exists, unrelated to this change, on the NULL-crash path this
             // sweep already covered before this fix).
             if ("SETU".equals(event.getProvider())
-                    || !webhookEventService.reclaimFailed(event.getEventId(), maxAttempts)) {
+                    || !webhookEventService.reclaimFailed(event.getEventId(), maxAttempts, slowRetryCutoff)) {
                 return false;
             }
         } else if (webhookEventRepository.findById(event.getEventId()).map(WebhookEvent::getStatus).orElse(null) != null) {

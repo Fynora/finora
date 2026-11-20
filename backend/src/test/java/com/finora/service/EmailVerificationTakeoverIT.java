@@ -90,10 +90,10 @@ class EmailVerificationTakeoverIT extends AbstractIntegrationTest {
 
     /** The owner tries Google sign-in, which is refused and emails a fresh link. Returns that link. */
     private String ownerTriesGoogleAndIsSentALink(String email, UUID userId) {
-        // Past the resend cooldown, so the attempt sends a new link instead of pointing at the last.
-        jdbcTemplate.update(
-                "UPDATE email_verification_tokens SET created_at = created_at - interval '1 hour' WHERE user_id = ?",
-                userId);
+        // Straight after the stranger's sign-up, with its link minutes old and still live. This
+        // helper used to move that link an hour into the past first, which hid a dead end: the
+        // resend cooldown counted the sign-up link, so the owner was told to open a link that
+        // refuses anyone not signed in to the account, and was sent nothing they could use.
         ApiException refused = catchThrowableOfType(
                 () -> authService.loginWithGoogle(new GoogleIdentity(email, "Jane Doe")), ApiException.class);
         assertThat(refused).as("Google sign-in into an unverified account is refused").isNotNull();
@@ -137,6 +137,33 @@ class EmailVerificationTakeoverIT extends AbstractIntegrationTest {
 
         assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(userId).stream().map(AuditLog::getAction))
                 .contains("ACCOUNT_HANDED_TO_PROVEN_EMAIL_OWNER", "EMAIL_VERIFIED");
+    }
+
+    /**
+     * The owner tries Google within minutes of the stranger's sign-up. The sign-up link in their
+     * inbox is live and recent, but it is no use to them, so it must not stand in for the link
+     * this attempt owes them. The cooldown still holds for the link that IS theirs: a second try
+     * straight away sends nothing more.
+     */
+    @Test
+    void googleSignIn_minutesAfterSignUp_sendsALinkTheOwnerCanUse_andThenHoldsTheCooldown() {
+        String email = newEmail();
+        UUID userId = strangerSignsUp(email, newPhone()).id();
+        assertThat(linksSentTo(email)).as("the sign-up link").hasSize(1);
+
+        ApiException first = catchThrowableOfType(
+                () -> authService.loginWithGoogle(new GoogleIdentity(email, "Jane Doe")), ApiException.class);
+        assertThat(first.getMessage()).contains("We've sent a new verification link");
+        assertThat(linksSentTo(email)).as("a second link, for the owner").hasSize(2);
+
+        ApiException second = catchThrowableOfType(
+                () -> authService.loginWithGoogle(new GoogleIdentity(email, "Jane Doe")), ApiException.class);
+        assertThat(second.getMessage()).contains("a few minutes ago");
+        assertThat(linksSentTo(email)).as("nothing more is sent inside the cooldown").hasSize(2);
+
+        // The link they were pointed at works signed out, and hands the account over.
+        assertThat(authService.verifyEmail(linksSentTo(email).get(1), null).message()).isNotBlank();
+        assertThat(userRepository.findById(userId).orElseThrow().isGoogleAccount()).isTrue();
     }
 
     @Test

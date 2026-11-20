@@ -331,8 +331,8 @@ class AuthServiceGoogleLoginTest {
         existing.setEmailVerified(false);
         when(userRepository.findByEmailIgnoreCaseAndAccountScope("jane@example.com", "USER"))
                 .thenReturn(Optional.of(existing));
-        when(emailVerificationTokenRepository.existsByUserIdAndUsedAtIsNullAndExpiresAtAfterAndCreatedAtAfter(
-                eq(userId), any(), any())).thenReturn(true);
+        when(emailVerificationTokenRepository.existsByUserIdAndOriginNotAndUsedAtIsNullAndExpiresAtAfterAndCreatedAtAfter(
+                eq(userId), eq("SIGN_UP"), any(), any())).thenReturn(true);
 
         assertThatThrownBy(() -> authService.loginWithGoogle(new GoogleIdentity("jane@example.com", "Jane")))
                 .isInstanceOf(ApiException.class)
@@ -360,8 +360,9 @@ class AuthServiceGoogleLoginTest {
         assertThatThrownBy(() -> authService.loginWithGoogle(new GoogleIdentity("jane@example.com", "Jane")))
                 .isInstanceOf(ApiException.class);
 
-        verify(emailVerificationTokenRepository).existsByUserIdAndUsedAtIsNullAndExpiresAtAfterAndCreatedAtAfter(
-                eq(userId), now.capture(), since.capture());
+        // Sign-up links are left out of the count: one of those is no use to this reader.
+        verify(emailVerificationTokenRepository).existsByUserIdAndOriginNotAndUsedAtIsNullAndExpiresAtAfterAndCreatedAtAfter(
+                eq(userId), eq("SIGN_UP"), now.capture(), since.capture());
         assertThat(java.time.Duration.between(since.getValue(), now.getValue())).isEqualTo(java.time.Duration.ofMinutes(10));
         // No live recent link (the mock's default false): the normal path mints and sends.
         verify(emailVerificationTokenRepository).save(any());

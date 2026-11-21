@@ -2118,6 +2118,15 @@ public class AuthService {
         user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
         user.setUpdatedAt(now);
         user.setPasswordChangedAt(now);
+        // Audit F-09 (2026-11-20). A lock from wrong passwords is lifted by a completed reset, and
+        // the count of wrong passwords starts again. Anyone who knows the address can cause the
+        // lock, and its owner is told only "Invalid credentials" (see login()), so resetting the
+        // password is what they do next. The lock used to outlast the reset, and the new password
+        // was refused as well until it ran out. By this line the caller has shown they hold the
+        // mailbox and the phone, and every wrong password counted was a guess at one that no
+        // longer exists.
+        user.setFailedLoginAttempts(0);
+        user.setLockedUntil(null);
         userRepository.save(user);
         passwordHistoryService.record(user.getId(), user.getPasswordHash());
 

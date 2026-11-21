@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ShieldAlert } from 'lucide-react';
@@ -62,6 +62,11 @@ export default function ResetPassword() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+  // The proof of the phone code, kept once the code has been checked. The server can refuse the
+  // new password itself (too common, same as the current one) after the code was accepted, and
+  // the next try must send this again instead of asking Firebase to check a code it has already
+  // used. Same as frontend/'s ResetPassword.tsx. Cleared when a new code is sent.
+  const verifiedIdToken = useRef<string | null>(null);
 
   async function requestOtp() {
     if (!token) return;
@@ -69,6 +74,7 @@ export default function ResetPassword() {
     setOtpError(null);
     setOtp('');
     setConfirmation(null);
+    verifiedIdToken.current = null;
     try {
       const res = await authApi.resolveResetPasswordPhone(token);
       setPhoneNumber(res.phoneNumber);
@@ -109,7 +115,8 @@ export default function ResetPassword() {
     setError(null);
     setLoading(true);
     try {
-      const firebaseIdToken = await confirmPhoneVerificationCode(confirmation, otp);
+      const firebaseIdToken = verifiedIdToken.current ?? await confirmPhoneVerificationCode(confirmation, otp);
+      verifiedIdToken.current = firebaseIdToken;
       await authApi.resetPassword(token, firebaseIdToken, password);
       setDone(true);
       // Was a bare navigate('/login') with no message at all -- unlike the user app's identical

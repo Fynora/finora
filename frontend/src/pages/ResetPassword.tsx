@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Sparkles } from 'lucide-react';
@@ -80,12 +80,18 @@ export default function ResetPassword() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+  // The proof of the phone code, kept once the code has been checked. The server can refuse the
+  // new password itself (too common, same as the current one) after the code was accepted, and
+  // the next try must send this again instead of asking Firebase to check a code it has already
+  // used. The phone app's reset screen keeps it the same way. Cleared when a new code is sent.
+  const verifiedIdToken = useRef<string | null>(null);
 
   async function sendOtp(fullPhoneNumber: string) {
     setSendingOtp(true);
     setOtpError(null);
     setOtp('');
     setConfirmation(null);
+    verifiedIdToken.current = null;
     try {
       const result = await sendPhoneVerificationCode(fullPhoneNumber, RECAPTCHA_CONTAINER_ID);
       setConfirmation(result);
@@ -142,7 +148,8 @@ export default function ResetPassword() {
     setError(null);
     setLoading(true);
     try {
-      const firebaseIdToken = await confirmPhoneVerificationCode(confirmation, otp);
+      const firebaseIdToken = verifiedIdToken.current ?? await confirmPhoneVerificationCode(confirmation, otp);
+      verifiedIdToken.current = firebaseIdToken;
       await authApi.resetPassword(token, firebaseIdToken, password);
       setDone(true);
       setTimeout(() => {

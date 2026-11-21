@@ -162,6 +162,10 @@ public class AuthService {
     // code sign-in is never paused; see SignInCodePause.
     private SignInCodePause signInCodePause;
 
+    // Audit F-08: refuses a new password that is commonly used or made from the person's own
+    // details. A plain field, not injected, so no way of building this service leaves it out.
+    private final WeakPasswordGuard weakPasswordGuard = new WeakPasswordGuard();
+
     @org.springframework.beans.factory.annotation.Autowired
     void setSignInCodePause(SignInCodePause signInCodePause) {
         this.signInCodePause = signInCodePause;
@@ -336,6 +340,10 @@ public class AuthService {
      *  needs, regardless of what happens after (register() continues into minting tokens;
      *  adminCreateUser() stops here). */
     private User createUserRecord(RegisterRequest request, String accountScope) {
+        // Before the "already registered" checks, so a weak password gets the same answer whether
+        // or not the address or number is taken.
+        weakPasswordGuard.check(request.password(), request.email(), request.fullName(), request.phoneNumber());
+
         // Trimmed + lowercased once up front and reused everywhere below -- the duplicate check
         // and the saved value must agree on the exact same string, or "  Jane@Example.com" could
         // dodge the uniqueness check against an existing "jane@example.com" and still get
@@ -2087,6 +2095,11 @@ public class AuthService {
         if (!phoneNumbersMatch(verifiedPhone, user.getPhoneNumber())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "The verified phone number doesn't match the one on this account.");
         }
+
+        // After the phone check, not before: one of its two answers says the password is made
+        // from this account's own name, email or number, and that is for its owner only. Nothing
+        // has been written yet, so the link is not used up and they can choose again.
+        weakPasswordGuard.check(request.newPassword(), user.getEmail(), user.getFullName(), user.getPhoneNumber());
 
         // Bug fix: PasswordChangeService.complete() already rejects a new password identical to
         // the CURRENT one directly; this path only relied on passwordHistoryService catching it

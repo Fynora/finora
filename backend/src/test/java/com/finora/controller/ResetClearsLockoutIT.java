@@ -51,6 +51,7 @@ class ResetClearsLockoutIT extends AbstractIntegrationTest {
     @Autowired private TestRestTemplate restTemplate;
     @Autowired private UserRepository userRepository;
     @Autowired private PlatformSettingsService platformSettingsService;
+    @Autowired private org.springframework.transaction.PlatformTransactionManager transactionManager;
     private final ObjectMapper mapper = new ObjectMapper();
 
     private record Person(String email, String phoneNumber, String clientIp) {}
@@ -70,6 +71,12 @@ class ResetClearsLockoutIT extends AbstractIntegrationTest {
     }
 
     private Person registerVerified() throws Exception {
+        return registerVerifiedWithSession().person();
+    }
+
+    private record SignedIn(Person person, String token, String refreshToken) {}
+
+    private SignedIn registerVerifiedWithSession() throws Exception {
         Person person = newPerson();
         ResponseEntity<String> response = post("/api/v1/auth/register", person, null, """
                 {"email": "%s", "password": "%s", "fullName": "Meera Krishnan", "phoneNumber": "%s"}
@@ -80,7 +87,23 @@ class ResetClearsLockoutIT extends AbstractIntegrationTest {
                 {"firebaseIdToken": "%s"}
                 """.formatted(FakePhoneVerificationProvider.tokenFor(person.phoneNumber()))).getStatusCode())
                 .isEqualTo(HttpStatus.OK);
-        return person;
+        return new SignedIn(person, data.get("token").asText(), data.get("refreshToken").asText());
+    }
+
+    /** The in-app change: current password, then the phone, then the new password. */
+    private ResponseEntity<String> changePassword(SignedIn user, String newPassword) throws Exception {
+        ResponseEntity<String> start = post("/api/v1/users/me/password-change/start", user.person(), user.token(), """
+                {"currentPassword": "%s"}
+                """.formatted(FIRST_PASSWORD));
+        assertThat(start.getStatusCode()).isEqualTo(HttpStatus.OK);
+        String sessionId = mapper.readTree(start.getBody()).get("data").get("sessionId").asText();
+        assertThat(post("/api/v1/users/me/password-change/verify-otp", user.person(), user.token(), """
+                {"sessionId": "%s", "firebaseIdToken": "%s"}
+                """.formatted(sessionId, FakePhoneVerificationProvider.tokenFor(user.person().phoneNumber())))
+                .getStatusCode()).isEqualTo(HttpStatus.OK);
+        return post("/api/v1/users/me/password-change/complete", user.person(), user.token(), """
+                {"sessionId": "%s", "newPassword": "%s", "signOutOtherDevices": false, "currentRefreshToken": "%s"}
+                """.formatted(sessionId, newPassword, user.refreshToken()));
     }
 
     private ResponseEntity<String> login(Person person, String password) {
@@ -132,6 +155,166 @@ class ResetClearsLockoutIT extends AbstractIntegrationTest {
         assertThat(afterReset.getLockedUntil()).isNull();
         assertThat(afterReset.getFailedLoginAttempts()).isZero();
         assertThat(login(person, NEW_PASSWORD).getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    /** Someone still signed in on one device, locked out by a stranger's guesses, who changes their
+     *  password in the app. They have given the current password and proved the phone. */
+    @Test
+    void aLockedOwnerWhoChangesTheirPasswordInTheApp_canSignInWithTheNewOneAtOnce() throws Exception {
+        SignedIn user = registerVerifiedWithSession();
+        wrongPasswords(user.person(), attemptsThatLock());
+        assertThat(stored(user.person()).getLockedUntil()).as("the account is locked").isNotNull();
+
+        assertThat(changePassword(user, NEW_PASSWORD).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        User afterChange = stored(user.person());
+        assertThat(afterChange.getLockedUntil()).isNull();
+        assertThat(afterChange.getFailedLoginAttempts()).isZero();
+        assertThat(login(user.person(), NEW_PASSWORD).getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    /** Wrong passwords sent at the same moment, each from its own address, must each count. Counted
+     *  from what each request read at its start, they all counted as "one more than none", and the
+     *  account never locked however many arrived together. */
+    @Test
+    void wrongPasswordsSentAtTheSameMoment_areEachCounted_andLockTheAccount() throws Exception {
+        Person person = registerVerified();
+        int attempts = attemptsThatLock();
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(attempts);
+        java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+        try {
+            java.util.List<java.util.concurrent.Future<HttpStatus>> answers = new java.util.ArrayList<>();
+            for (int i = 0; i < attempts; i++) {
+                Person fromElsewhere = new Person(person.email(), person.phoneNumber(),
+                        "203.0.113." + CLIENT_IP_COUNTER.getAndIncrement());
+                answers.add(pool.submit(() -> {
+                    go.await();
+                    return (HttpStatus) login(fromElsewhere, WRONG_PASSWORD).getStatusCode();
+                }));
+            }
+            go.countDown();
+            for (java.util.concurrent.Future<HttpStatus> answer : answers) {
+                assertThat(answer.get(60, java.util.concurrent.TimeUnit.SECONDS)).isEqualTo(HttpStatus.UNAUTHORIZED);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+
+        User afterwards = stored(person);
+        assertThat(afterwards.getFailedLoginAttempts()).isEqualTo(attempts);
+        assertThat(afterwards.getLockedUntil()).as("the account is locked").isNotNull();
+    }
+
+    /** Twice the limit, all at once: the limit is counted, the account locks, and the rest are
+     *  refused without being counted or having their password looked at. */
+    @Test
+    void moreWrongPasswordsAtOnceThanTheLimit_countOnlyUpToTheLimit() throws Exception {
+        Person person = registerVerified();
+        int limit = attemptsThatLock();
+        int sent = limit * 2;
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(sent);
+        java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+        try {
+            java.util.List<java.util.concurrent.Future<HttpStatus>> answers = new java.util.ArrayList<>();
+            for (int i = 0; i < sent; i++) {
+                Person fromElsewhere = new Person(person.email(), person.phoneNumber(),
+                        "203.0.113." + CLIENT_IP_COUNTER.getAndIncrement());
+                answers.add(pool.submit(() -> {
+                    go.await();
+                    return (HttpStatus) login(fromElsewhere, WRONG_PASSWORD).getStatusCode();
+                }));
+            }
+            go.countDown();
+            for (java.util.concurrent.Future<HttpStatus> answer : answers) {
+                assertThat(answer.get(60, java.util.concurrent.TimeUnit.SECONDS)).isEqualTo(HttpStatus.UNAUTHORIZED);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+
+        User afterwards = stored(person);
+        assertThat(afterwards.getFailedLoginAttempts()).isEqualTo(limit);
+        assertThat(afterwards.getLockedUntil()).isNotNull();
+    }
+
+    /** The attempt that reaches the limit is counted, and locked, before its password is checked.
+     *  When that password is right the person signs in and both are cleared. */
+    @Test
+    void theRightPasswordOnTheLastAllowedAttempt_signsIn_andClearsTheCount() throws Exception {
+        Person person = registerVerified();
+        wrongPasswords(person, attemptsThatLock() - 1);
+
+        assertThat(login(person, FIRST_PASSWORD).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        User afterwards = stored(person);
+        assertThat(afterwards.getFailedLoginAttempts()).isZero();
+        assertThat(afterwards.getLockedUntil()).isNull();
+    }
+
+    /** A suspended account's owner giving the right password is told about the suspension. That
+     *  is not a wrong password, so it is not counted, and it does not clear the count either. Here
+     *  it arrives as the attempt that would have reached the limit: no lock is left behind. */
+    @Test
+    void theRightPasswordOnASuspendedAccount_leavesTheCountAsItWas() throws Exception {
+        Person person = registerVerified();
+        int beforeLock = attemptsThatLock() - 1;
+        wrongPasswords(person, beforeLock);
+        User suspended = stored(person);
+        suspended.setStatus(User.STATUS_SUSPENDED);
+        userRepository.save(suspended);
+
+        assertThat(login(person, FIRST_PASSWORD).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+
+        User afterwards = stored(person);
+        assertThat(afterwards.getFailedLoginAttempts()).isEqualTo(beforeLock);
+        assertThat(afterwards.getLockedUntil()).isNull();
+    }
+
+    /** A lock that has run out takes its count with it: the next wrong password is the first. */
+    @Test
+    void aWrongPasswordAfterTheLockHasRunOut_isCountedAsTheFirst() throws Exception {
+        Person person = registerVerified();
+        wrongPasswords(person, attemptsThatLock());
+        User locked = stored(person);
+        locked.setLockedUntil(java.time.Instant.now().minusSeconds(5));
+        userRepository.save(locked);
+
+        wrongPasswords(person, 1);
+
+        User afterwards = stored(person);
+        assertThat(afterwards.getFailedLoginAttempts()).isEqualTo(1);
+        assertThat(afterwards.getLockedUntil()).isNull();
+        assertThat(login(person, FIRST_PASSWORD).getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    /** A lock that lands while a reset is in progress: after the reset read the account, before it
+     *  wrote. Setting the fields on what it read sends nothing, because they were already empty
+     *  there, so the lock is lifted by a statement of its own. */
+    @Test
+    void aLockThatLandsAfterTheAccountWasRead_isStillLifted() throws Exception {
+        Person person = registerVerified();
+        java.util.UUID id = stored(person).getId();
+        var tx = new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+        var separate = new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+        separate.setPropagationBehavior(
+                org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        tx.executeWithoutResult(status -> {
+            User readByTheReset = userRepository.findById(id).orElseThrow();
+            separate.executeWithoutResult(inner -> {
+                User locked = userRepository.findById(id).orElseThrow();
+                locked.setFailedLoginAttempts(5);
+                locked.setLockedUntil(java.time.Instant.now().plusSeconds(900));
+                userRepository.save(locked);
+            });
+            readByTheReset.setFailedLoginAttempts(0);
+            readByTheReset.setLockedUntil(null);
+            userRepository.save(readByTheReset);
+            userRepository.clearWrongPasswordLock(id);
+        });
+
+        assertThat(stored(person).getLockedUntil()).isNull();
+        assertThat(stored(person).getFailedLoginAttempts()).isZero();
     }
 
     /** Only a reset that goes through clears the lock. A refused new password changes nothing. */

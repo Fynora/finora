@@ -91,7 +91,7 @@ public class AuthService {
     // minutes, not the link's day-long lifetime.
     private static final long EMAIL_VERIFICATION_RESEND_COOLDOWN_MINUTES = 10;
     // MAX_FAILED_LOGIN_ATTEMPTS / LOCKOUT_DURATION_MINUTES used to be hardcoded here -- now read
-    // live from PlatformSettingsService on every call (see registerFailedLogin() and login()'s
+    // live from PlatformSettingsService on every call (see countAttempt() and login()'s
     // lockout check) so an admin's change on the System page takes effect immediately, not just
     // for accounts created after a redeploy. V27__platform_settings.sql seeds the same defaults
     // (5 / 15) these constants used to have, so existing behavior is unchanged until an admin
@@ -514,7 +514,7 @@ public class AuthService {
 
     /**
      * <p><b>{@code noRollbackFor} is load-bearing here, exactly as it is on {@link #refresh}.</b>
-     * The bad-password path WRITES and then THROWS: {@link #registerFailedLogin} increments
+     * The bad-password path WRITES and then THROWS: {@link #countAttempt} increments
      * {@code failedLoginAttempts}, sets {@code lockedUntil} once the configured maximum is
      * reached, and records an {@code ACCOUNT_LOCKED} audit entry -- and then this method throws
      * {@code ApiException} to reject the attempt. {@code ApiException} is a RuntimeException, so
@@ -537,7 +537,11 @@ public class AuthService {
         String email = resolveEmailForLogin(request.identifier(), scope);
         User user = findUserByEmailIgnoreCaseSafely(email, scope).orElse(null);
 
-        if (user != null && user.getLockedUntil() != null && user.getLockedUntil().isAfter(Instant.now())) {
+        // Audit F-09. The attempt is counted here, before the password is looked at, from the
+        // count as it is in the database with the row held. See countAttempt().
+        CountedAttempt counted = user != null ? countAttempt(user) : null;
+
+        if (counted != null && counted.refused()) {
             // BH-014. This used to answer 423 LOCKED with a message naming the reason, and that
             // turned the endpoint into an account-existence oracle: five wrong passwords, and a
             // registered address starts answering 423 while an unregistered one answers 401
@@ -582,18 +586,16 @@ public class AuthService {
         // An EXPIRED lockout clears the counter that produced it. Serving the lockout is the
         // penalty; carrying the count past it turns every subsequent typo into an instant re-lock.
         //
-        // This was latent until per-account lockout started working. registerFailedLogin never
+        // This was latent until per-account lockout started working. The counting code never
         // reset failedLoginAttempts, and only a SUCCESSFUL login did -- but while the counter was
         // being discarded by rollback (the noRollbackFor fix) it never reached the threshold, so
         // the second lock could not happen either. Making lockout function exposed it: an account
         // that served a 15-minute lockout came back with the counter still at the maximum, so one
         // wrong password re-locked it for another 15 minutes, indefinitely, with no way out except
         // remembering the password first time.
-        if (user != null && user.getLockedUntil() != null && !user.getLockedUntil().isAfter(Instant.now())) {
-            user.setFailedLoginAttempts(0);
-            user.setLockedUntil(null);
-            userRepository.save(user);
-        }
+        //
+        // countAttempt() does this now: it starts the count again when the lock it finds has
+        // run out.
         try {
             // Authenticated by the resolved user's ID, not their email: the Spring Security
             // principal is the id (see CurrentUserDetailsService), and an email would be ambiguous
@@ -608,11 +610,11 @@ public class AuthService {
             // implementation is ever changed to throw DisabledException/LockedException itself)
             // — all of them mean "this login attempt failed," and all should count toward
             // lockout and return the same generic message, not leak which failure mode occurred.
-            if (user != null) {
-                registerFailedLogin(user);
+            if (counted != null && counted.lockedUntil() != null) {
+                recordLock(user, counted);
             }
             // Timing-oracle fix, self-review 2026-08-23: this write happens for a null user too
-            // (unlike registerFailedLogin just above, which has nothing to attach a lockout
+            // (unlike countAttempt just above, which has nothing to attach a lockout
             // counter to). Skipping it for an unknown identifier made this branch measurably
             // cheaper than the known-user one -- one fewer DB round-trip on an endpoint whose
             // whole BH-014 design goal is that locked/wrong-password/unknown-identifier must cost
@@ -657,13 +659,19 @@ public class AuthService {
         // is what it SAYS: the same 401 as a wrong password, so its position no longer leaks. It
         // no longer returns faster than a real password check either -- it verifies against a
         // throwaway hash for timing parity. Both halves are measured in LoginExistenceOracleIT.
-        enforceAccountIsSignable(user);
-
-        if (user.getFailedLoginAttempts() > 0 || user.getLockedUntil() != null) {
-            user.setFailedLoginAttempts(0);
-            user.setLockedUntil(null);
-            userRepository.save(user);
+        try {
+            enforceAccountIsSignable(user);
+        } catch (RuntimeException e) {
+            // The password was right, so this was not a wrong-password attempt: the count goes
+            // back to what it was. It is not cleared, for the reason given above.
+            putBackAttempt(user, counted);
+            throw e;
         }
+
+        // Written to the row directly, not only to the entity: see clearWrongPasswordLock.
+        userRepository.clearWrongPasswordLock(user.getId());
+        user.setFailedLoginAttempts(0);
+        user.setLockedUntil(null);
 
         // SEC-03 (docs/quality/bug-reports/2026-08-19-security-review-findings.md). Checked only
         // AFTER the password has already verified, for the same oracle reason enforceAccountIsSignable
@@ -1613,19 +1621,86 @@ public class AuthService {
         return PhoneNumbers.sameNumber(a, b);
     }
 
-    private void registerFailedLogin(User user) {
+    /**
+     * One password sign-in attempt, as counted before its password was checked.
+     *
+     * @param refused     the account was locked when the attempt arrived; nothing was counted
+     * @param countBefore the count this attempt found, 0 if the lock it found had run out
+     * @param attempts    the count including this attempt
+     * @param countedAt   when it was counted
+     * @param lockedUntil set when this attempt reached the limit: the lock it put on
+     */
+    private record CountedAttempt(boolean refused, int countBefore, int attempts, Instant countedAt,
+                                  Instant lockedUntil) {
+        static final CountedAttempt REFUSED = new CountedAttempt(true, 0, 0, null, null);
+    }
+
+    /**
+     * Counts a password sign-in attempt BEFORE its password is checked, and puts the lock on if
+     * this is the attempt that reaches the limit. A right password then clears both; a wrong one
+     * leaves them.
+     *
+     * <p>Audit F-09 (2026-11-20). The count used to be added after a wrong password, to the value
+     * the request had read at its start. Wrong passwords arriving together each read the same
+     * value: five at once counted as one, and the account did not lock however many came. Reading
+     * the count with the row held makes them take turns, and counting before the check means no
+     * more passwords are ever looked at than the limit allows. The row stays held until this
+     * request's transaction ends, which is one password check long.
+     *
+     * <p>The lock goes on in the same step as the count that reaches the limit, so there is never
+     * a count at the limit with no lock, which nothing would ever clear.
+     */
+    private CountedAttempt countAttempt(User user) {
         var settings = platformSettingsService.getEntity();
-        int attempts = user.getFailedLoginAttempts() + 1;
-        user.setFailedLoginAttempts(attempts);
-        if (attempts >= settings.getMaxFailedLoginAttempts()) {
-            Instant lockedAt = Instant.now();
-            Instant unlocksAt = lockedAt.plusSeconds(settings.getLockoutDurationMinutes() * 60L);
-            user.setLockedUntil(unlocksAt);
-            auditService.record(user.getId(), "ACCOUNT_LOCKED", "User", user.getId(),
-                    requestMetadata.addTo(new java.util.HashMap<>(java.util.Map.of("failedAttempts", attempts))));
-            notifyOwnerOfLockout(user, lockedAt, unlocksAt);
+        Instant now = Instant.now();
+        int countBefore;
+        int lockState; // 0 none, 1 run out, 2 in force -- see lockWrongPasswordState
+        List<Object[]> rows = userRepository.lockWrongPasswordState(user.getId(), now);
+        if (rows.isEmpty()) {
+            // The row went between being found and being read again. What was found is all
+            // there is to go on, and the attempt will fail on its own.
+            countBefore = user.getFailedLoginAttempts();
+            lockState = user.getLockedUntil() == null ? 0 : user.getLockedUntil().isAfter(now) ? 2 : 1;
+        } else {
+            countBefore = ((Number) rows.get(0)[0]).intValue();
+            lockState = ((Number) rows.get(0)[1]).intValue();
         }
-        userRepository.save(user);
+        if (lockState == 2) {
+            return CountedAttempt.REFUSED;
+        }
+        // A lock that has run out takes its count with it: serving it was the penalty.
+        if (lockState == 1) {
+            countBefore = 0;
+        }
+        int attempts = countBefore + 1;
+        Instant lockedUntil = attempts >= settings.getMaxFailedLoginAttempts()
+                ? now.plusSeconds(settings.getLockoutDurationMinutes() * 60L)
+                : null;
+        writeWrongPasswordState(user, attempts, lockedUntil);
+        return new CountedAttempt(false, countBefore, attempts, now, lockedUntil);
+    }
+
+    /** The row is written directly: the entity alone would send only what differs from what
+     *  this request read at its start, and that can be out of date. The entity is kept in step
+     *  so nothing later in the request sees the old values. */
+    private void writeWrongPasswordState(User user, int attempts, Instant lockedUntil) {
+        userRepository.setWrongPasswordState(user.getId(), attempts, lockedUntil);
+        user.setFailedLoginAttempts(attempts);
+        user.setLockedUntil(lockedUntil);
+    }
+
+    /** A wrong password on the attempt that reached the limit: the lock stands, and is recorded. */
+    private void recordLock(User user, CountedAttempt counted) {
+        auditService.record(user.getId(), "ACCOUNT_LOCKED", "User", user.getId(),
+                requestMetadata.addTo(new java.util.HashMap<>(java.util.Map.of("failedAttempts", counted.attempts()))));
+        notifyOwnerOfLockout(user, counted.countedAt(), counted.lockedUntil());
+    }
+
+    /** Undoes countAttempt() for an attempt whose password was right but which is refused for
+     *  another reason. The row has been held since the count, so nothing else has moved it. */
+    private void putBackAttempt(User user, CountedAttempt counted) {
+        if (counted == null || counted.refused()) return;
+        writeWrongPasswordState(user, counted.countBefore(), null);
     }
 
     /**
@@ -1933,7 +2008,7 @@ public class AuthService {
     }
 
     /** Shared by loginWithEmailOtp and loginWithPhoneOtp (Task 3) -- same "LOGIN_FAILED" action
-     *  login()'s own registerFailedLogin() records for a bad password, so an OTP-login failure
+     *  login()'s own countAttempt() records for a bad password, so an OTP-login failure
      *  shows up in the same audit trail an investigator already knows to look at, distinguished by
      *  method/reason rather than a whole separate vocabulary of action strings. */
     private void recordOtpLoginFailure(UUID userId, String method, String reason) {
@@ -1957,7 +2032,7 @@ public class AuthService {
         User user = identityLookup.byPhoneNumber(verifiedPhoneNumber, scope).orElse(null);
         if (user == null) {
             // No userId to attach a LOGIN_FAILED entry to -- same "nothing to attach a lockout
-            // counter to" reasoning registerFailedLogin() already documents for an unknown
+            // counter to" reasoning countAttempt() already documents for an unknown
             // identifier on the password path. The audit trail's own global feed still shows this
             // was attempted, just without a userId (AuditLog.userId has no NOT NULL constraint,
             // same precedent login()'s own unknown-identifier branch relies on).
@@ -2125,9 +2200,14 @@ public class AuthService {
         // was refused as well until it ran out. By this line the caller has shown they hold the
         // mailbox and the phone, and every wrong password counted was a guess at one that no
         // longer exists.
+        //
+        // Written to the row directly as well as to the entity. A lock that lands while this
+        // reset is in progress leaves the entity's own value null, and nulling it again sends no
+        // UPDATE: the lock would outlast the reset after all.
         user.setFailedLoginAttempts(0);
         user.setLockedUntil(null);
         userRepository.save(user);
+        userRepository.clearWrongPasswordLock(user.getId());
         passwordHistoryService.record(user.getId(), user.getPasswordHash());
 
         prt.setUsedAt(Instant.now());

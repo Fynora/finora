@@ -14,6 +14,10 @@ public enum NotificationType {
     // {{device}}, {{browser}}, {{ip}} and {{time}}: fixed labels and an address, never anything the
     // person signing in typed. Keyed "NEW_SIGN_IN_" + the session id, so one sign-in is told once.
     NEW_SIGN_IN,
+    // Sent when sign-in by emailed code is paused for an account after too many wrong codes -- see
+    // SignInCodePause. Category SECURITY. EMAIL and PUSH, templates in V333 with {{count}}, {{ip}}
+    // and {{time}}. Keyed on the account and the day, so at most one a day.
+    SIGN_IN_CODE_PAUSED,
     IMPORT_STATEMENT_READY,
     // Fired once, the first time a statement is held (parser gap or trust review) -- see
     // ImportJobWorker.recordFailure and HeldStatementService.openHold. One shared type for both

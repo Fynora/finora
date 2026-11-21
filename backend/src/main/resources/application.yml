@@ -634,6 +634,13 @@ app:
     # This is the switch to turn it off without a deploy, for example if the volume of mail it adds
     # becomes a problem with the email provider. Sign-ins themselves are unaffected either way.
     sign-in-alert-enabled: ${SIGN_IN_ALERT_ENABLED:true}
+    # SignInCodePause (audit F-07): how many wrong emailed sign-in codes may be entered for one
+    # account within 24 hours before code sign-in is paused for it and its owner is told. That is
+    # also the most guesses anyone gets at one account's codes in a day. The 24 hours is fixed (it
+    # is how long the code rows are kept). 0 switches the pause off. The cost of a low number:
+    # someone who is not the owner can pause an account's code sign-in by entering that many wrong
+    # codes; the owner's password, Google and Apple sign-in are unaffected.
+    sign-in-code-max-wrong-per-day: ${SIGN_IN_CODE_MAX_WRONG_PER_DAY:10}
 
   diagnostics:
     # Counts how many requests one signed-in user makes in a minute, to size a per-user request

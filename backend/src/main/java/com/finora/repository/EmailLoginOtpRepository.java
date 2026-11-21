@@ -55,6 +55,16 @@ public interface EmailLoginOtpRepository extends JpaRepository<EmailLoginOtp, UU
     int markAllUnconsumedAsConsumed(
             @Param("email") String email, @Param("accountScope") String accountScope, @Param("now") Instant now);
 
+    /**
+     * How many wrong codes were entered for one account against the codes issued since
+     * {@code since}: the sum of each row's own attempt counter. Backs {@code SignInCodePause}
+     * (audit F-07). Counted by when the code was ISSUED, which is within five minutes of when the
+     * tries were made, since a code lives five minutes. Zero when there are no rows.
+     */
+    @Query("SELECT COALESCE(SUM(o.attemptCount), 0) FROM EmailLoginOtp o "
+            + "WHERE o.userId = :userId AND o.createdAt > :since")
+    long sumAttemptCountByUserIdSince(@Param("userId") UUID userId, @Param("since") Instant since);
+
     /** AccountPurgeSweepService -- same cleanup every other token repository gets. */
     void deleteByUserId(UUID userId);
 

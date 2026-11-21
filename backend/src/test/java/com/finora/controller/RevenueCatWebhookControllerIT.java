@@ -131,6 +131,49 @@ class RevenueCatWebhookControllerIT extends AbstractIntegrationTest {
         }
     }
 
+    /**
+     * The ledger's key holds 50 characters, 11 of them the "revenuecat:" prefix. RevenueCat's ids
+     * are 36-character UUIDs today, but nothing promises that. A longer one used to fail to store,
+     * which answered 500 on every retry: the event could never be processed. It is now keyed by a
+     * hash of the id, so it is processed, and its redelivery is still recognised.
+     */
+    @Test
+    void anEventWhoseIdIsTooLongForTheLedgerIsStillProcessedOnce() {
+        User user = createActiveRevenueCatUser("PLUS", "MONTHLY");
+        String longId = "evt_" + "a".repeat(60) + "_" + UUID.randomUUID();
+        String cancellation = """
+                {"event":{"id":"%s","type":"CANCELLATION","app_user_id":"%s","original_transaction_id":"%s"}}
+                """.formatted(longId, user.getId(), txnIdFor(user));
+
+        postSigned(cancellation);
+        assertThat(subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow().isAutoRenew()).isFalse();
+        postSigned(revenueCatBody("UNCANCELLATION", user.getId(), Map.of("original_transaction_id", txnIdFor(user))));
+
+        postSigned(cancellation);
+
+        assertThat(subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow().isAutoRenew())
+                .as("the redelivered event must be recognised as the same one")
+                .isTrue();
+    }
+
+    /** Two long ids that differ only at the end must not be taken for the same event. */
+    @Test
+    void twoDifferentLongIdsAreTwoDifferentEvents() {
+        User user = createActiveRevenueCatUser("PLUS", "MONTHLY");
+        String prefix = "evt_" + "b".repeat(60) + "_" + UUID.randomUUID();
+
+        postSigned("""
+                {"event":{"id":"%s","type":"CANCELLATION","app_user_id":"%s","original_transaction_id":"%s"}}
+                """.formatted(prefix + "_1", user.getId(), txnIdFor(user)));
+        postSigned("""
+                {"event":{"id":"%s","type":"UNCANCELLATION","app_user_id":"%s","original_transaction_id":"%s"}}
+                """.formatted(prefix + "_2", user.getId(), txnIdFor(user)));
+
+        assertThat(subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow().isAutoRenew())
+                .as("the second event was processed, not dropped as a duplicate of the first")
+                .isTrue();
+    }
+
     @Test
     void aRealisticInitialPurchaseActivatesTheSubscriptionAtTheMappedPlan() {
         User user = new User();

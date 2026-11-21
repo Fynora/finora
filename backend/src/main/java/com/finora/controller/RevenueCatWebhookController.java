@@ -5,6 +5,7 @@ import com.finora.integrations.revenuecat.RevenueCatSignatureVerifier;
 import com.finora.service.RevenueCatWebhookDispatcher;
 import com.finora.service.WebhookEventService;
 import com.finora.util.LogSanitizer;
+import com.finora.util.TokenHasher;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,6 +33,9 @@ public class RevenueCatWebhookController {
 
     private static final Logger log = LoggerFactory.getLogger(RevenueCatWebhookController.class);
     private static final Duration SIGNATURE_TOLERANCE = Duration.ofMinutes(5);
+    private static final String KEY_PREFIX = "revenuecat:";
+    /** {@code webhook_events.event_id} is VARCHAR(50). */
+    private static final int LEDGER_KEY_LENGTH = 50;
 
     private final RevenueCatProperties properties;
     private final WebhookEventService webhookEventService;
@@ -56,7 +60,12 @@ public class RevenueCatWebhookController {
 
         JSONObject json = new JSONObject(rawBody);
         JSONObject event = json.optJSONObject("event");
-        if (event == null) return ResponseEntity.ok().build();
+        if (event == null) {
+            // Signed by RevenueCat but with nothing in it to process. Answered 200 because a
+            // retry would carry the same nothing; logged because it should never happen.
+            log.warn("A signed RevenueCat webhook carried no event object; nothing was processed.");
+            return ResponseEntity.ok().build();
+        }
         String eventType = event.optString("type", "unknown");
         Map<String, Object> eventPayload = event.toMap();
 
@@ -73,7 +82,7 @@ public class RevenueCatWebhookController {
                     LogSanitizer.sanitize(eventType));
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
         }
-        String eventId = "revenuecat:" + rawEventId;
+        String eventId = ledgerKey(rawEventId);
 
         if (!webhookEventService.claim(eventId, "REVENUECAT", eventType, eventPayload)) {
             log.info("Duplicate RevenueCat webhook event {} ({}), ignoring.",
@@ -91,5 +100,22 @@ public class RevenueCatWebhookController {
             throw e;
         }
         return ResponseEntity.ok().build();
+    }
+
+    /**
+     * The key an event is recorded under in {@code webhook_events}: the prefix and the id, as
+     * always, when that fits the column ({@link #LEDGER_KEY_LENGTH}).
+     *
+     * <p>RevenueCat's ids are 36-character UUIDs, which fit. Nothing in its documentation
+     * promises that length, and an id that did not fit failed to store, so the request answered
+     * 500, RevenueCat retried, and every retry failed the same way: that event could never be
+     * processed. A longer id is recorded under a hash of itself instead. The same id always
+     * gives the same key, so its redelivery is still recognised, and two different ids give
+     * different keys. The id itself is still in the stored payload.
+     */
+    static String ledgerKey(String rawEventId) {
+        String plain = KEY_PREFIX + rawEventId;
+        if (plain.length() <= LEDGER_KEY_LENGTH) return plain;
+        return KEY_PREFIX + TokenHasher.sha256(rawEventId).substring(0, LEDGER_KEY_LENGTH - KEY_PREFIX.length());
     }
 }

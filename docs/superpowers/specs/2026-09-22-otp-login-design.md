@@ -63,6 +63,15 @@ Policy: 6-digit numeric code, single-use, 5-minute expiry, 30-second resend
 cooldown per email, max 5 verify attempts before the code is invalidated
 (caller must request a fresh one).
 
+Amended 2026-11-21 (audit F-07). Those limits bounded one code, not the total:
+with five codes per account every ten minutes, about 3,600 guesses a day could
+be made against one account. Once 10 wrong codes have been entered for an
+account within 24 hours (`SIGN_IN_CODE_MAX_WRONG_PER_DAY`), sign-in by emailed
+code is paused for it: no code is checked and no new code is sent until enough
+of the wrong ones are a day old, and the owner is sent an email and a push.
+Password, Google and Apple sign-in are unaffected, and wrong codes do not count
+toward the password lockout. See `SignInCodePause`.
+
 Two endpoints:
 
 - `POST /auth/otp/email/request` — body: `{ identifier }`. Identifier must

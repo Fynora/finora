@@ -158,6 +158,15 @@ public class AuthService {
         this.signInAlertNotifier = signInAlertNotifier;
     }
 
+    // Setter-injected for the same reason. Null in a test that builds this class by hand, where
+    // code sign-in is never paused; see SignInCodePause.
+    private SignInCodePause signInCodePause;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setSignInCodePause(SignInCodePause signInCodePause) {
+        this.signInCodePause = signInCodePause;
+    }
+
     /**
      * Called by every path on which an existing account is signed in to, right after its session is
      * created: password (with or without the admin second factor), emailed and phone codes, Google
@@ -1776,6 +1785,12 @@ public class AuthService {
         if (!user.isEmailVerified()) {
             throw new ApiException(ErrorCode.AUTH_OTP_CONTACT_NOT_VERIFIED);
         }
+        // Audit F-07: too many wrong codes in the last day, so no further code is sent. Before
+        // the wait and the request allowance below, so a paused account is told why and not to
+        // "wait a bit", and uses up nothing.
+        if (signInCodePause != null && signInCodePause.isPaused(user.getId())) {
+            throw signInCodePause.refusal();
+        }
 
         String realEmail = user.getEmail();
         emailLoginOtpRepository.findFirstByEmailAndAccountScopeOrderByCreatedAtDesc(realEmail, scope).ifPresent(last -> {
@@ -1863,6 +1878,16 @@ public class AuthService {
                 .findLiveForVerification(user.getEmail(), scope)
                 .orElseThrow(() -> new ApiException(ErrorCode.AUTH_OTP_INVALID_OR_EXPIRED));
 
+        // Audit F-07. Read after the lock above, so two guesses made at once are counted one
+        // after the other: every guess for an account goes through its one live code row. A
+        // paused account's code is not checked at all, right or wrong, and the refused try is
+        // not counted, so being paused does not extend the pause.
+        long wrongCodesToday = signInCodePause == null ? 0 : signInCodePause.wrongCodes(user.getId());
+        if (signInCodePause != null && signInCodePause.pausedAt(wrongCodesToday)) {
+            recordOtpLoginFailure(user.getId(), "email_otp", "code_sign_in_paused");
+            throw signInCodePause.refusal();
+        }
+
         if (otp.getAttemptCount() >= EMAIL_LOGIN_OTP_MAX_ATTEMPTS || otp.getExpiresAt().isBefore(Instant.now())) {
             // Exhausted or expired: consume it now rather than leaving it unconsumed-but-dead --
             // "unconsumed" should mean "still a live candidate", never "permanently rejected but
@@ -1876,6 +1901,9 @@ public class AuthService {
             otp.setAttemptCount(otp.getAttemptCount() + 1);
             emailLoginOtpRepository.save(otp);
             recordOtpLoginFailure(user.getId(), "email_otp", "wrong_code");
+            if (signInCodePause != null) {
+                signInCodePause.wrongCodeCounted(user, wrongCodesToday);
+            }
             throw new ApiException(ErrorCode.AUTH_OTP_INVALID_OR_EXPIRED);
         }
         otp.setConsumedAt(Instant.now());

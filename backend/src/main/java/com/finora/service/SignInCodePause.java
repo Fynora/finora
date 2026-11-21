@@ -23,6 +23,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.EnumSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -63,7 +64,7 @@ public class SignInCodePause {
     private static final Logger log = LoggerFactory.getLogger(SignInCodePause.class);
 
     /** Not configurable: it is how long EmailLoginOtpRetentionSweepService keeps the rows the
-     *  count is read from. */
+     *  count is read from, and that sweep takes its cutoff from this constant. */
     static final Duration WINDOW = Duration.ofHours(24);
 
     private static final ZoneId INDIA = ZoneId.of("Asia/Kolkata");
@@ -125,13 +126,20 @@ public class SignInCodePause {
         try {
             log.warn("Sign-in by emailed code paused for user {} after {} wrong codes in 24 hours",
                     user.getId(), wrongBefore + 1);
+            // Email only to a verified address, the rule SignInAlertNotifier gives the reason
+            // for. A code can only be requested for a verified address, so this matters only if
+            // the address stopped being verified after the codes were sent.
+            Set<NotificationChannel> channels = EnumSet.of(NotificationChannel.PUSH);
+            if (user.isEmailVerified()) {
+                channels.add(NotificationChannel.EMAIL);
+            }
             notificationService.request(NotificationRequest.of(
                     user.getId(),
                     NotificationType.SIGN_IN_CODE_PAUSED,
                     NotificationCategory.SECURITY,
                     NotificationPriority.HIGH,
                     "SIGN_IN_CODE_PAUSED_" + user.getId() + "_" + LocalDate.now(INDIA),
-                    EnumSet.of(NotificationChannel.EMAIL, NotificationChannel.PUSH),
+                    channels,
                     Map.of("count", String.valueOf(wrongBefore + 1),
                             "ip", orUnknown(requestMetadata.ip()),
                             "time", SignInAlertNotifier.formatted(Instant.now()))));

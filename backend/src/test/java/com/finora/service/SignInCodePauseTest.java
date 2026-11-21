@@ -46,6 +46,7 @@ class SignInCodePauseTest {
         when(requestMetadata.ip()).thenReturn("203.0.113.7");
         user = new User();
         ReflectionTestUtils.setField(user, "id", UUID.randomUUID());
+        user.setEmailVerified(true);
     }
 
     private SignInCodePause pause(int max) {
@@ -104,6 +105,19 @@ class SignInCodePauseTest {
                 .containsEntry("count", "10")
                 .containsEntry("ip", "203.0.113.7")
                 .containsKey("time");
+    }
+
+    /** A code can only be requested for a verified address, so this is an address that stopped
+     *  being verified afterwards. It gets no mail; phones signed in to the account are still told. */
+    @Test
+    void anAddressThatIsNoLongerVerifiedIsNotEmailed() {
+        user.setEmailVerified(false);
+
+        pause(10).wrongCodeCounted(user, 9);
+
+        ArgumentCaptor<NotificationRequest> request = ArgumentCaptor.forClass(NotificationRequest.class);
+        verify(notificationService).request(request.capture());
+        assertThat(request.getValue().channels()).containsExactly(NotificationChannel.PUSH);
     }
 
     @Test

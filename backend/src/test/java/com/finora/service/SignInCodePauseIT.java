@@ -171,6 +171,32 @@ class SignInCodePauseIT extends AbstractIntegrationTest {
                 .isNotBlank();
     }
 
+    /**
+     * As the oldest wrong codes pass 24 hours the count dips under the limit, and further wrong
+     * codes take it over again on the same day. The second crossing asks for the same alert the
+     * first did. That must not send a second one, and above all must not disturb the refusal it
+     * happens inside: the wrong code is still counted and the account is paused again.
+     */
+    @Test
+    void crossingTheLimitASecondTimeInADay_pausesAgainAndTellsNobodyTwice() {
+        User user = verifiedUser();
+        enterWrongCodes(user, 10);
+        // The first five wrong codes are now more than a day old; the other five still count.
+        jdbcTemplate.update("UPDATE email_login_otps SET created_at = created_at - interval '25 hours' "
+                + "WHERE id = (SELECT id FROM email_login_otps WHERE user_id = ? ORDER BY created_at LIMIT 1)",
+                user.getId());
+
+        String code = enterWrongCodes(user, 5);
+
+        assertIsThePause(signInRefused(user, code));
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT sum(attempt_count) FROM email_login_otps WHERE user_id = ? "
+                        + "AND created_at > now() - interval '24 hours'", Long.class, user.getId()))
+                .as("the wrong codes of the second run were all counted")
+                .isEqualTo(10L);
+        assertThat(pauseAlerts(user.getId())).extracting(row -> row.get("channel")).containsExactly("EMAIL", "PUSH");
+    }
+
     /** Wrong codes entered against one account are that account's business only. */
     @Test
     void anotherAccountIsNotPaused() {

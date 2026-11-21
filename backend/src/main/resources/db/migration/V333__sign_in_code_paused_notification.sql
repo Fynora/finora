@@ -9,6 +9,12 @@
 -- sign-ins before it. A sign-in has its own alert (NEW_SIGN_IN, V332).
 --
 -- The PUSH row carries no address: it shows on a lock screen.
+-- The count is "wrong tries on this account's codes in the last 24 hours", read on every code
+-- request and every code sign-in. The table had no index on user_id (its lookups were by email),
+-- so that read scanned the whole table. It holds a day of rows at most, so the index is small.
+CREATE INDEX IF NOT EXISTS idx_email_login_otps_user_created_at
+    ON email_login_otps (user_id, created_at);
+
 INSERT INTO notification_templates (id, type, channel, title_template, body_template) VALUES
     (gen_random_uuid(), 'SIGN_IN_CODE_PAUSED', 'EMAIL',
      'Sign-in by emailed code is paused on your Fynora account',

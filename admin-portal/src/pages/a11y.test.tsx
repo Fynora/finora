@@ -45,7 +45,7 @@ vi.mock('../api/endpoints', () => {
   };
 });
 
-async function renderPage(ui: React.ReactElement) {
+async function renderPage(ui: React.ReactElement, path: string) {
   // token: null -- these are exactly the pages reachable WITHOUT a session; a truthy token (the
   // mock's sane default for authenticated-page tests elsewhere) would make Login.tsx redirect away
   // before its form ever renders. See this file's own doc comment for the bug this was hiding.
@@ -53,7 +53,7 @@ async function renderPage(ui: React.ReactElement) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const { container } = render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>{ui}</MemoryRouter>
+      <MemoryRouter initialEntries={[path]}>{ui}</MemoryRouter>
     </QueryClientProvider>
   );
   // Every page in PUBLIC_PAGES settles into a real <form> -- Login only after its own
@@ -63,10 +63,13 @@ async function renderPage(ui: React.ReactElement) {
   return container;
 }
 
-const PUBLIC_PAGES: ReadonlyArray<readonly [string, () => React.ReactElement]> = [
-  ['Login', () => <Login />],
-  ['ForgotPassword', () => <ForgotPassword />],
-  ['ResetPassword', () => <ResetPassword />],
+// The third entry is the address the page is opened at. ResetPassword needs its link's token: a
+// visit without one shows only "no reset token found", with no form to scan, and the page that
+// matters is the one an admin actually lands on from the email.
+const PUBLIC_PAGES: ReadonlyArray<readonly [string, () => React.ReactElement, string]> = [
+  ['Login', () => <Login />, '/'],
+  ['ForgotPassword', () => <ForgotPassword />, '/'],
+  ['ResetPassword', () => <ResetPassword />, '/reset-password?token=reset-token-abc'],
 ];
 
 beforeEach(() => {
@@ -74,8 +77,8 @@ beforeEach(() => {
 });
 
 describe('accessibility baseline — admin public pages', () => {
-  it.each(PUBLIC_PAGES)('%s has no machine-detectable violations', async (name, page) => {
-    const container = await renderPage(page());
+  it.each(PUBLIC_PAGES)('%s has no machine-detectable violations', async (name, page, path) => {
+    const container = await renderPage(page(), path);
 
     const violations = await axeViolations(container);
     if (violations.length > 0) {

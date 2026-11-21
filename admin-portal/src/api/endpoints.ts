@@ -108,10 +108,13 @@ export const authApi = {
     api.post<{ message: string; devResetLink: string | null }>('/auth/forgot-password', { email, scope: PORTAL_SCOPE }).then((r) => r.data),
   // Second factor for password reset -- the reset token alone (proof of email access) is no
   // longer sufficient; a phone OTP via Firebase Phone Authentication (proof of phone access) is
-  // required too. The backend never sends the OTP itself, only reveals the real phone number so
-  // this app can hand it to Firebase directly -- same as frontend/'s authApi.resolveResetPasswordPhone.
-  resolveResetPasswordPhone: (token: string) =>
-    api.post<{ phoneNumber: string }>('/auth/reset-password/phone', { token }).then((r) => r.data),
+  // required too. The backend never sends the OTP itself and never reveals the account's phone
+  // number (BH-015): the admin types their number, this call confirms it matches the account,
+  // and only then does the page hand that typed number to Firebase. Same as frontend/'s
+  // authApi.verifyResetPasswordPhone. This used to be resolveResetPasswordPhone(token), which
+  // sent the token alone and read a number out of the reply -- a request the server refuses.
+  verifyResetPasswordPhone: (token: string, phoneNumber: string) =>
+    api.post<{ message: string }>('/auth/reset-password/phone', { token, phoneNumber }).then((r) => r.data),
   resetPassword: (token: string, firebaseIdToken: string, newPassword: string) =>
     api.post<{ message: string }>('/auth/reset-password', { token, firebaseIdToken, newPassword }).then((r) => r.data),
   // Second step of a login that came back AUTH_MFA_REQUIRED (Admin MFA UI, SEC-03) -- the

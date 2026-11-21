@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ShieldAlert } from 'lucide-react';
@@ -6,22 +6,10 @@ import { authApi } from '../api/endpoints';
 import { PasswordInput } from '../components/PasswordInput';
 import { sendPhoneVerificationCode, confirmPhoneVerificationCode, resetPhoneVerification } from '../lib/phoneAuth';
 import { maskPhone } from '../lib/maskPhone';
+import { PASSWORD_HINT } from '../lib/passwordHint';
 import type { ConfirmationResult } from 'firebase/auth';
 
 const RECAPTCHA_CONTAINER_ID = 'reset-password-recaptcha';
-
-// Same heuristic as frontend/'s Register.tsx/ResetPassword.tsx -- kept identical so the meter
-// means the same thing wherever a password gets set anywhere in Fynora, admin or not.
-function passwordStrength(pw: string): { score: number; label: string; color: string } {
-  let score = 0;
-  if (pw.length >= 8) score++;
-  if (/[a-z]/.test(pw) && /[A-Z]/.test(pw)) score++;
-  if (/[0-9]/.test(pw)) score++;
-  if (/[^A-Za-z0-9]/.test(pw)) score++;
-  const labels = ['Too short', 'Weak', 'Fair', 'Good', 'Strong'];
-  const colors = ['bg-gray-300', 'bg-danger', 'bg-warning', 'bg-info', 'bg-success'];
-  return { score, label: labels[score], color: colors[score] };
-}
 
 // Kept word-for-word identical to frontend/'s ResetPassword.tsx -- this was "Could not reset
 // password. The code may be wrong or the link may have expired." here, different wording for the
@@ -62,6 +50,11 @@ export default function ResetPassword() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+  // The proof of the phone code, kept once the code has been checked. The server can refuse the
+  // new password itself (too common, same as the current one) after the code was accepted, and
+  // the next try must send this again instead of asking Firebase to check a code it has already
+  // used. Same as frontend/'s ResetPassword.tsx. Cleared when a new code is sent.
+  const verifiedIdToken = useRef<string | null>(null);
 
   async function requestOtp() {
     if (!token) return;
@@ -69,6 +62,7 @@ export default function ResetPassword() {
     setOtpError(null);
     setOtp('');
     setConfirmation(null);
+    verifiedIdToken.current = null;
     try {
       const res = await authApi.resolveResetPasswordPhone(token);
       setPhoneNumber(res.phoneNumber);
@@ -91,7 +85,6 @@ export default function ResetPassword() {
   const passwordLongEnough = password.length >= 8;
   const passwordsMatch = confirm.length > 0 && confirm === password;
   const otpValid = /^\d{6}$/.test(otp);
-  const strength = useMemo(() => passwordStrength(password), [password]);
   const formValid = Boolean(token) && Boolean(confirmation) && otpValid && passwordLongEnough && passwordsMatch;
 
   function markTouched(field: string) {
@@ -109,7 +102,8 @@ export default function ResetPassword() {
     setError(null);
     setLoading(true);
     try {
-      const firebaseIdToken = await confirmPhoneVerificationCode(confirmation, otp);
+      const firebaseIdToken = verifiedIdToken.current ?? await confirmPhoneVerificationCode(confirmation, otp);
+      verifiedIdToken.current = firebaseIdToken;
       await authApi.resetPassword(token, firebaseIdToken, password);
       setDone(true);
       // Was a bare navigate('/login') with no message at all -- unlike the user app's identical
@@ -205,16 +199,7 @@ export default function ResetPassword() {
                 onBlur={() => markTouched('password')}
                 className="w-full bg-bg border border-border rounded-lg px-3.5 py-2.5 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
               />
-              {password.length > 0 && (
-                <div className="mt-2 mb-1">
-                  <div className="flex gap-1 mb-1">
-                    {[0, 1, 2, 3].map((i) => (
-                      <div key={i} className={`h-1 flex-1 rounded-full ${i < strength.score ? strength.color : 'bg-gray-200'}`} />
-                    ))}
-                  </div>
-                  <p className="text-[11px] text-muted">{strength.label}</p>
-                </div>
-              )}
+              <p className="text-[11px] text-muted mt-1.5 mb-1">{PASSWORD_HINT}</p>
               <p className="text-[11px] mb-3 h-3.5">
                 {touched.password && !passwordLongEnough && password.length > 0 && (
                   <span className="text-danger">Password must be at least 8 characters.</span>

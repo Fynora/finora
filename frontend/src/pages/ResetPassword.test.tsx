@@ -206,6 +206,63 @@ describe('ResetPassword', () => {
     expect(screen.getByText('skipToPassword=true')).toBeInTheDocument();
   });
 
+  /**
+   * The server can refuse the new password after the phone code was accepted (too common, or the
+   * same as the current one). Firebase takes a code once, so the second try must send the proof
+   * it already has rather than check the code again.
+   */
+  it('lets someone choose another password after the server refuses the first, without checking the code twice', async () => {
+    const refusal = 'That password is one of the most commonly used, so it is easy to guess. Choose a different one.';
+    vi.mocked(authApi.resetPassword).mockReset()
+      .mockRejectedValueOnce({ response: { data: { message: refusal } } })
+      .mockResolvedValue({ message: 'Password updated.' });
+    renderPage();
+    const user = userEvent.setup();
+    await confirmPhoneStep(user);
+
+    await user.type(screen.getByLabelText(/verification code/i), '654321');
+    await user.type(screen.getByLabelText(/^new password$/i), 'password123');
+    await user.type(screen.getByLabelText(/confirm password/i), 'password123');
+    await user.click(screen.getByRole('button', { name: /update password/i }));
+    await waitFor(() => expect(screen.getByText(refusal)).toBeInTheDocument());
+
+    await user.clear(screen.getByLabelText(/^new password$/i));
+    await user.type(screen.getByLabelText(/^new password$/i), 'kettle#Orbit42river');
+    await user.clear(screen.getByLabelText(/confirm password/i));
+    await user.type(screen.getByLabelText(/confirm password/i), 'kettle#Orbit42river');
+    await user.click(screen.getByRole('button', { name: /update password/i }));
+
+    await waitFor(() => expect(screen.getByText('Password updated')).toBeInTheDocument());
+    expect(confirmPhoneVerificationCode).toHaveBeenCalledTimes(1);
+    expect(authApi.resetPassword).toHaveBeenLastCalledWith('reset-token-abc', 'fake-firebase-id-token', 'kettle#Orbit42river');
+  });
+
+  it('checks the new code after a resend, not the proof of the old one', async () => {
+    vi.mocked(authApi.resetPassword).mockReset()
+      .mockRejectedValueOnce({ response: { data: { message: 'Refused.' } } })
+      .mockResolvedValue({ message: 'Password updated.' });
+    vi.mocked(confirmPhoneVerificationCode).mockReset()
+      .mockResolvedValueOnce('first-id-token')
+      .mockResolvedValueOnce('second-id-token');
+    renderPage();
+    const user = userEvent.setup();
+    await confirmPhoneStep(user);
+
+    await user.type(screen.getByLabelText(/verification code/i), '654321');
+    await user.type(screen.getByLabelText(/^new password$/i), 'kettle#Orbit42river');
+    await user.type(screen.getByLabelText(/confirm password/i), 'kettle#Orbit42river');
+    await user.click(screen.getByRole('button', { name: /update password/i }));
+    await waitFor(() => expect(screen.getByText('Refused.')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: /resend code/i }));
+    await waitFor(() => expect(sendPhoneVerificationCode).toHaveBeenCalledTimes(2));
+    await user.type(screen.getByLabelText(/verification code/i), '112233');
+    await user.click(screen.getByRole('button', { name: /update password/i }));
+
+    await waitFor(() => expect(screen.getByText('Password updated')).toBeInTheDocument());
+    expect(authApi.resetPassword).toHaveBeenLastCalledWith('reset-token-abc', 'second-id-token', 'kettle#Orbit42river');
+  });
+
   it('has exactly one reCAPTCHA anchor in the DOM, unaffected by the phone-to-OTP step transition', async () => {
     const { container } = renderPage();
     const user = userEvent.setup();

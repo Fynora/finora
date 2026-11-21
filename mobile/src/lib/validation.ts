@@ -78,15 +78,15 @@ export function parsePositiveAmount(raw: string): number | null {
 }
 
 /**
- * Four independent signals, no library. Purely a nudge shown under the field -- never a
- * submission gate; the backend's 8-character minimum is the real requirement.
+ * Shown under every field where a password is chosen. It replaced the strength meters (audit
+ * F-08, 2026-11-21): a meter that counts capitals, digits and symbols called "Password1!" strong,
+ * and the server refuses it. What the server refuses cannot be worked out on the phone, because
+ * it is a list of 46,000 passwords, so this says what the rule is and the server's own sentence
+ * (shown through toUserMessage) says which part of it a refused password broke.
+ *
+ * Keep the wording in step with WeakPasswordGuard on the backend, and with the same constant in
+ * frontend/src/lib/passwordHint.ts and admin-portal/src/lib/passwordHint.ts.
  */
-export function passwordStrength(pw: string): { score: number; label: string } {
-  let score = 0;
-  if (pw.length >= 8) score++;
-  if (/[a-z]/.test(pw) && /[A-Z]/.test(pw)) score++;
-  if (/[0-9]/.test(pw)) score++;
-  if (/[^A-Za-z0-9]/.test(pw)) score++;
-  const labels = ['Too short', 'Weak', 'Fair', 'Good', 'Strong'];
-  return { score, label: labels[score] };
-}
+export const PASSWORD_HINT =
+  'At least 8 characters. Several words together work well. Common passwords, a single short '
+  + 'word with numbers, and your own name, email or phone number are not accepted.';

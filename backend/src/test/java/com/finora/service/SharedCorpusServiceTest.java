@@ -414,12 +414,102 @@ class SharedCorpusServiceTest {
         verify(corpus, never()).save(any());
     }
 
+    // ---- One vote per account (audit F-12, 2026-11-20) ----
+
+    @Test
+    void computeTier_oneAccountVotingManyTimes_hasOneVote() {
+        // Every recorded vote used to count. One account voting "Investments" ten times beside two
+        // accounts that both said "Dining" made "Investments" the trusted answer with 83%.
+        UUID loud = UUID.randomUUID();
+        List<CounterpartyCategoryObservation> history = new ArrayList<>();
+        for (int i = 0; i < 10; i++) {
+            history.add(observationBy(loud, "Investments", Instant.now().minusSeconds(100 - i)));
+        }
+        history.add(observationOf("Dining", Instant.now()));
+        history.add(observationOf("Dining", Instant.now()));
+
+        SharedCorpusService.Tier tier = SharedCorpusService.computeTier(history);
+
+        assertThat(tier.status()).isEqualTo(SharedMerchantCategory.Status.DISPUTED);
+        assertThat(tier.category()).isEqualTo("Dining");
+        assertThat(tier.distinctUserCount()).isEqualTo(3);
+        assertThat(tier.distribution().get("Investments")).isEqualByComparingTo("0.333333");
+    }
+
+    @Test
+    void computeTier_threeVotesForTheWinnerFromTwoAccounts_isNotTrusted() {
+        // "At least three votes for the winner" means three accounts, not three votes.
+        UUID twice = UUID.randomUUID();
+        List<CounterpartyCategoryObservation> history = new ArrayList<>();
+        history.add(observationBy(twice, "Dining", Instant.now().minusSeconds(60)));
+        history.add(observationBy(twice, "Dining", Instant.now()));
+        history.add(observationOf("Dining", Instant.now()));
+        history.add(observationOf("Shopping", Instant.now()));
+
+        SharedCorpusService.Tier tier = SharedCorpusService.computeTier(history);
+
+        assertThat(tier.status()).isEqualTo(SharedMerchantCategory.Status.DISPUTED);
+        assertThat(tier.distinctUserCount()).isEqualTo(3);
+    }
+
+    @Test
+    void computeTier_anAccountThatChangedItsMind_countsForItsLatestChoiceOnly() {
+        UUID changedMind = UUID.randomUUID();
+        List<CounterpartyCategoryObservation> history = new ArrayList<>();
+        // Listed newest first: the order rows come back in is not the order they were made in.
+        history.add(observationBy(changedMind, "Dining", Instant.now()));
+        history.add(observationBy(changedMind, "Shopping", Instant.now().minusSeconds(3600)));
+        history.add(observationOf("Dining", Instant.now()));
+        history.add(observationOf("Dining", Instant.now()));
+
+        SharedCorpusService.Tier tier = SharedCorpusService.computeTier(history);
+
+        assertThat(tier.status()).isEqualTo(SharedMerchantCategory.Status.TRUSTED);
+        assertThat(tier.category()).isEqualTo("Dining");
+        assertThat(tier.distribution()).containsOnlyKeys("Dining");
+        assertThat(tier.distinctUserCount()).isEqualTo(3);
+    }
+
+    @Test
+    void computeTier_anAccountsLatestVoteForACategoryOfItsOwn_doesNotHideItsEarlierDefaultOne() {
+        // Votes for a category the user made are no votes at all (see above), so the latest vote
+        // that counts is the latest one for a default category.
+        UUID user = UUID.randomUUID();
+        List<CounterpartyCategoryObservation> history = new ArrayList<>();
+        history.add(observationBy(user, "Dining", Instant.now().minusSeconds(3600)));
+        history.add(observationBy(user, "Quick Bites", Instant.now()));
+        history.add(observationOf("Dining", Instant.now()));
+        history.add(observationOf("Dining", Instant.now()));
+
+        SharedCorpusService.Tier tier = SharedCorpusService.computeTier(history);
+
+        assertThat(tier.status()).isEqualTo(SharedMerchantCategory.Status.TRUSTED);
+        assertThat(tier.distinctUserCount()).isEqualTo(3);
+    }
+
+    @Test
+    void recordObservation_oneAccountVotingThreeTimes_promotesNothing() {
+        when(corpus.findByCounterpartyKeyAndDirection(any(), any())).thenReturn(Optional.empty());
+        UUID only = UUID.randomUUID();
+
+        for (int i = 0; i < 3; i++) {
+            service.recordObservation(only, "vpa:newmerchant", CounterpartyType.BUSINESS,
+                    Transaction.Type.EXPENSE, "Dining");
+        }
+
+        verify(corpus, never()).save(any());
+    }
+
     private static CounterpartyCategoryObservation observationOf(String category, Instant createdAt) {
+        return observationBy(UUID.randomUUID(), category, createdAt);
+    }
+
+    private static CounterpartyCategoryObservation observationBy(UUID userId, String category, Instant createdAt) {
         CounterpartyCategoryObservation o = new CounterpartyCategoryObservation();
         o.setCounterpartyKey("vpa:kronos");
         o.setDirection(Transaction.Type.INCOME);
         o.setCategory(category);
-        o.setUserId(UUID.randomUUID());
+        o.setUserId(userId);
         o.setCounterpartyTypeAtVote(CounterpartyType.BUSINESS);
         o.setCreatedAt(createdAt);
         return o;

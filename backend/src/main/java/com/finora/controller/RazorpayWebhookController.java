@@ -95,9 +95,6 @@ public class RazorpayWebhookController {
         JSONObject innerPayload = json.optJSONObject("payload");
         Map<String, Object> eventPayload = innerPayload != null ? innerPayload.toMap() : Map.of();
 
-        // Razorpay's test-mode "send test webhook" tool does not always include this header -- fall
-        // back to accepting (and not recording) rather than NPEing on a null primary key. A real
-        // production webhook always carries one.
         // Razorpay sends X-Razorpay-Event-Id on every delivery, and it is the only idempotency
         // key this endpoint has: the signature carries no timestamp, so a delivery without the
         // header could be replayed indefinitely and would create a Payment row each time. It is

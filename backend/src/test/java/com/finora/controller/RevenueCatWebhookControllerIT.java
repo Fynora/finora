@@ -35,18 +35,86 @@ class RevenueCatWebhookControllerIT extends AbstractIntegrationTest {
     @Autowired private IapProductRepository iapProductRepository;
     @Autowired private ReferralService referralService;
     @Autowired private ReferralRepository referralRepository;
+    @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
 
     @Value("${app.integrations.revenuecat.webhook-signing-secret}")
     private String webhookSecret;
 
     private void postSigned(String body) {
+        assertThat(post(body).getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    private ResponseEntity<String> post(String body) {
         long now = Instant.now().getEpochSecond();
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("X-RevenueCat-Webhook-Signature", TestHmac.header(body, now, webhookSecret));
-        ResponseEntity<String> response = restTemplate.postForEntity(
+        return restTemplate.postForEntity(
                 "/api/v1/webhooks/revenuecat", new HttpEntity<>(body, headers), String.class);
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    private long ledgerRows(String eventId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM webhook_events WHERE event_id = ?", Long.class, "revenuecat:" + eventId);
+    }
+
+    // Audit F-06 (2026-11-20). An event with no id used to be given a random one, so the same
+    // event delivered twice was processed twice. RevenueCat documents the id as always present
+    // and reused on a retry, so an event without one is not something it sends: it is refused,
+    // as the Razorpay endpoint refuses a delivery with no event id.
+
+    @Test
+    void anEventWithNoIdIsRefused_andNothingIsProcessed() {
+        User user = createActiveRevenueCatUser("PLUS", "MONTHLY");
+        String body = """
+                {"event":{"type":"EXPIRATION","app_user_id":"%s","original_transaction_id":"%s"}}
+                """.formatted(user.getId(), txnIdFor(user));
+
+        assertThat(post(body).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        var subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        assertThat(subscription.getPaymentProvider())
+                .as("the refused EXPIRATION must not have downgraded the subscription")
+                .isEqualTo("REVENUECAT");
+    }
+
+    /** An empty id used to be stored under one shared key, so the second such event of any kind
+     *  was thrown away as a duplicate of the first. A JSON null is the same as no id at all. */
+    @Test
+    void anEmptyBlankOrNullIdIsRefusedToo() {
+        User user = createActiveRevenueCatUser("PLUS", "MONTHLY");
+        for (String id : new String[] {"\"\"", "\"   \"", "null"}) {
+            String body = """
+                    {"event":{"id":%s,"type":"EXPIRATION","app_user_id":"%s","original_transaction_id":"%s"}}
+                    """.formatted(id, user.getId(), txnIdFor(user));
+
+            assertThat(post(body).getStatusCode()).as("id %s", id).isEqualTo(HttpStatus.BAD_REQUEST);
+        }
+        assertThat(ledgerRows("")).as("nothing was recorded under the shared empty key").isZero();
+        assertThat(subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow().getPaymentProvider())
+                .isEqualTo("REVENUECAT");
+    }
+
+    /** What the id is for. The second delivery is answered 200, so RevenueCat stops retrying, and
+     *  changes nothing: the UNCANCELLATION in between is still in force afterwards. */
+    @Test
+    void theSameEventDeliveredTwiceIsProcessedOnce() {
+        User user = createActiveRevenueCatUser("PLUS", "MONTHLY");
+        String cancellationId = UUID.randomUUID().toString();
+        String cancellation = """
+                {"event":{"id":"%s","type":"CANCELLATION","app_user_id":"%s","original_transaction_id":"%s"}}
+                """.formatted(cancellationId, user.getId(), txnIdFor(user));
+
+        postSigned(cancellation);
+        assertThat(subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow().isAutoRenew()).isFalse();
+        postSigned(revenueCatBody("UNCANCELLATION", user.getId(), Map.of("original_transaction_id", txnIdFor(user))));
+
+        postSigned(cancellation);
+
+        assertThat(subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow().isAutoRenew())
+                .as("the redelivered CANCELLATION must not be applied a second time")
+                .isTrue();
+        assertThat(ledgerRows(cancellationId)).isEqualTo(1);
     }
 
     // The webhook receivers are open to the internet. A request without the signature header came
@@ -61,6 +129,49 @@ class RevenueCatWebhookControllerIT extends AbstractIntegrationTest {
             assertThat(response.getStatusCode()).as(path).isEqualTo(HttpStatus.BAD_REQUEST);
             assertThat(response.getBody()).as(path).contains("INVALID_PARAMETER").contains("is missing");
         }
+    }
+
+    /**
+     * The ledger's key holds 50 characters, 11 of them the "revenuecat:" prefix. RevenueCat's ids
+     * are 36-character UUIDs today, but nothing promises that. A longer one used to fail to store,
+     * which answered 500 on every retry: the event could never be processed. It is now keyed by a
+     * hash of the id, so it is processed, and its redelivery is still recognised.
+     */
+    @Test
+    void anEventWhoseIdIsTooLongForTheLedgerIsStillProcessedOnce() {
+        User user = createActiveRevenueCatUser("PLUS", "MONTHLY");
+        String longId = "evt_" + "a".repeat(60) + "_" + UUID.randomUUID();
+        String cancellation = """
+                {"event":{"id":"%s","type":"CANCELLATION","app_user_id":"%s","original_transaction_id":"%s"}}
+                """.formatted(longId, user.getId(), txnIdFor(user));
+
+        postSigned(cancellation);
+        assertThat(subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow().isAutoRenew()).isFalse();
+        postSigned(revenueCatBody("UNCANCELLATION", user.getId(), Map.of("original_transaction_id", txnIdFor(user))));
+
+        postSigned(cancellation);
+
+        assertThat(subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow().isAutoRenew())
+                .as("the redelivered event must be recognised as the same one")
+                .isTrue();
+    }
+
+    /** Two long ids that differ only at the end must not be taken for the same event. */
+    @Test
+    void twoDifferentLongIdsAreTwoDifferentEvents() {
+        User user = createActiveRevenueCatUser("PLUS", "MONTHLY");
+        String prefix = "evt_" + "b".repeat(60) + "_" + UUID.randomUUID();
+
+        postSigned("""
+                {"event":{"id":"%s","type":"CANCELLATION","app_user_id":"%s","original_transaction_id":"%s"}}
+                """.formatted(prefix + "_1", user.getId(), txnIdFor(user)));
+        postSigned("""
+                {"event":{"id":"%s","type":"UNCANCELLATION","app_user_id":"%s","original_transaction_id":"%s"}}
+                """.formatted(prefix + "_2", user.getId(), txnIdFor(user)));
+
+        assertThat(subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow().isAutoRenew())
+                .as("the second event was processed, not dropped as a duplicate of the first")
+                .isTrue();
     }
 
     @Test
@@ -84,10 +195,10 @@ class RevenueCatWebhookControllerIT extends AbstractIntegrationTest {
 
         long expirationEpochMs = Instant.now().plusSeconds(2_592_000).toEpochMilli();
         String body = """
-                {"event":{"type":"INITIAL_PURCHASE","app_user_id":"%s","product_id":"%s",
+                {"event":{"id":"%s","type":"INITIAL_PURCHASE","app_user_id":"%s","product_id":"%s",
                  "store":"APP_STORE","original_transaction_id":"txn_it_1",
                  "expiration_at_ms":%d}}
-                """.formatted(user.getId(), product.getProviderProductId(), expirationEpochMs);
+                """.formatted(UUID.randomUUID(), user.getId(), product.getProviderProductId(), expirationEpochMs);
 
         postSigned(body);
 
@@ -130,11 +241,11 @@ class RevenueCatWebhookControllerIT extends AbstractIntegrationTest {
 
         long expirationEpochMs = Instant.now().plusSeconds(2_592_000).toEpochMilli();
         String body = """
-                {"event":{"type":"INITIAL_PURCHASE","app_user_id":"%s","product_id":"%s",
+                {"event":{"id":"%s","type":"INITIAL_PURCHASE","app_user_id":"%s","product_id":"%s",
                  "store":"APP_STORE","transaction_id":"txn_referral_it_1",
                  "original_transaction_id":"txn_referral_it_1","period_type":"NORMAL","price":4.99,
                  "expiration_at_ms":%d}}
-                """.formatted(referred.getId(), product.getProviderProductId(), expirationEpochMs);
+                """.formatted(UUID.randomUUID(), referred.getId(), product.getProviderProductId(), expirationEpochMs);
 
         postSigned(body);
 
@@ -398,12 +509,13 @@ class RevenueCatWebhookControllerIT extends AbstractIntegrationTest {
         return "txn_" + user.getId();
     }
 
+    /** A fresh event id each time, as RevenueCat sends one per event. */
     private String revenueCatBody(String type, UUID appUserId, Map<String, Object> extra) {
         long expirationEpochMs = Instant.now().plusSeconds(2_592_000).toEpochMilli();
         StringBuilder extraJson = new StringBuilder();
         extra.forEach((k, v) -> extraJson.append(",\"").append(k).append("\":\"").append(v).append("\""));
         return """
-                {"event":{"type":"%s","app_user_id":"%s","expiration_at_ms":%d%s}}
-                """.formatted(type, appUserId, expirationEpochMs, extraJson);
+                {"event":{"id":"%s","type":"%s","app_user_id":"%s","expiration_at_ms":%d%s}}
+                """.formatted(UUID.randomUUID(), type, appUserId, expirationEpochMs, extraJson);
     }
 }

@@ -59,6 +59,31 @@ class WeakPasswordGuardTest {
         assertThat(refused(password)).as(password).isNotNull();
     }
 
+    /**
+     * None of these is on the list as typed; each is once its symbols and spaces are taken out.
+     * A symbol dropped into a common password is how most people meet a "needs a symbol" habit,
+     * and it was the largest hole found when the first version of this rule was reviewed.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"Hello@123", "Qwerty@123", "Rahul@123", "Test@1234", "Pass@1234", "Sachin@123",
+            "Ganesh@123", "Iloveyou@1", "p.a.s.s.w.o.r.d", "pass word 1", "!!password!!"})
+    void aCommonPasswordWithSymbolsAddedIsRefused(String password) {
+        ApiException refusal = catchThrowableOfType(ApiException.class, () -> guard.check(password, null, null, null));
+
+        assertThat(refusal).as(password).isNotNull();
+        assertThat(refusal.getMessage()).isEqualTo(WeakPasswordGuard.COMMON_MESSAGE);
+    }
+
+    /** An email name with no letters in it. The letter comparison has nothing to compare. */
+    @Test
+    void anEmailNameWithNoLettersIsRefusedWhenUsedAsThePassword() {
+        assertThatThrownBy(() -> guard.check("58_20.19", "58_20.19@example.com", NAME, PHONE))
+                .isInstanceOf(ApiException.class)
+                .hasMessage(WeakPasswordGuard.PERSONAL_MESSAGE);
+        assertThatCode(() -> guard.check("58_20.19", "someone@example.com", NAME, PHONE))
+                .doesNotThrowAnyException();
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"correct horse battery staple", "Tm9-vexing-Lantern", "kettle#Orbit42river",
             "नमस्ते दुनिया कैसे", "7391 4628 5507 1183"})
@@ -122,8 +147,34 @@ class WeakPasswordGuardTest {
     /** Two letters match far too much: "Jo" would refuse every password whose only letters are j, o. */
     @Test
     void aVeryShortNameIsNotCompared() {
-        assertThatCode(() -> guard.check("jo482917", "jo@example.com", "Jo Li", null))
+        assertThatCode(() -> guard.check("jo48291-75306", "jo@example.com", "Jo Li", null))
                 .doesNotThrowAnyException();
+    }
+
+    /** On no list, and nobody's name here: one word, a symbol and a number. */
+    @ParameterizedTest
+    @ValueSource(strings = {"Mumbai@123", "Krishna@108", "Summer@2026", "MyDogRex1", "mumbaikar", "2026@Diwali",
+            "Zxqvbnk@91", "दीपावली@108"})
+    void aSingleShortWordWithNumbersAndSymbolsIsRefused(String password) {
+        ApiException refusal = catchThrowableOfType(ApiException.class, () -> guard.check(password, null, null, null));
+
+        assertThat(refusal).as(password).isNotNull();
+        assertThat(refusal.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(refusal.getMessage()).isEqualTo(WeakPasswordGuard.SINGLE_WORD_MESSAGE);
+    }
+
+    /** Twelve characters is where one word is let through, and two words are fine at any length. */
+    @ParameterizedTest
+    @ValueSource(strings = {"Mumbai@12345", "mumbai-local", "tea-rain", "Rex&Moti2019", "84629173", "58_20.19!"})
+    void twelveCharactersOrASecondWordIsAccepted(String password) {
+        assertThatCode(() -> guard.check(password, null, null, null)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void theSingleWordRuleCountsCharactersNotBytes() {
+        // Eleven characters, far more than eleven bytes.
+        assertThatThrownBy(() -> guard.check("दीपावली@108", null, null, null)).isInstanceOf(ApiException.class);
+        assertThat("दीपावली@108".codePointCount(0, "दीपावली@108".length())).isEqualTo(11);
     }
 
     @Test

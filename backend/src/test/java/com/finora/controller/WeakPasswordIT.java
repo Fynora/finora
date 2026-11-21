@@ -44,6 +44,9 @@ class WeakPasswordIT extends AbstractIntegrationTest {
             + "your password. Choose a different one.";
 
     // The value PasswordChangeFlowIT signs up with. Made up, and not on the list.
+    private static final String SINGLE_WORD = "A single word, even with numbers or symbols added, is "
+            + "easy to guess. Use several words, or 12 or more characters.";
+
     private static final String FIRST_PASSWORD = "OriginalPass123";
     private static final String NAME = "Meera Krishnan";
     private static final AtomicInteger CLIENT_IP_COUNTER = new AtomicInteger(1);
@@ -123,6 +126,18 @@ class WeakPasswordIT extends AbstractIntegrationTest {
 
     private boolean accountExists(Person person) {
         return userRepository.existsByEmailIgnoreCaseAndAccountScope(person.email(), "USER");
+    }
+
+    /** Not on the list as typed. "hello123" is. */
+    @Test
+    void signUp_withACommonPasswordAndASymbolAdded_isRefused() throws Exception {
+        assertRefused(register(newPerson(), "Hello@123"), COMMON);
+    }
+
+    /** On no list and nobody's name: one word, a symbol and a number, in under 12 characters. */
+    @Test
+    void signUp_withASingleShortWordAndNumbers_isRefused() throws Exception {
+        assertRefused(register(newPerson(), "Mumbai@123"), SINGLE_WORD);
     }
 
     @Test

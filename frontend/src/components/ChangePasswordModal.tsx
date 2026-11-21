@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { X, Eye, EyeOff, CheckCircle2, Circle, ChevronDown, ChevronUp } from 'lucide-react';
+import { X, Eye, EyeOff, CheckCircle2 } from 'lucide-react';
 import { passwordChangeApi, type SignInMethod } from '../api/endpoints';
 import {
   sendPhoneVerificationCode,
@@ -8,6 +8,7 @@ import {
   friendlySendError,
 } from '../lib/phoneAuth';
 import { reportHandledError } from '../lib/monitoring';
+import { PASSWORD_HINT } from '../lib/passwordHint';
 import { AppleReauthPrompt } from './AppleReauthPrompt';
 import { GoogleReauthPrompt } from './GoogleReauthPrompt';
 import type { ConfirmationResult } from 'firebase/auth';
@@ -44,31 +45,10 @@ function friendlyFirebaseError(err: any): string {
 
 type Step = 'password' | 'otp' | 'newPassword' | 'success';
 
-const REQUIREMENTS: { label: string; hint: string; test: (pw: string) => boolean }[] = [
-  { label: 'At least 8 characters', hint: 'Make it at least 8 characters long', test: (pw) => pw.length >= 8 },
-  { label: 'An uppercase letter', hint: 'Add an uppercase letter', test: (pw) => /[A-Z]/.test(pw) },
-  { label: 'A lowercase letter', hint: 'Add a lowercase letter', test: (pw) => /[a-z]/.test(pw) },
-  { label: 'A number', hint: 'Add a number', test: (pw) => /[0-9]/.test(pw) },
-  { label: 'A special character', hint: 'Add a special character', test: (pw) => /[^A-Za-z0-9]/.test(pw) },
-];
-
-// Only length is actually enforced server-side (see AuthDtos.PASSWORD_SIZE_MESSAGE) -- the rest
-// of REQUIREMENTS is shown as a strength guide, not a hard gate, so this never blocks a
-// technically-valid password the backend would accept just because it lacks a symbol.
-function strength(pw: string): { label: string; pct: number; colorClass: string } {
-  if (pw.length === 0) return { label: '', pct: 0, colorClass: 'bg-border' };
-  const met = REQUIREMENTS.filter((r) => r.test(pw)).length;
-  if (met <= 2) return { label: 'Weak', pct: 33, colorClass: 'bg-danger' };
-  if (met <= 4) return { label: 'Good', pct: 66, colorClass: 'bg-warning' };
-  return { label: 'Strong', pct: 100, colorClass: 'bg-success' };
-}
-
-// The first unmet suggestion, phrased as the concrete next step -- "Weak" alone doesn't tell
-// anyone what to actually do about it.
-function nextSuggestion(pw: string): string | null {
-  const unmet = REQUIREMENTS.find((r) => !r.test(pw));
-  return unmet ? `${unmet.hint} to improve strength.` : null;
-}
+// There was a strength bar here, and a checklist recommending a capital, a number and a special
+// character. Both are gone (audit F-08, 2026-11-21): they rated "Password1!" as strong, which the
+// server refuses, and the checklist taught exactly the habit that makes passwords guessable. The
+// one-line PASSWORD_HINT says what the server's rule is instead.
 
 function PasswordField({ id, label, value, onChange, show, onToggleShow }: {
   id: string; label: string; value: string; onChange: (v: string) => void; show: boolean; onToggleShow: () => void;
@@ -115,13 +95,10 @@ export function ChangePasswordModal({ onClose, onSuccess, signInMethod }: {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showNew, setShowNew] = useState(false);
-  const [showRecommendations, setShowRecommendations] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
 
   useEffect(() => () => resetPhoneVerification(), []);
 
-  const s = strength(newPassword);
-  const suggestion = nextSuggestion(newPassword);
   const confirmMismatch = confirmPassword.length > 0 && confirmPassword !== newPassword;
   const otpValid = /^\d{6}$/.test(otp);
   const canSubmitNewPassword = newPassword.length >= 8 && newPassword === confirmPassword && !submitting;
@@ -349,46 +326,12 @@ export function ChangePasswordModal({ onClose, onSuccess, signInMethod }: {
                   id="new-password" label="New password" value={newPassword} onChange={setNewPassword}
                   show={showNew} onToggleShow={() => setShowNew((v) => !v)}
                 />
-                {newPassword.length > 0 && (
-                  <div>
-                    <div className="h-1.5 rounded-full bg-border overflow-hidden">
-                      <div className={`h-full ${s.colorClass}`} style={{ width: `${s.pct}%` }} />
-                    </div>
-                    <p className="text-xs text-muted mt-1">
-                      {s.label}
-                      {suggestion && s.label !== 'Strong' ? ` — ${suggestion}` : ''}
-                    </p>
-                  </div>
-                )}
+                <p className="text-xs text-muted">{PASSWORD_HINT}</p>
                 <PasswordField
                   id="confirm-new-password" label="Confirm new password" value={confirmPassword} onChange={setConfirmPassword}
                   show={showNew} onToggleShow={() => setShowNew((v) => !v)}
                 />
                 {confirmMismatch && <p className="text-danger text-xs">Passwords don't match.</p>}
-
-                <div className="bg-bg rounded-lg border border-border px-3 py-2.5">
-                  <button
-                    type="button"
-                    onClick={() => setShowRecommendations((v) => !v)}
-                    className="w-full flex items-center justify-between text-xs uppercase text-muted"
-                  >
-                    Recommended for a stronger password
-                    {showRecommendations ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                  </button>
-                  {showRecommendations && (
-                    <ul className="space-y-1 mt-1.5">
-                      {REQUIREMENTS.map((r) => {
-                        const met = r.test(newPassword);
-                        return (
-                          <li key={r.label} className={`text-xs flex items-center gap-1.5 ${met ? 'text-success' : 'text-muted'}`}>
-                            {met ? <CheckCircle2 size={12} /> : <Circle size={12} />}
-                            {r.label}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                </div>
 
                 <div className="border border-border rounded-lg px-3 py-2.5 space-y-2">
                   <p className="text-xs uppercase text-muted">Other devices</p>

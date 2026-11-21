@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Sparkles } from 'lucide-react';
@@ -12,22 +12,11 @@ import {
   friendlySendError,
 } from '../lib/phoneAuth';
 import { reportHandledError } from '../lib/monitoring';
+import { PASSWORD_HINT } from '../lib/passwordHint';
 import type { ConfirmationResult } from 'firebase/auth';
 
 const RECAPTCHA_CONTAINER_ID = 'reset-password-recaptcha';
 
-// Same heuristic as Register.tsx's passwordStrength -- kept identical so the meter means the
-// same thing wherever a user sets a password in this app.
-function passwordStrength(pw: string): { score: number; label: string; color: string } {
-  let score = 0;
-  if (pw.length >= 8) score++;
-  if (/[a-z]/.test(pw) && /[A-Z]/.test(pw)) score++;
-  if (/[0-9]/.test(pw)) score++;
-  if (/[^A-Za-z0-9]/.test(pw)) score++;
-  const labels = ['Too short', 'Weak', 'Fair', 'Good', 'Strong'];
-  const colors = ['bg-border', 'bg-danger', 'bg-warning', 'bg-accent-blue', 'bg-success'];
-  return { score, label: labels[score], color: colors[score] };
-}
 
 function friendlyFirebaseError(err: any): string {
   switch (err?.code) {
@@ -130,7 +119,6 @@ export default function ResetPassword() {
   const passwordLongEnough = password.length >= 8;
   const passwordsMatch = confirm.length > 0 && confirm === password;
   const otpValid = /^\d{6}$/.test(otp);
-  const strength = useMemo(() => passwordStrength(password), [password]);
   const formValid = Boolean(token) && Boolean(confirmation) && otpValid && passwordLongEnough && passwordsMatch;
 
   function markTouched(field: string) {
@@ -291,18 +279,10 @@ export default function ResetPassword() {
               minLength={8}
               maxLength={72}
               autoComplete="new-password"
+              aria-describedby="reset-new-password-hint"
               className="w-full border border-border rounded-lg px-3 py-2.5 pr-10 text-sm bg-card text-ink focus:outline-none focus:ring-2 focus:ring-primary/30"
             />
-            {password.length > 0 && (
-              <div className="mt-2 mb-1">
-                <div className="flex gap-1 mb-1">
-                  {[0, 1, 2, 3].map((i) => (
-                    <div key={i} className={`h-1 flex-1 rounded-full ${i < strength.score ? strength.color : 'bg-surface'}`} />
-                  ))}
-                </div>
-                <p className="text-2xs text-muted">{strength.label}</p>
-              </div>
-            )}
+            <p id="reset-new-password-hint" className="text-2xs text-muted mt-1.5 mb-1">{PASSWORD_HINT}</p>
             <p className="text-2xs mb-3 h-3.5">
               {touched.password && !passwordLongEnough && password.length > 0 && (
                 <span className="text-danger">Password must be at least 8 characters.</span>

@@ -79,7 +79,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
      * before -- so an untouched deployment behaves exactly as it did.
      *
      * <p>Two reasons they became configurable. The first is operational: these are per-IP, and a
-     * whole office or a school behind one NAT shares a bucket. Five registrations per five minutes
+     * whole office or a school behind one NAT shares a bucket. A few registrations per five minutes
      * is right for an open internet and wrong for a corporate customer onboarding a team, and the
      * only remedy was a redeploy.
      *
@@ -325,7 +325,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
      * failure mode a rate-limiting test exists to prevent.
      */
     static final int DEFAULT_LOGIN_MAX = 10, DEFAULT_LOGIN_WINDOW = 60;
-    static final int DEFAULT_REGISTER_MAX = 5, DEFAULT_REGISTER_WINDOW = 300;
+    // 10, not 5, since audit F-08: a sign-up refused for a weak password uses a try, and someone
+    // choosing a password needs room for more than four refusals in five minutes.
+    static final int DEFAULT_REGISTER_MAX = 10, DEFAULT_REGISTER_WINDOW = 300;
     static final int DEFAULT_FORGOT_MAX = 5, DEFAULT_FORGOT_WINDOW = 300;
     // Auth/security review §2.2: tighter than loginLimiter's per-second rate (10/300s here vs
     // 10/60s for login) -- unlike login, a hit here costs the caller nothing (no password to
@@ -430,7 +432,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
             org.springframework.data.redis.core.StringRedisTemplate redisTemplate,
             @Value("${app.rate-limit.login.max:10}") int loginMax,
             @Value("${app.rate-limit.login.window-seconds:60}") int loginWindow,
-            @Value("${app.rate-limit.register.max:5}") int registerMax,
+            @Value("${app.rate-limit.register.max:10}") int registerMax,
             @Value("${app.rate-limit.register.window-seconds:300}") int registerWindow,
             @Value("${app.rate-limit.forgot-password.max:5}") int forgotMax,
             @Value("${app.rate-limit.forgot-password.window-seconds:300}") int forgotWindow,

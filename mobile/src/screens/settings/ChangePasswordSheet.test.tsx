@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 import { KeyboardAvoidingView, Platform } from 'react-native';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import * as AppleAuthentication from 'expo-apple-authentication';
-import { ChangePasswordSheet, nextPasswordSuggestion, passwordStrengthMeter } from './ChangePasswordSheet';
+import { ChangePasswordSheet } from './ChangePasswordSheet';
 import { passwordChangeApi } from '../../api/endpoints';
 import { confirmPhoneVerificationCode, sendPhoneVerificationCode } from '../../lib/phoneAuth';
 import { safeStorage } from '../../lib/safeStorage';
@@ -58,19 +58,21 @@ async function reachNewPasswordStep() {
   await settle();
 }
 
-describe('ChangePasswordSheet', () => {
-  beforeEach(async () => {
-    onClose.mockReset();
-    onSuccess.mockReset();
-    api.start.mockReset().mockResolvedValue({
-      sessionId: 'sess-1', phoneNumber: PHONE, maskedPhone: MASKED_PHONE,
-    });
-    api.verifyOtp.mockReset().mockResolvedValue({ message: 'ok' });
-    api.complete.mockReset().mockResolvedValue({ message: 'Password updated.', otherDevicesSignedOut: true });
-    sendCode.mockReset().mockResolvedValue({ confirm: jest.fn() } as never);
-    confirmCode.mockReset().mockResolvedValue('firebase-id-token');
-    await safeStorage.setItem('finora_refresh_token', 'refresh-abc');
+async function resetMocks() {
+  onClose.mockReset();
+  onSuccess.mockReset();
+  api.start.mockReset().mockResolvedValue({
+    sessionId: 'sess-1', phoneNumber: PHONE, maskedPhone: MASKED_PHONE,
   });
+  api.verifyOtp.mockReset().mockResolvedValue({ message: 'ok' });
+  api.complete.mockReset().mockResolvedValue({ message: 'Password updated.', otherDevicesSignedOut: true });
+  sendCode.mockReset().mockResolvedValue({ confirm: jest.fn() } as never);
+  confirmCode.mockReset().mockResolvedValue('firebase-id-token');
+  await safeStorage.setItem('finora_refresh_token', 'refresh-abc');
+}
+
+describe('ChangePasswordSheet', () => {
+  beforeEach(resetMocks);
 
   // Measured on a real Galaxy A50 (Android 11) with this sheet open and the keyboard up: the Modal
   // window reports adjust=resize but keeps its full 2340px frame, so the sheet -- title, field and
@@ -356,19 +358,48 @@ describe('Google/Apple reauth step-up (Phase 4)', () => {
   });
 });
 
-describe('password strength guidance', () => {
-  // Only length is enforced server-side; this is a guide, so it must never read as a gate.
-  it('scores from weak to strong', () => {
-    expect(passwordStrengthMeter('').tone).toBe('none');
-    expect(passwordStrengthMeter('abc').tone).toBe('weak');
-    expect(passwordStrengthMeter('abcdefgh').tone).toBe('weak');
-    expect(passwordStrengthMeter('Abcdefgh1').tone).toBe('good');
-    expect(passwordStrengthMeter('Abcdefgh1!').tone).toBe('strong');
+// Audit F-08. The strength bar rated "Password1!" as strong, and the server refuses it. One line
+// now says what the rule is, and the server's own sentence says what a refused password broke.
+describe('choosing the new password', () => {
+  beforeEach(resetMocks);
+
+  it('says what the rule is, and rates nothing', async () => {
+    renderSheet();
+    await reachNewPasswordStep();
+
+    expect(screen.getByText(/common passwords, a single short word with numbers/i)).toBeTruthy();
+
+    fireEvent.changeText(screen.getByLabelText('New password'), 'Password1!');
+
+    expect(screen.queryByText(/^(weak|good|strong)\b/i)).toBeNull();
+    expect(screen.queryByText(/uppercase|special character/i)).toBeNull();
   });
 
-  it('names the next concrete step rather than only a verdict', () => {
-    expect(nextPasswordSuggestion('abcdefgh')).toMatch(/uppercase/i);
-    expect(nextPasswordSuggestion('Abcdefgh')).toMatch(/number/i);
-    expect(nextPasswordSuggestion('Abcdefgh1!')).toBeNull();
+  it('shows the server’s own sentence when it refuses the password, and lets them choose again', async () => {
+    const refusal = 'A single word, even with numbers or symbols added, is easy to guess. Use several words, or 12 or more characters.';
+    api.complete.mockReset()
+      .mockRejectedValueOnce(Object.assign(new Error('refused'), {
+        isAxiosError: true,
+        response: { status: 400, data: { message: refusal } },
+      }))
+      .mockResolvedValue({ message: 'Password updated.', otherDevicesSignedOut: true });
+    renderSheet();
+    await reachNewPasswordStep();
+
+    fireEvent.changeText(screen.getByLabelText('New password'), 'Mumbai@123');
+    fireEvent.changeText(screen.getByLabelText('Confirm new password'), 'Mumbai@123');
+    fireEvent.press(screen.getByRole('button', { name: /Update Password/ }));
+
+    expect(await screen.findByText(refusal)).toBeTruthy();
+
+    fireEvent.changeText(screen.getByLabelText('New password'), 'tea-rain-lantern');
+    fireEvent.changeText(screen.getByLabelText('Confirm new password'), 'tea-rain-lantern');
+    fireEvent.press(screen.getByRole('button', { name: /Update Password/ }));
+    await settle();
+
+    await waitFor(() =>
+      expect(api.complete).toHaveBeenLastCalledWith('sess-1', 'tea-rain-lantern', 'refresh-abc')
+    );
+    expect(await screen.findByText('Password updated')).toBeTruthy();
   });
 });

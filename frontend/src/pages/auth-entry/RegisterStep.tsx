@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { ShieldCheck, User, Mail, CheckCircle2, ArrowRight } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -12,17 +12,7 @@ import { AUTH_ACCOUNT_DEACTIVATED } from '../../api/errorCodes';
 import { EMAIL_PATTERN } from './identifierPatterns';
 import { ConsentChoices } from '../../components/consent/ConsentChoices';
 import { ConsentNotice } from '../../components/consent/ConsentNotice';
-
-function passwordStrength(pw: string): { score: number; label: string; color: string } {
-  let score = 0;
-  if (pw.length >= 8) score++;
-  if (/[a-z]/.test(pw) && /[A-Z]/.test(pw)) score++;
-  if (/[0-9]/.test(pw)) score++;
-  if (/[^A-Za-z0-9]/.test(pw)) score++;
-  const labels = ['Too short', 'Weak', 'Fair', 'Good', 'Strong'];
-  const colors = ['bg-border', 'bg-danger', 'bg-warning', 'bg-accent-blue', 'bg-success'];
-  return { score, label: labels[score], color: colors[score] };
-}
+import { PASSWORD_HINT } from '../../lib/passwordHint';
 
 function sanitizeLocalPhoneNumber(raw: string): string {
   return raw.replace(/[^0-9]/g, '').slice(0, 10);
@@ -78,7 +68,6 @@ export function RegisterStep({ prefill, referralCode, onSuccess, onAccountExists
   const emailValid = EMAIL_PATTERN.test(email.trim());
   const phoneValid = PHONE_PATTERN.test(phoneNumber);
   const passwordLongEnough = password.length >= 8;
-  const strength = useMemo(() => passwordStrength(password), [password]);
   const passwordsMatch = confirmPassword.length > 0 && confirmPassword === password;
 
   const formValid =
@@ -274,18 +263,10 @@ export function RegisterStep({ prefill, referralCode, onSuccess, onAccountExists
         required
         minLength={8}
         maxLength={72}
+        aria-describedby="register-password-hint"
         className="w-full border border-border rounded-lg px-3 py-2.5 pr-10 text-sm bg-card text-ink focus:outline-none focus:ring-2 focus:ring-primary/30"
       />
-      {password.length > 0 && (
-        <div className="mt-2 mb-1">
-          <div className="flex gap-1 mb-1">
-            {[0, 1, 2, 3].map((i) => (
-              <div key={i} className={`h-1 flex-1 rounded-full ${i < strength.score ? strength.color : 'bg-surface'}`} />
-            ))}
-          </div>
-          <p className="text-2xs text-muted">{strength.label}</p>
-        </div>
-      )}
+      <p id="register-password-hint" className="text-2xs text-muted mt-1.5 mb-1">{PASSWORD_HINT}</p>
       <p className="text-2xs mb-3 h-3.5">
         {touched.password && !passwordLongEnough && password.length === 0 && (
           <span className="text-danger">Password is required.</span>

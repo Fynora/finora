@@ -109,8 +109,14 @@ function CreateUserForm({
             minLength={8}
             value={form.password}
             onChange={(e) => setForm({ ...form, password: e.target.value })}
+            aria-describedby={`${id}-password-hint`}
             className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm"
           />
+          {/* Not PASSWORD_HINT: that one says "your own name", and this password is for someone else. */}
+          <p id={`${id}-password-hint`} className="text-[11px] text-muted mt-1">
+            At least 8 characters. Common passwords, a single short word with numbers, and this
+            person's own name, email or phone number are not accepted.
+          </p>
         </div>
         <div>
           <label htmlFor={`${id}-role`} className="text-xs font-medium text-muted mb-1 block">Role</label>

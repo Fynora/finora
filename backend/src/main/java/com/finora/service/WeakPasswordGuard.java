@@ -19,10 +19,13 @@ import java.util.Set;
  * Refuses a new password that is easy to guess. Audit F-08 (2026-11-20): the only rule was a
  * length of 8 to 72, so "password" and "12345678" were accepted.
  *
- * <p>Two checks, both made only when a password is being set (sign-up, reset, change, and an
+ * <p>Three checks, all made only when a password is being set (sign-up, reset, change, and an
  * admin creating an account). A password already in use is never looked at.
  * <ul>
- *   <li>It is on the bundled list of commonly used passwords, compared without regard to case.
+ *   <li>It is a single word of fewer than 12 characters, with or without digits and symbols
+ *       added. See {@link #isOneShortWord}.</li>
+ *   <li>It is on the bundled list of commonly used passwords, compared without regard to case,
+ *       as typed and again with its symbols and spaces taken out.
  *       See {@code security/common-passwords-SOURCE.md} for where the list comes from. Only
  *       a hash of each entry is bundled; see {@link #hashOf}.</li>
  *   <li>It is the person's own name, email address or phone number, or the product's name,
@@ -49,6 +52,12 @@ public final class WeakPasswordGuard {
             + "your password. Choose a different one.";
     static final String PRODUCT_MESSAGE = "Do not use the app's name as your password. Choose a "
             + "different one.";
+
+    static final String SINGLE_WORD_MESSAGE = "A single word, even with numbers or symbols added, is "
+            + "easy to guess. Use several words, or 12 or more characters.";
+
+    /** From this length up, one word with digits and symbols is let through. The message says 12. */
+    static final int SINGLE_WORD_SAFE_LENGTH = 12;
 
     /** A name or email name shorter than this is not compared: two letters match too much. */
     private static final int MIN_WORD_LETTERS = 3;
@@ -109,7 +118,10 @@ public final class WeakPasswordGuard {
     public void check(String password, String email, String fullName, String phoneNumber) {
         if (password == null) return;
         String lowered = password.strip().toLowerCase(Locale.ROOT);
-        if (Arrays.binarySearch(common, hashOf(lowered)) >= 0) {
+        // As typed, and again with the symbols taken out. "Hello@123" is not on the list and
+        // "hello123" is: a symbol dropped into a common password is the usual way of meeting a
+        // "must contain a symbol" habit, and it adds nothing a guesser does not try.
+        if (isListed(lowered) || isListed(lettersAndDigitsOf(lowered))) {
             throw new ApiException(HttpStatus.BAD_REQUEST, COMMON_MESSAGE);
         }
         if (PRODUCT_NAMES.contains(lettersOf(lowered))) {
@@ -118,19 +130,53 @@ public final class WeakPasswordGuard {
         if (isPersonal(lowered, email, fullName, phoneNumber)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, PERSONAL_MESSAGE);
         }
+        if (isOneShortWord(lowered)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, SINGLE_WORD_MESSAGE);
+        }
+    }
+
+    /**
+     * One run of letters, with or without digits and symbols around it, in fewer than
+     * {@value #SINGLE_WORD_SAFE_LENGTH} characters: "Mumbai@123", "Krishna@108", "Summer@2026".
+     * No list holds every town, god, child and cricketer, and this shape is what people reach for
+     * when a form has ever told them to add a number and a symbol.
+     *
+     * <p>It cannot tell a word from letters that only look like one, so "Zxqvbnk@91" is refused
+     * too. The owner accepted that when choosing this rule (2026-11-21). A password with no
+     * letters at all is not this rule's business.
+     */
+    private static boolean isOneShortWord(String lowered) {
+        if (lowered.codePointCount(0, lowered.length()) >= SINGLE_WORD_SAFE_LENGTH) return false;
+        int runs = 0;
+        boolean inRun = false;
+        for (int i = 0; i < lowered.length(); ) {
+            int codePoint = lowered.codePointAt(i);
+            boolean letter = isLetterOrVowelSign(codePoint);
+            if (letter && !inRun) runs++;
+            inRun = letter;
+            i += Character.charCount(codePoint);
+        }
+        return runs == 1;
+    }
+
+    private boolean isListed(String loweredPassword) {
+        return Arrays.binarySearch(common, hashOf(loweredPassword)) >= 0;
     }
 
     private static boolean isPersonal(String lowered, String email, String fullName, String phoneNumber) {
         String loweredEmail = email == null ? "" : email.strip().toLowerCase(Locale.ROOT);
-        if (!loweredEmail.isEmpty() && lowered.equals(loweredEmail)) return true;
+        int at = loweredEmail.indexOf('@');
+        String emailName = at > 0 ? loweredEmail.substring(0, at) : loweredEmail;
+        // The address or the part before the @, exactly. This is what catches an email name
+        // with no letters in it, which the letter comparison below cannot see.
+        if (!loweredEmail.isEmpty() && (lowered.equals(loweredEmail) || lowered.equals(emailName))) return true;
 
         String letters = lettersOf(lowered);
         if (letters.isEmpty()) {
             return isPhoneNumber(digitsOf(lowered), digitsOf(phoneNumber));
         }
 
-        int at = loweredEmail.indexOf('@');
-        if (matchesWord(letters, at > 0 ? loweredEmail.substring(0, at) : loweredEmail)) return true;
+        if (matchesWord(letters, emailName)) return true;
         if (fullName != null) {
             if (matchesWord(letters, fullName)) return true;
             for (String word : fullName.strip().split("\\s+")) {
@@ -168,6 +214,12 @@ public final class WeakPasswordGuard {
         if (Character.isLetter(codePoint)) return true;
         int type = Character.getType(codePoint);
         return type == Character.NON_SPACING_MARK || type == Character.COMBINING_SPACING_MARK;
+    }
+
+    private static String lettersAndDigitsOf(String text) {
+        StringBuilder out = new StringBuilder(text.length());
+        text.codePoints().filter(c -> isLetterOrVowelSign(c) || Character.isDigit(c)).forEach(out::appendCodePoint);
+        return out.toString();
     }
 
     private static String digitsOf(String text) {

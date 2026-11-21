@@ -245,7 +245,7 @@ describe('ChangePasswordModal', () => {
       expect(screen.getByRole('button', { name: /update password/i })).toBeDisabled();
     });
 
-    it('does not gate submission on the strength checklist -- only the 8-character length the backend actually enforces', async () => {
+    it('gates submission on length only -- what else the server refuses is the server\'s to say', async () => {
       const user = userEvent.setup();
       renderModal();
       await advanceToNewPasswordStep(user);
@@ -256,14 +256,36 @@ describe('ChangePasswordModal', () => {
       expect(screen.getByRole('button', { name: /update password/i })).toBeEnabled();
     });
 
-    it('keeps the recommendation list collapsed until the toggle is clicked', async () => {
+    // Audit F-08. The strength bar and the capital/number/symbol checklist rated "Password1!" as
+    // strong, which the server refuses. They are replaced by one line saying what the rule is.
+    it('says what the password rule is, and shows no strength rating or character checklist', async () => {
       const user = userEvent.setup();
       renderModal();
       await advanceToNewPasswordStep(user);
 
+      expect(screen.getByText(/common passwords, a single short word with numbers/i)).toBeInTheDocument();
+
+      await user.type(screen.getByLabelText(/^new password$/i), 'Password1!');
+
+      expect(screen.queryByText(/^(weak|good|strong)\b/i)).not.toBeInTheDocument();
       expect(screen.queryByText(/an uppercase letter/i)).not.toBeInTheDocument();
-      await user.click(screen.getByRole('button', { name: /recommended for a stronger password/i }));
-      expect(screen.getByText(/an uppercase letter/i)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /recommended for a stronger password/i })).not.toBeInTheDocument();
+    });
+
+    it('shows the server\'s own sentence when it refuses the new password, and lets them choose again', async () => {
+      const refusal = 'A single word, even with numbers or symbols added, is easy to guess. Use several words, or 12 or more characters.';
+      vi.mocked(passwordChangeApi.complete).mockRejectedValueOnce({ response: { data: { message: refusal } } });
+      const user = userEvent.setup();
+      renderModal();
+      await advanceToNewPasswordStep(user);
+
+      await user.type(screen.getByLabelText(/^new password$/i), 'Mumbai@123');
+      await user.type(screen.getByLabelText(/^confirm new password$/i), 'Mumbai@123');
+      await user.click(screen.getByRole('button', { name: /update password/i }));
+
+      expect(await screen.findByText(refusal)).toBeInTheDocument();
+      expect(screen.getByLabelText(/^new password$/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /update password/i })).toBeEnabled();
     });
 
     // Audit F-04: keeping other devices signed in used to be offered here. It no longer is.

@@ -50,7 +50,7 @@ class AuthServiceEmailAuditIT extends AbstractIntegrationTest {
     void registerRecordsBothTheWelcomeAndVerificationEmailAudits() {
         String email = "register-audit-it-" + UUID.randomUUID() + "@example.com";
         authService.register(new RegisterRequest(
-                email, "Password123", "Audit IT User", "+919876500011", null)); // synthetic-ok
+                email, "Tm9-vexing-Lantern", "Audit IT User", "+919876500011", null)); // synthetic-ok
 
         UUID userId = userRepository.findByEmailIgnoreCaseAndAccountScope(email, User.SCOPE_USER)
                 .orElseThrow().getId();

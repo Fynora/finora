@@ -475,11 +475,11 @@ class PasswordChangeServiceTest {
         when(sessionRepository.findByIdAndUserId(session.getId(), userId)).thenReturn(Optional.of(session));
         User user = existingUser();
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
-        when(passwordEncoder.matches("NewPass456!", "hashed-old-password")).thenReturn(false);
-        when(passwordEncoder.encode("NewPass456!")).thenReturn("hashed-new-password");
+        when(passwordEncoder.matches("BrandNewPass456!", "hashed-old-password")).thenReturn(false);
+        when(passwordEncoder.encode("BrandNewPass456!")).thenReturn("hashed-new-password");
 
         var response = service.complete(userId,
-                new CompleteRequest(session.getId().toString(), "NewPass456!", false, null),
+                new CompleteRequest(session.getId().toString(), "BrandNewPass456!", false, null),
                 THIS_DEVICES_SESSION);
 
         assertThat(user.getPasswordHash()).isEqualTo("hashed-new-password");
@@ -506,10 +506,10 @@ class PasswordChangeServiceTest {
         User user = existingUser();
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
         when(passwordEncoder.matches(anyString(), eq("hashed-old-password"))).thenReturn(false);
-        when(passwordEncoder.encode("NewPass456!")).thenReturn("hashed-new-password");
+        when(passwordEncoder.encode("BrandNewPass456!")).thenReturn("hashed-new-password");
 
         var response = service.complete(userId,
-                new CompleteRequest(session.getId().toString(), "NewPass456!", true, null),
+                new CompleteRequest(session.getId().toString(), "BrandNewPass456!", true, null),
                 THIS_DEVICES_SESSION);
 
         assertThat(response.otherDevicesSignedOut()).isTrue();
@@ -547,7 +547,7 @@ class PasswordChangeServiceTest {
         when(sessionRepository.findByIdAndUserId(session.getId(), userId)).thenReturn(Optional.of(session));
 
         assertThatThrownBy(() -> service.complete(userId,
-                new CompleteRequest(session.getId().toString(), "NewPass456!", false, null),
+                new CompleteRequest(session.getId().toString(), "BrandNewPass456!", false, null),
                 THIS_DEVICES_SESSION))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("Verify the code");
@@ -566,7 +566,7 @@ class PasswordChangeServiceTest {
         when(sessionRepository.findByIdAndUserId(session.getId(), userId)).thenReturn(Optional.of(session));
 
         var response = service.complete(userId,
-                new CompleteRequest(session.getId().toString(), "NewPass456!", false, null),
+                new CompleteRequest(session.getId().toString(), "BrandNewPass456!", false, null),
                 THIS_DEVICES_SESSION);
 
         assertThat(response.otherDevicesSignedOut()).isTrue();
@@ -585,7 +585,7 @@ class PasswordChangeServiceTest {
         when(sessionRepository.findByIdAndUserId(session.getId(), userId)).thenReturn(Optional.of(session));
 
         var response = service.complete(userId,
-                new CompleteRequest(session.getId().toString(), "NewPass456!", true, null),
+                new CompleteRequest(session.getId().toString(), "BrandNewPass456!", true, null),
                 THIS_DEVICES_SESSION);
 
         assertThat(response.otherDevicesSignedOut()).isFalse();
@@ -604,7 +604,7 @@ class PasswordChangeServiceTest {
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
 
         assertThatThrownBy(() -> service.complete(userId,
-                new CompleteRequest(session.getId().toString(), "NewPass456!", false, null),
+                new CompleteRequest(session.getId().toString(), "BrandNewPass456!", false, null),
                 THIS_DEVICES_SESSION))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("suspended");
@@ -623,7 +623,7 @@ class PasswordChangeServiceTest {
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
 
         assertThatThrownBy(() -> service.complete(userId,
-                new CompleteRequest(session.getId().toString(), "NewPass456!", false, null),
+                new CompleteRequest(session.getId().toString(), "BrandNewPass456!", false, null),
                 THIS_DEVICES_SESSION))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("deactivated");
@@ -643,7 +643,7 @@ class PasswordChangeServiceTest {
         when(sessionRepository.findByIdAndUserId(session.getId(), userId)).thenReturn(Optional.of(session));
 
         var response = service.complete(userId,
-                new CompleteRequest(session.getId().toString(), "NewPass456!", false, null),
+                new CompleteRequest(session.getId().toString(), "BrandNewPass456!", false, null),
                 THIS_DEVICES_SESSION);
 
         assertThat(response.otherDevicesSignedOut()).isTrue();
@@ -656,7 +656,7 @@ class PasswordChangeServiceTest {
         when(sessionRepository.findByIdAndUserId(session.getId(), userId)).thenReturn(Optional.of(session));
 
         assertThatThrownBy(() -> service.complete(userId,
-                new CompleteRequest(session.getId().toString(), "NewPass456!", false, null),
+                new CompleteRequest(session.getId().toString(), "BrandNewPass456!", false, null),
                 THIS_DEVICES_SESSION))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("expired");
@@ -732,7 +732,7 @@ class PasswordChangeServiceTest {
         when(sessionRepository.findByIdAndUserId(session.getId(), userId)).thenReturn(Optional.of(session));
 
         assertThatThrownBy(() -> service.complete(userId,
-                new CompleteRequest(session.getId().toString(), "NewPass456!", false, null),
+                new CompleteRequest(session.getId().toString(), "BrandNewPass456!", false, null),
                 THIS_DEVICES_SESSION))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("Verify the code");

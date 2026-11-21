@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Platform, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as AppleAuthentication from 'expo-apple-authentication';
@@ -15,7 +15,7 @@ import { toUserMessage } from '../lib/apiError';
 import { suspendedTokenFrom } from '../lib/suspension';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import {
-  EMAIL_PATTERN, FULL_NAME_PATTERN, PHONE_PATTERN, passwordStrength, sanitizePhoneNumber,
+  EMAIL_PATTERN, FULL_NAME_PATTERN, PASSWORD_HINT, PHONE_PATTERN, sanitizePhoneNumber,
 } from '../lib/validation';
 import { spacing, useTheme } from '../theme';
 import type { AuthStackParamList } from '../navigation/types';
@@ -60,7 +60,6 @@ export function RegisterScreen({ navigation, route }: Props) {
   const emailValid = EMAIL_PATTERN.test(email.trim());
   const phoneValid = PHONE_PATTERN.test(phoneNumber);
   const passwordLongEnough = password.length >= 8;
-  const strength = useMemo(() => passwordStrength(password), [password]);
   const passwordsMatch = confirmPassword.length > 0 && confirmPassword === password;
 
   const formValid = fullNameValid && emailValid && phoneValid && passwordLongEnough && passwordsMatch && termsAccepted;
@@ -221,22 +220,7 @@ export function RegisterScreen({ navigation, route }: Props) {
         maxLength={72}
         error={touched.password && password.length === 0 ? 'Password is required.' : null}
       />
-      {password.length > 0 ? (
-        <View style={styles.strengthWrap}>
-          <View style={styles.strengthBars}>
-            {[0, 1, 2, 3].map((i) => (
-              <View
-                key={i}
-                style={[
-                  styles.strengthBar,
-                  { backgroundColor: i < strength.score ? c.primary : c.border },
-                ]}
-              />
-            ))}
-          </View>
-          <Text style={[styles.strengthLabel, { color: c.muted }]}>{strength.label}</Text>
-        </View>
-      ) : null}
+      <Text style={[styles.passwordHint, { color: c.muted }]}>{PASSWORD_HINT}</Text>
 
       <TextField
         label="Confirm password"
@@ -285,7 +269,9 @@ export function RegisterScreen({ navigation, route }: Props) {
 }
 
 const styles = StyleSheet.create({
-  strengthWrap: {
+  passwordHint: {
+    fontSize: 12,
+    lineHeight: 17,
     marginBottom: spacing.sm,
   },
   dividerRow: {
@@ -313,19 +299,6 @@ const styles = StyleSheet.create({
   },
   terms: { marginTop: spacing.sm, borderWidth: 1, borderRadius: 10, padding: spacing.sm },
   choices: { marginTop: spacing.sm, marginBottom: spacing.md },
-  strengthBars: {
-    flexDirection: 'row',
-    gap: 4,
-    marginBottom: 4,
-  },
-  strengthBar: {
-    height: 4,
-    flex: 1,
-    borderRadius: 2,
-  },
-  strengthLabel: {
-    fontSize: 11,
-  },
   footerRow: {
     flexDirection: 'row',
     alignItems: 'center',

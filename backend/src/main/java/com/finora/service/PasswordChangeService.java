@@ -56,6 +56,7 @@ public class PasswordChangeService {
     private final AuditService auditService;
     private final EmailProvider emailProvider;
     private final PasswordHistoryService passwordHistoryService;
+    private final WeakPasswordGuard weakPasswordGuard = new WeakPasswordGuard();
 
     public PasswordChangeService(UserRepository userRepository, PasswordChangeSessionRepository sessionRepository,
                                   PasswordEncoder passwordEncoder, GoogleReauthVerifier googleReauthVerifier,
@@ -261,6 +262,10 @@ public class PasswordChangeService {
         // that already succeeded must keep returning its original outcome even if the account's
         // status changed afterward -- this only gates a completion that hasn't happened yet.
         requireActiveAccount(user);
+
+        // Audit F-08. The session stays OTP_VERIFIED after a refusal, so they choose again
+        // without verifying their phone a second time.
+        weakPasswordGuard.check(request.newPassword(), user.getEmail(), user.getFullName(), user.getPhoneNumber());
 
         if (passwordEncoder.matches(request.newPassword(), user.getPasswordHash())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "New password must be different from your current password.");

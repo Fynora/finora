@@ -7,7 +7,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppleReauthPrompt } from '../../components/AppleReauthPrompt';
 import { Button } from '../../components/Button';
 import { GoogleReauthPrompt } from '../../components/GoogleReauthPrompt';
-import { ProgressBar } from '../../components/ProgressBar';
 import { TextField } from '../../components/TextField';
 import { passwordChangeApi } from '../../api/endpoints';
 import { hapticError, hapticSuccess } from '../../lib/haptics';
@@ -18,7 +17,7 @@ import {
   confirmPhoneVerificationCode, sendPhoneVerificationCode, type PhoneConfirmation,
 } from '../../lib/phoneAuth';
 import { useSingleFlight } from '../../lib/useSingleFlight';
-import { sanitizeOtp } from '../../lib/validation';
+import { PASSWORD_HINT, sanitizeOtp } from '../../lib/validation';
 import { radius, spacing, useTheme } from '../../theme';
 import { GlassSurface } from '../../components/GlassSurface';
 
@@ -51,30 +50,9 @@ import { GlassSurface } from '../../components/GlassSurface';
  */
 type Step = 'password' | 'otp' | 'newPassword' | 'success';
 
-const REQUIREMENTS: { label: string; hint: string; test: (pw: string) => boolean }[] = [
-  { label: 'At least 8 characters', hint: 'Make it at least 8 characters long', test: (pw) => pw.length >= 8 },
-  { label: 'An uppercase letter', hint: 'Add an uppercase letter', test: (pw) => /[A-Z]/.test(pw) },
-  { label: 'A lowercase letter', hint: 'Add a lowercase letter', test: (pw) => /[a-z]/.test(pw) },
-  { label: 'A number', hint: 'Add a number', test: (pw) => /[0-9]/.test(pw) },
-  { label: 'A special character', hint: 'Add a special character', test: (pw) => /[^A-Za-z0-9]/.test(pw) },
-];
-
-// Only length is actually enforced server-side (see AuthDtos.PASSWORD_SIZE_MESSAGE); the rest is a
-// strength guide, not a gate, so this never blocks a password the backend would accept.
-export function passwordStrengthMeter(pw: string): { label: string; pct: number; tone: 'weak' | 'good' | 'strong' | 'none' } {
-  if (pw.length === 0) return { label: '', pct: 0, tone: 'none' };
-  const met = REQUIREMENTS.filter((r) => r.test(pw)).length;
-  if (met <= 2) return { label: 'Weak', pct: 33, tone: 'weak' };
-  if (met <= 4) return { label: 'Good', pct: 66, tone: 'good' };
-  return { label: 'Strong', pct: 100, tone: 'strong' };
-}
-
-/** The first unmet requirement, phrased as the next concrete step -- "Weak" alone tells nobody
- *  what to actually do about it. */
-export function nextPasswordSuggestion(pw: string): string | null {
-  const unmet = REQUIREMENTS.find((r) => !r.test(pw));
-  return unmet ? `${unmet.hint} to improve strength.` : null;
-}
+// There was a strength bar here that suggested adding a capital, a number and a special
+// character. It is gone (audit F-08, 2026-11-21): it rated "Password1!" as strong, which the
+// server refuses. PASSWORD_HINT says what the server's rule is instead.
 
 export function ChangePasswordSheet({ onClose, onSuccess, signInMethod }: {
   onClose: () => void;
@@ -99,8 +77,6 @@ export function ChangePasswordSheet({ onClose, onSuccess, signInMethod }: {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
-  const meter = passwordStrengthMeter(newPassword);
-  const suggestion = nextPasswordSuggestion(newPassword);
   const confirmMismatch = confirmPassword.length > 0 && confirmPassword !== newPassword;
   const otpValid = /^\d{6}$/.test(otp);
   const canSubmitNewPassword = newPassword.length >= 8 && newPassword === confirmPassword;
@@ -199,7 +175,6 @@ export function ChangePasswordSheet({ onClose, onSuccess, signInMethod }: {
     });
   }
 
-  const meterColor = meter.tone === 'strong' ? c.success : meter.tone === 'good' ? c.warning : c.danger;
   // Closing mid-request would leave the user unsure whether the change went through; on the
   // success step the sheet has its own Done button and the backdrop is not a way out.
   const dismissable = !submitting && step !== 'success';
@@ -320,15 +295,7 @@ export function ChangePasswordSheet({ onClose, onSuccess, signInMethod }: {
                       autoCapitalize="none"
                       textContentType="newPassword"
                     />
-                    {newPassword.length > 0 ? (
-                      <View style={styles.meter}>
-                        <ProgressBar pct={meter.pct} color={meterColor} />
-                        <Text style={[styles.meterLabel, { color: c.muted }]}>
-                          {meter.label}
-                          {suggestion && meter.tone !== 'strong' ? ` — ${suggestion}` : ''}
-                        </Text>
-                      </View>
-                    ) : null}
+                    <Text style={[styles.passwordHint, { color: c.muted }]}>{PASSWORD_HINT}</Text>
                     <TextField
                       label="Confirm new password"
                       value={confirmPassword}
@@ -381,8 +348,7 @@ const styles = StyleSheet.create({
   body: { fontSize: 13, lineHeight: 19, marginBottom: spacing.md },
   error: { fontSize: 13, marginBottom: spacing.sm },
   action: { marginTop: spacing.sm, gap: spacing.xs },
-  meter: { marginBottom: spacing.sm },
-  meterLabel: { fontSize: 11, marginTop: 4 },
+  passwordHint: { fontSize: 12, lineHeight: 17, marginBottom: spacing.sm },
   groupLabel: { fontSize: 12, fontWeight: '500', marginTop: spacing.sm, marginBottom: 6 },
   otherDevicesNote: {
     fontSize: 12,

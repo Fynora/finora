@@ -77,7 +77,7 @@ class AdminReferralControllerIT extends AbstractIntegrationTest {
         User referrer = createUser("USER");
         String code = referralService.myCode(referrer.getId());
         String referredEmail = "referred-" + UUID.randomUUID() + "@example.com";
-        authService.register(new RegisterRequest(referredEmail, "Password123", "Referred Person",
+        authService.register(new RegisterRequest(referredEmail, "Tm9-vexing-Lantern", "Referred Person",
                 "+919876500778" /* synthetic-ok */, code));
         User referred = userRepository.findByEmailIgnoreCaseAndAccountScope(referredEmail, User.SCOPE_USER)
                 .orElseThrow();
@@ -100,7 +100,7 @@ class AdminReferralControllerIT extends AbstractIntegrationTest {
         String code = referralService.myCode(referrer.getId());
 
         String referredEmail = "referred-" + UUID.randomUUID() + "@example.com";
-        authService.register(new RegisterRequest(referredEmail, "Password123", "Referred Person",
+        authService.register(new RegisterRequest(referredEmail, "Tm9-vexing-Lantern", "Referred Person",
                 "+919876500777" /* synthetic-ok */, code));
         User referred = userRepository.findByEmailIgnoreCaseAndAccountScope(referredEmail, User.SCOPE_USER)
                 .orElseThrow();

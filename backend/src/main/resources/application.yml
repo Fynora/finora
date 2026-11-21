@@ -676,7 +676,7 @@ app:
   # used to be hardcoded in that class, so leaving this block alone changes nothing.
   #
   # Made configurable for two reasons, both in RateLimitFilter's own doc comment. Operationally,
-  # these buckets are per-IP and an office behind one NAT shares one: five registrations per five
+  # these buckets are per-IP and an office behind one NAT shares one: a few registrations per five
   # minutes is right for the open internet and wrong for a customer onboarding a team, and the only
   # remedy was a redeploy. And the e2e suite could not run at all -- it registers an account per test
   # for isolation and stages a statement in most of them, so it tripped register at test six and
@@ -697,8 +697,11 @@ app:
     refresh:
       max: ${RATE_LIMIT_REFRESH_MAX:15}
       window-seconds: ${RATE_LIMIT_REFRESH_WINDOW_SECONDS:300}
+    # 10, not 5, since audit F-08 (2026-11-21): a sign-up refused for a weak password uses a try,
+    # so the old ceiling stopped someone after four refused passwords. google and apple below
+    # stay at 5; they send no password.
     register:
-      max: ${RATE_LIMIT_REGISTER_MAX:5}
+      max: ${RATE_LIMIT_REGISTER_MAX:10}
       window-seconds: ${RATE_LIMIT_REGISTER_WINDOW_SECONDS:300}
     # D-23. Same ceiling as register above and for the same reason -- a real per-call cost
     # (Google's own signature verification, plus a full account-creation write on a first-time

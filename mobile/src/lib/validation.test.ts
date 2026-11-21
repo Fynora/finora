@@ -1,6 +1,6 @@
 import {
   EMAIL_PATTERN, FULL_NAME_PATTERN, PHONE_PATTERN, looksLikeValidIdentifier, parsePositiveAmount,
-  passwordStrength, sanitizeOtp, sanitizePhoneNumber,
+  PASSWORD_HINT, sanitizeOtp, sanitizePhoneNumber,
 } from './validation';
 
 /*
@@ -162,16 +162,14 @@ describe('parsePositiveAmount', () => {
   });
 });
 
-describe('passwordStrength', () => {
-  it('scores each independent signal', () => {
-    expect(passwordStrength('')).toEqual({ score: 0, label: 'Too short' });
-    expect(passwordStrength('longenough')).toEqual({ score: 1, label: 'Weak' });
-    expect(passwordStrength('LongEnough')).toEqual({ score: 2, label: 'Fair' });
-    expect(passwordStrength('LongEnough1')).toEqual({ score: 3, label: 'Good' });
-    expect(passwordStrength('LongEnough1!')).toEqual({ score: 4, label: 'Strong' });
-  });
-
-  it('does not credit length to a short password', () => {
-    expect(passwordStrength('Ab1!').score).toBe(3);
+describe('PASSWORD_HINT', () => {
+  // The server is the only judge of a password. The hint has to name each thing it refuses, or
+  // a refusal reads as arbitrary; and it must not recommend the capital-digit-symbol recipe.
+  it('names what the server refuses, and recommends no character recipe', () => {
+    expect(PASSWORD_HINT).toMatch(/at least 8 characters/i);
+    expect(PASSWORD_HINT).toMatch(/common passwords/i);
+    expect(PASSWORD_HINT).toMatch(/single short word/i);
+    expect(PASSWORD_HINT).toMatch(/name, email or phone number/i);
+    expect(PASSWORD_HINT).not.toMatch(/uppercase|special character|symbol/i);
   });
 });

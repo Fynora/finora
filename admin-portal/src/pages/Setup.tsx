@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { Sparkles, ShieldAlert, UserPlus, ShieldCheck, Check } from 'lucide-react';
 import { setupApi } from '../api/endpoints';
 import { PasswordInput } from '../components/PasswordInput';
+import { PASSWORD_HINT } from '../lib/passwordHint';
 
 type Step = 'checking' | 'key' | 'create-admin' | 'done';
 
@@ -245,6 +246,7 @@ export default function Setup() {
                 onChange={setConfirmPassword}
                 className="w-full bg-bg border border-border rounded-lg px-3.5 py-2.5 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
               />
+              <p className="text-[11px] text-muted">{PASSWORD_HINT}</p>
 
               {error && <p className="text-sm text-danger bg-danger-bg rounded-lg px-3.5 py-2.5">{error}</p>}
 

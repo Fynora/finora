@@ -100,7 +100,7 @@ class AuthServiceRegisterTest {
     }
 
     private RegisterRequest request(String email, String phoneNumber) {
-        return new RegisterRequest(email, "Password123", "Jane Doe", phoneNumber, null);
+        return new RegisterRequest(email, "Tm9-vexing-Lantern", "Jane Doe", phoneNumber, null);
     }
 
     @Test
@@ -193,7 +193,7 @@ class AuthServiceRegisterTest {
             return u;
         });
 
-        authService.register(new RegisterRequest("  jane@example.com  ", "Password123", "  Jane Doe  ", "+919876500003", null));
+        authService.register(new RegisterRequest("  jane@example.com  ", "Tm9-vexing-Lantern", "  Jane Doe  ", "+919876500003", null));
 
         verify(userRepository).existsByEmailIgnoreCaseAndAccountScope("jane@example.com", "USER");
         ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
@@ -260,7 +260,7 @@ class AuthServiceRegisterTest {
             return u;
         });
 
-        authService.register(new RegisterRequest("terms@example.com", "Password123", "Jane Doe",
+        authService.register(new RegisterRequest("terms@example.com", "Tm9-vexing-Lantern", "Jane Doe",
                 "+919876500011", null, null, true, false));  // synthetic-ok: sequential test number, not a real subscriber
 
         ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
@@ -288,7 +288,7 @@ class AuthServiceRegisterTest {
 
     @Test
     void register_withTheBoxUnticked_isRejectedBeforeAnyUserIsSaved() {
-        RegisterRequest unticked = new RegisterRequest("no@example.com", "Password123", "Jane Doe",
+        RegisterRequest unticked = new RegisterRequest("no@example.com", "Tm9-vexing-Lantern", "Jane Doe",
                 "+919876500014", null, null, false, null);  // synthetic-ok: sequential test number, not a real subscriber
 
         assertThatThrownBy(() -> authService.register(unticked))

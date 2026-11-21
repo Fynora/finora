@@ -12,7 +12,7 @@ import {
   confirmPhoneVerificationCode, sendPhoneVerificationCode, type PhoneConfirmation,
 } from '../lib/phoneAuth';
 import { useSingleFlight } from '../lib/useSingleFlight';
-import { PHONE_PATTERN, passwordStrength, sanitizeOtp, sanitizePhoneNumber } from '../lib/validation';
+import { PASSWORD_HINT, PHONE_PATTERN, sanitizeOtp, sanitizePhoneNumber } from '../lib/validation';
 import { spacing, useTheme } from '../theme';
 import type { AuthStackParamList } from '../navigation/types';
 
@@ -57,7 +57,6 @@ export function ResetPasswordScreen({ navigation, route }: Props) {
   const codeValid = /^\d{6}$/.test(code);
   const passwordLongEnough = password.length >= 8;
   const passwordsMatch = confirmPassword.length > 0 && confirmPassword === password;
-  const strength = passwordStrength(password);
 
   async function submitPhone() {
     setPhoneTouched(true);
@@ -243,19 +242,7 @@ export function ResetPasswordScreen({ navigation, route }: Props) {
         maxLength={72}
         error={password.length > 0 && !passwordLongEnough ? 'Password must be at least 8 characters.' : null}
       />
-      {password.length > 0 ? (
-        <View style={styles.strengthWrap}>
-          <View style={styles.strengthBars}>
-            {[0, 1, 2, 3].map((i) => (
-              <View
-                key={i}
-                style={[styles.strengthBar, { backgroundColor: i < strength.score ? c.primary : c.border }]}
-              />
-            ))}
-          </View>
-          <Text style={[styles.strengthLabel, { color: c.muted }]}>{strength.label}</Text>
-        </View>
-      ) : null}
+      <Text style={[styles.passwordHint, { color: c.muted }]}>{PASSWORD_HINT}</Text>
       <TextField
         label="Confirm new password"
         value={confirmPassword}
@@ -281,12 +268,9 @@ export function ResetPasswordScreen({ navigation, route }: Props) {
 }
 
 const styles = StyleSheet.create({
-  strengthWrap: { marginTop: -spacing.xs, marginBottom: spacing.sm },
+  passwordHint: { fontSize: 12, lineHeight: 17, marginTop: -spacing.xs, marginBottom: spacing.sm },
   // AuthScreenLayout's card has no gap and Button no margin, so without this the links sat flush
   // under the button above, their 8pt hit area reaching into its bottom edge. Same spacing as
   // LoginScreen's cancelRow.
   linkRow: { alignItems: 'center', marginTop: spacing.sm, gap: spacing.sm },
-  strengthBars: { flexDirection: 'row', gap: spacing.xs },
-  strengthBar: { flex: 1, height: 4, borderRadius: 2 },
-  strengthLabel: { fontSize: 12, marginTop: spacing.xs },
 });

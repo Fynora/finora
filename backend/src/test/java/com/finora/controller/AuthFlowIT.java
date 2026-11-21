@@ -341,9 +341,8 @@ class AuthFlowIT extends AbstractIntegrationTest {
         // from the auth response itself to call RevenueCat's configureRevenueCat() at sign-in --
         // AuthResponse carried no id field before this. Piggybacks on the register/login round
         // trip already above rather than adding a dedicated test with its own register() call --
-        // this file's register rate-limit budget is already fully spent (rate-limit.register.max
-        // is 5 per 5 minutes; see application.yml's own comment on why that ceiling is tight on
-        // purpose, and this class was already tuned to exactly that many register() calls).
+        // this file was tuned to five register() calls when rate-limit.register.max was 5 per 5
+        // minutes. It is 10 since audit F-08, so there is room now, but nothing here needs it.
         JsonNode registerJson = mapper.readTree(registerResponse.getBody());
         JsonNode loginJson = mapper.readTree(response.getBody());
         String registeredId = registerJson.get("data").get("id").asText();

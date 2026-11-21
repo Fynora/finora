@@ -50,7 +50,7 @@ class RoleServiceTest {
         auditService = mock(AuditService.class);
         userAuthorityCache = mock(com.finora.security.UserAuthorityCache.class);
         roleService = new RoleService(roleRepository, permissionRepository, userRepository, auditService,
-                userAuthorityCache);
+                userAuthorityCache, new AuthorizationService(roleRepository));
     }
 
     private User userWith(UUID id) {

@@ -86,7 +86,7 @@ public class SetupService {
      * default-category seeding every other admin-created account gets -- rather than
      * re-implementing user creation here. The only things specific to *this* admin are applied
      * after: the SUPER_ADMIN role (both the legacy User.role column and an explicit user_roles
-     * row via RoleService.assignRole, matching how V16's own migration backfills both for
+     * row via RoleService.assignFirstSuperAdmin, matching how V16's own migration backfills both for
      * existing users) and the audit trail tying the new admin back to the bootstrap account that
      * created it.
      */
@@ -111,7 +111,9 @@ public class SetupService {
         User newAdmin = authService.adminCreateUser(request, bootstrapUserId, User.SCOPE_ADMIN);
         newAdmin.setRole("SUPER_ADMIN");
         userRepository.save(newAdmin);
-        roleService.assignRole(bootstrapUserId, newAdmin.getId(), "SUPER_ADMIN");
+        // Not assignRole: that refuses to grant what the actor does not hold, and the bootstrap
+        // account holds only SYSTEM_INITIALIZE. See assignFirstSuperAdmin.
+        roleService.assignFirstSuperAdmin(bootstrapUserId, newAdmin.getId());
 
         User bootstrap = userRepository.findById(bootstrapUserId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Bootstrap account not found"));

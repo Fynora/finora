@@ -183,15 +183,23 @@ public class SharedCorpusService {
 
     /** @return null if fewer than 3 distinct voters (Empty/Provisional -- no corpus row yet).
      *  Counts default categories only, in their seeded spelling: a vote recorded before
-     *  {@link #recordObservation} was limited to them is no vote here either. */
+     *  {@link #recordObservation} was limited to them is no vote here either.
+     *
+     *  <p>One vote per account: its latest for a default category (audit F-12, 2026-11-20). Every
+     *  recorded observation used to count, and an account records one each time it sets a category,
+     *  including on a transaction it typed in. One account voting ten times beside two accounts
+     *  that agreed with each other took 83% and became the trusted answer for everyone. The log
+     *  keeps every observation; only the counting changed. */
     static Tier computeTier(List<CounterpartyCategoryObservation> recorded) {
-        List<Vote> obs = new ArrayList<>();
+        Map<UUID, Vote> latestByUser = new HashMap<>();
         for (CounterpartyCategoryObservation o : recorded) {
-            DefaultCategories.canonical(o.getCategory())
-                    .ifPresent(category -> obs.add(new Vote(o.getUserId(), category, o.getCreatedAt())));
+            DefaultCategories.canonical(o.getCategory()).ifPresent(category -> {
+                Vote vote = new Vote(o.getUserId(), category, o.getCreatedAt(), o.getId());
+                latestByUser.merge(o.getUserId(), vote, (kept, next) -> next.isAfter(kept) ? next : kept);
+            });
         }
-        Set<UUID> distinctUsers = obs.stream().map(Vote::userId)
-                .collect(Collectors.toSet());
+        List<Vote> obs = new ArrayList<>(latestByUser.values());
+        Set<UUID> distinctUsers = latestByUser.keySet();
         if (distinctUsers.size() < TRUSTED_MIN_DISTINCT_VOTERS) return null;
 
         Map<String, Long> rawCounts = obs.stream()
@@ -226,8 +234,16 @@ public class SharedCorpusService {
         return new Tier(status, winner, distribution, distinctUsers.size());
     }
 
-    /** One counted vote: a recorded observation whose category is a default one. */
-    private record Vote(UUID userId, String category, Instant createdAt) {}
+    /** One counted vote: an account's latest recorded observation whose category is a default one. */
+    private record Vote(UUID userId, String category, Instant createdAt, UUID id) {
+        /** Later in time; for two made in the same instant, the higher id, so the answer does not
+         *  depend on the order the rows were read in. */
+        boolean isAfter(Vote other) {
+            int byTime = createdAt.compareTo(other.createdAt);
+            if (byTime != 0) return byTime > 0;
+            return id != null && other.id != null && id.compareTo(other.id) > 0;
+        }
+    }
 
 
     static BigDecimal decayWeight(Instant now, Instant createdAt) {

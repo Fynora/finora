@@ -38,10 +38,12 @@ public class RoleService {
     private final UserRepository userRepository;
     private final AuditService auditService;
     private final UserAuthorityCache userAuthorityCache;
+    private final AuthorizationService authorizationService;
 
     public RoleService(RoleRepository roleRepository, PermissionRepository permissionRepository,
                         UserRepository userRepository, AuditService auditService,
-                        UserAuthorityCache userAuthorityCache) {
+                        UserAuthorityCache userAuthorityCache, AuthorizationService authorizationService) {
+        this.authorizationService = authorizationService;
         this.roleRepository = roleRepository;
         this.permissionRepository = permissionRepository;
         this.userRepository = userRepository;
@@ -75,6 +77,22 @@ public class RoleService {
      */
     @Transactional
     public RoleDto assignRole(UUID actingAdminId, UUID userId, String roleName) {
+        return assign(actingAdminId, userId, roleName, true);
+    }
+
+    /**
+     * First-run setup only: the bootstrap account hands SUPER_ADMIN to the first real administrator.
+     * It holds one permission, SYSTEM_INITIALIZE, so it could never pass the rule that you cannot
+     * grant what you do not hold, and it exists to do exactly this once. Fixed to SUPER_ADMIN so
+     * it is not a general way round that rule; the one caller, SetupService.completeSetup, runs
+     * only while setup has not been completed.
+     */
+    @Transactional
+    public RoleDto assignFirstSuperAdmin(UUID bootstrapUserId, UUID userId) {
+        return assign(bootstrapUserId, userId, User.SUPER_ADMIN_ROLE, false);
+    }
+
+    private RoleDto assign(UUID actingAdminId, UUID userId, String roleName, boolean actorMustHoldIt) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found"));
         Role role = roleRepository.findByName(roleName)
@@ -91,6 +109,10 @@ public class RoleService {
         if (userId.equals(actingAdminId)) {
             throw new ApiException(HttpStatus.FORBIDDEN,
                     "You cannot grant a role to your own account. Ask another administrator to do it.");
+        }
+        if (actorMustHoldIt) {
+            requireActorHolds(actingAdminId, role.getPermissions(),
+                    "You cannot grant \"" + role.getName() + "\": it carries permissions your own account does not have");
         }
         requireScopeCanHold(user, role);
 
@@ -201,6 +223,46 @@ public class RoleService {
                         + "admin-portal account. This account is a consumer (USER-scope) account.");
     }
 
+    /**
+     * You cannot grant what you do not hold (audit A-01, 2026-11-20).
+     *
+     * <p>ROLE_MANAGE lets its holder assign any role and attach any permission to any role, and
+     * nothing compared that with what the holder has. As seeded only SUPER_ADMIN has ROLE_MANAGE,
+     * so nothing was reachable; the day a Super Admin hands role management to a lesser role, its
+     * holder could grant SUPER_ADMIN to a colleague, add every other permission to a colleague's
+     * role, or build a new role out of permissions they lack. All three end the same way, so the
+     * rule is on the permissions and not on SUPER_ADMIN's name: every permission being handed
+     * out must be one the actor's own account has.
+     *
+     * <p>A Super Admin holds everything by definition (V16: "full platform access, including
+     * managing the role/permission system itself"). Without that, a permission created a moment
+     * ago, which no role carries yet, could be attached to a role by nobody at all.
+     *
+     * <p>What the actor "has" is what {@link AuthorizationService#effectiveAuthorities} gives
+     * them, the same answer every {@code @PreAuthorize} check gets, read fresh from the row and
+     * not from the cache.
+     *
+     * <p>Grants only. Taking a role or a permission away is not checked here.
+     */
+    private void requireActorHolds(UUID actingAdminId, java.util.Collection<Permission> permissions, String refusal) {
+        if (permissions.isEmpty()) return;
+        User actor = userRepository.findById(actingAdminId).orElse(null);
+        java.util.Set<String> held = new java.util.HashSet<>();
+        if (actor != null) {
+            authorizationService.effectiveAuthorities(actor).forEach(a -> held.add(a.getAuthority()));
+        }
+        if (held.contains("ROLE_" + User.SUPER_ADMIN_ROLE)
+                && held.contains(AuthorizationService.portalAuthority(User.SCOPE_ADMIN))) {
+            return;
+        }
+        List<String> missing = permissions.stream().map(Permission::getName)
+                .filter(name -> !held.contains(name)).sorted().toList();
+        if (!missing.isEmpty()) {
+            throw new ApiException(HttpStatus.FORBIDDEN,
+                    refusal + " (" + String.join(", ", missing) + "). Ask an administrator who has them.");
+        }
+    }
+
     /** Whether the acting admin holds {@code role}, by either the explicit user_roles grant or
      *  the legacy User.role column -- both are live grants, as revokeRole's own doc comment
      *  records. A missing actor is treated as holding nothing rather than as an error: this backs
@@ -305,6 +367,9 @@ public class RoleService {
             throw new ApiException(HttpStatus.FORBIDDEN,
                     "You cannot add a permission to a role your own account holds. Ask another administrator to do it.");
         }
+        // And the other half: a permission you do not have, attached to a role someone else holds.
+        requireActorHolds(actingAdminId, List.of(permission),
+                "You cannot add \"" + permission.getName() + "\" to a role: your own account does not have it");
         if (role.getPermissions().add(permission)) {
             roleRepository.save(role);
             auditService.record(actingAdminId, "ROLE_PERMISSION_GRANTED", "Role", roleId,

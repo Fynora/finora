@@ -70,7 +70,7 @@ class SetupServiceTest {
         when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
         User bootstrap = userWith(bootstrapUserId, "BOOTSTRAP_ADMIN");
         when(userRepository.findById(bootstrapUserId)).thenReturn(Optional.of(bootstrap));
-        when(roleService.assignRole(bootstrapUserId, newAdminId, "SUPER_ADMIN"))
+        when(roleService.assignFirstSuperAdmin(bootstrapUserId, newAdminId))
                 .thenReturn(new RoleDto(UUID.randomUUID(), "SUPER_ADMIN", "desc", java.util.List.of()));
 
         setupService.completeSetup(bootstrapUserId, request);
@@ -78,7 +78,10 @@ class SetupServiceTest {
         assertThat(newAdmin.getRole()).isEqualTo("SUPER_ADMIN");
         // actingAdminId is bootstrapUserId on both calls: it's the account running the setup
         // wizard that performs both the grant (to the new admin) and the self-revocation below.
-        verify(roleService).assignRole(bootstrapUserId, newAdminId, "SUPER_ADMIN");
+        // Through setup's own grant, never the general one: the bootstrap account does not hold
+        // what SUPER_ADMIN carries, and the general one refuses that (audit A-01).
+        verify(roleService).assignFirstSuperAdmin(bootstrapUserId, newAdminId);
+        verify(roleService, never()).assignRole(any(), any(), any());
         // Locked, not deleted (Gap 2) -- reuses the exact same status column/value
         // AdminUserService.suspend() already relies on, so login is blocked the same proven way.
         assertThat(bootstrap.getStatus()).isEqualTo("SUSPENDED");
@@ -109,7 +112,7 @@ class SetupServiceTest {
         when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
         User bootstrap = userWith(bootstrapUserId, "BOOTSTRAP_ADMIN");
         when(userRepository.findById(bootstrapUserId)).thenReturn(Optional.of(bootstrap));
-        when(roleService.assignRole(bootstrapUserId, newAdminId, "SUPER_ADMIN"))
+        when(roleService.assignFirstSuperAdmin(bootstrapUserId, newAdminId))
                 .thenReturn(new RoleDto(UUID.randomUUID(), "SUPER_ADMIN", "desc", java.util.List.of()));
         doThrow(new java.io.IOException("permission denied")).when(setupKeyFileWriter).deleteIfPresent();
 

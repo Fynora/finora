@@ -202,7 +202,7 @@ public class PasswordChangeService {
         return new VerifyOtpResponse("Verified.");
     }
 
-    /** Mirrors AuthService.registerFailedLogin's shape exactly: increment, conditionally audit
+    /** Mirrors AuthService.countAttempt's shape exactly: increment, conditionally audit
      *  once at the moment the cap is actually reached (not on every subsequent rejected attempt --
      *  loadActiveSession/the cap check above own that path), then persist regardless. Never logs
      *  the token or the phone numbers involved -- the audit metadata carries only the resulting
@@ -284,7 +284,18 @@ public class PasswordChangeService {
         user.setSignInMethod(User.SIGN_IN_METHOD_PASSWORD);
         user.setUpdatedAt(now);
         user.setPasswordChangedAt(now);
+        // Audit F-09. A lock put on by wrong passwords is lifted by a completed change, as it is
+        // by a completed reset (AuthService.resetPassword): the person is signed in, has given the
+        // current password or a fresh Google sign-in, and has proved the phone, and the guesses
+        // counted were at a password that no
+        // longer exists. Without this, someone still signed in on one device who changed their
+        // password while a stranger had the account locked could not sign in anywhere else with
+        // the new one until the lock ran out. Written to the row directly as well, for the reason
+        // clearWrongPasswordLock gives.
+        user.setFailedLoginAttempts(0);
+        user.setLockedUntil(null);
         userRepository.save(user);
+        userRepository.clearWrongPasswordLock(userId);
         passwordHistoryService.record(userId, user.getPasswordHash());
 
         session.setStatus(PasswordChangeSession.Status.COMPLETED);

@@ -43,6 +43,38 @@ public interface UserRepository extends JpaRepository<User, UUID> {
             nativeQuery = true)
     int releasePurgeClaim(@org.springframework.data.repository.query.Param("userId") UUID userId);
 
+    /**
+     * The wrong-password count and lock as they are in the database right now, with the row held
+     * until the transaction ends. One row of two numbers: the count, and the lock's state at
+     * {@code now} (0 none, 1 run out, 2 in force). Empty when the account is gone.
+     *
+     * <p>Password sign-in reads this before it checks the password (audit F-09). Read from the
+     * entity instead, wrong passwords arriving together each saw the count as it was before any of
+     * them, and five of them counted as one. {@code FOR NO KEY UPDATE} is the lock an ordinary
+     * UPDATE takes: unlike {@code FOR UPDATE} it does not wait on rows elsewhere that point at
+     * this user.
+     */
+    @Query(value = "SELECT failed_login_attempts, "
+            + "CASE WHEN locked_until IS NULL THEN 0 WHEN locked_until > :now THEN 2 ELSE 1 END "
+            + "FROM users WHERE id = :id FOR NO KEY UPDATE", nativeQuery = true)
+    java.util.List<Object[]> lockWrongPasswordState(@Param("id") UUID id, @Param("now") Instant now);
+
+    /** Writes the wrong-password count and lock, whatever this transaction read earlier. */
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)
+    @Query("UPDATE User u SET u.failedLoginAttempts = :attempts, u.lockedUntil = :lockedUntil WHERE u.id = :id")
+    int setWrongPasswordState(@Param("id") UUID id, @Param("attempts") int attempts,
+                              @Param("lockedUntil") Instant lockedUntil);
+
+    /**
+     * Lifts a wrong-password lock and starts the count again, whatever this transaction read
+     * earlier. Setting the two fields on the entity is not enough: a lock that lands after the
+     * entity was read leaves the entity's own value null, so nulling it changes nothing and no
+     * UPDATE is sent for that column.
+     */
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)
+    @Query("UPDATE User u SET u.failedLoginAttempts = 0, u.lockedUntil = NULL WHERE u.id = :id")
+    int clearWrongPasswordLock(@Param("id") UUID id);
+
     /** The user row, locked until the transaction ends. AccountSuspensionService takes it before
      *  checking for an open appeal or deletion request, so a double submit cannot raise two. */
     @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)

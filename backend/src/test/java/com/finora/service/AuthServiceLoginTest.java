@@ -57,7 +57,7 @@ class AuthServiceLoginTest {
         when(refreshTokenService.issue(any(), any())).thenReturn(
                 new RefreshTokenService.IssuedToken("test-refresh-token", java.time.Instant.now().plusSeconds(3600), java.util.UUID.randomUUID()));
 
-        // registerFailedLogin() (invoked from login()'s catch block whenever the user is known)
+        // countAttempt() (invoked from login()'s catch block whenever the user is known)
         // reads live lockout policy off this on every failed attempt -- a real entity with the
         // same 5/15 defaults the old hardcoded constants had, so existing lockout-related
         // expectations don't shift just from this mock existing.
@@ -249,7 +249,7 @@ class AuthServiceLoginTest {
 
     /**
      * Timing-oracle fix (self-review finding, acted on 2026-08-23): an identifier that matches no
-     * account still has no user id to attach a lockout counter to (registerFailedLogin stays
+     * account still has no user id to attach a lockout counter to (countAttempt stays
      * null-user-guarded, unchanged), but skipping the LOGIN_FAILED audit write entirely made this
      * branch measurably cheaper than the known-user branches just above it -- one fewer DB
      * round-trip, on an endpoint whose entire BH-014 design goal is that a locked/wrong-password/
@@ -688,7 +688,7 @@ class AuthServiceLoginTest {
      * Serving a lockout has to actually clear it.
      *
      * <p>This was latent until per-account lockout started working, and making it work is what
-     * exposed it. registerFailedLogin never resets failedLoginAttempts -- only a SUCCESSFUL login
+     * exposed it. The counting code never reset failedLoginAttempts -- only a SUCCESSFUL login
      * did -- but while the counter was being discarded by rollback it never reached the threshold,
      * so a second lock could not happen either. Once the counter persisted, an account that had
      * served its 15 minutes came back with the count still at the maximum, and ONE wrong password

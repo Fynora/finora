@@ -5,7 +5,7 @@ import { ShieldAlert } from 'lucide-react';
 import { authApi } from '../api/endpoints';
 import { PasswordInput } from '../components/PasswordInput';
 import { sendPhoneVerificationCode, confirmPhoneVerificationCode, resetPhoneVerification } from '../lib/phoneAuth';
-import { maskPhone } from '../lib/maskPhone';
+import { reportHandledError } from '../lib/monitoring';
 import { PASSWORD_HINT } from '../lib/passwordHint';
 import type { ConfirmationResult } from 'firebase/auth';
 
@@ -27,20 +27,39 @@ function friendlyFirebaseError(err: any): string {
   }
 }
 
+// Same rule as frontend/'s ResetPassword.tsx. Every way an account gets a phone number (sign-up,
+// first-time setup, an admin creating or editing one) accepts only a 10-digit Indian mobile
+// number, so a fixed +91 box can reach every admin's number.
+const PHONE_PATTERN = /^[6-9][0-9]{9}$/;
+function sanitizeLocalPhoneNumber(raw: string): string {
+  return raw.replace(/[^0-9]/g, '').slice(0, 10);
+}
+
 /**
- * Bug fix / security hardening: a reset link alone (proof of email access) used to be sufficient
- * to change a password outright, including for admin accounts. Now requires a phone OTP via
- * Firebase Phone Authentication as a second factor, same principle VerifyPhone already applies
- * elsewhere, and the exact same backend endpoints/flow the user-facing app's ResetPassword.tsx
- * uses -- the backend never sends the OTP itself, only reveals the real phone number
- * (authApi.resolveResetPasswordPhone) so this page can hand it to Firebase directly.
+ * A reset link alone (proof of email access) is not enough to change a password, for an admin
+ * account least of all: a phone code via Firebase Phone Authentication is required too, through
+ * the same backend endpoints the user-facing app's ResetPassword.tsx uses.
+ *
+ * The admin types their own number. authApi.verifyResetPasswordPhone confirms it matches the
+ * account, never returning the real one (BH-015), and only then is the typed number handed to
+ * Firebase, which sends and checks the code; the backend sees only the resulting ID token.
+ *
+ * Until this was written that way, the page asked the server for the account's number as soon as
+ * it opened, sending the token alone. The server had stopped answering that when BH-015 turned
+ * the endpoint around, so the request was refused and no admin could get a code or reset a
+ * password here.
  */
 export default function ResetPassword() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const token = searchParams.get('token');
+  const [phoneLocal, setPhoneLocal] = useState('');
+  const [phoneConfirmed, setPhoneConfirmed] = useState(false);
+  const [verifyingPhone, setVerifyingPhone] = useState(false);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const phoneValid = PHONE_PATTERN.test(phoneLocal);
+
   const [otp, setOtp] = useState('');
-  const [phoneNumber, setPhoneNumber] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<ConfirmationResult | null>(null);
   const [otpError, setOtpError] = useState<string | null>(null);
   const [sendingOtp, setSendingOtp] = useState(false);
@@ -56,31 +75,47 @@ export default function ResetPassword() {
   // used. Same as frontend/'s ResetPassword.tsx. Cleared when a new code is sent.
   const verifiedIdToken = useRef<string | null>(null);
 
-  async function requestOtp() {
-    if (!token) return;
+  async function sendOtp(fullPhoneNumber: string) {
     setSendingOtp(true);
     setOtpError(null);
     setOtp('');
     setConfirmation(null);
     verifiedIdToken.current = null;
     try {
-      const res = await authApi.resolveResetPasswordPhone(token);
-      setPhoneNumber(res.phoneNumber);
-      const result = await sendPhoneVerificationCode(res.phoneNumber, RECAPTCHA_CONTAINER_ID);
+      const result = await sendPhoneVerificationCode(fullPhoneNumber, RECAPTCHA_CONTAINER_ID);
       setConfirmation(result);
-    } catch (err: any) {
-      setOtpError(err.response?.data?.message ?? 'Could not send a verification code. The link may be invalid or expired.');
+    } catch (err: unknown) {
+      reportHandledError(err, 'reset-password-send-otp');
+      // A used or expired invisible reCAPTCHA throws when it is reused, so the next try needs a
+      // fresh one whatever just failed.
+      resetPhoneVerification();
+      setOtpError('Could not send a verification code right now. Please try again.');
     } finally {
       setSendingOtp(false);
     }
   }
 
-  useEffect(() => {
-    if (!token) return;
-    void requestOtp();
-    return () => resetPhoneVerification();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  async function submitPhoneNumber(e: FormEvent) {
+    e.preventDefault();
+    setTouched((t) => ({ ...t, phone: true }));
+    if (!token || !phoneValid) return;
+    setPhoneError(null);
+    setVerifyingPhone(true);
+    const fullPhoneNumber = `+91${phoneLocal}`;
+    try {
+      await authApi.verifyResetPasswordPhone(token, fullPhoneNumber);
+    } catch (err: any) {
+      setPhoneError(err.response?.data?.message ?? 'Could not verify that phone number. Please try again.');
+      setVerifyingPhone(false);
+      return;
+    }
+    setPhoneConfirmed(true);
+    setVerifyingPhone(false);
+    await sendOtp(fullPhoneNumber);
+  }
+
+  // Leaving the page clears the reCAPTCHA, so a later visit gets one bound to its own page.
+  useEffect(() => () => resetPhoneVerification(), []);
 
   const passwordLongEnough = password.length >= 8;
   const passwordsMatch = confirm.length > 0 && confirm === password;
@@ -93,7 +128,7 @@ export default function ResetPassword() {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    setTouched({ password: true, confirm: true, otp: true });
+    setTouched((t) => ({ ...t, password: true, confirm: true, otp: true }));
     if (!token) { setError('No reset token found in the link.'); return; }
     if (!confirmation) { setError('Enter the 6-digit verification code sent to your phone.'); return; }
     if (!otpValid) { setError('Enter the 6-digit verification code sent to your phone.'); return; }
@@ -137,55 +172,106 @@ export default function ResetPassword() {
         </div>
 
         <div className="bg-card border border-border rounded-xl2 shadow-soft p-6">
+          {/* Anchor for Firebase's invisible reCAPTCHA. Rendered once, outside the steps below, and
+              never unmounted while this page is up: the verifier is built against this exact node
+              the first time a code is sent, and a copy inside each step would be swapped out from
+              under it when the page moves from the phone step to the code step. */}
+          <div id={RECAPTCHA_CONTAINER_ID} />
+
           {done ? (
             <>
               <h1 className="text-lg font-bold text-ink mb-2">Password updated</h1>
               <p className="text-sm text-muted">Redirecting you to sign in…</p>
             </>
+          ) : !token ? (
+            <>
+              <p className="text-xs text-danger mb-4">
+                No reset token found in the link — this page normally opens from the email link.
+              </p>
+              <p className="text-sm text-center">
+                <Link to="/login" className="text-primary font-medium">Back to sign in</Link>
+              </p>
+            </>
+          ) : !phoneConfirmed ? (
+            <form onSubmit={submitPhoneNumber} noValidate>
+              <h1 className="text-lg font-bold text-ink mb-2">Confirm your phone number</h1>
+              <p className="text-xs text-muted mb-4">
+                Enter the mobile number on this account. We'll use it to send a verification code.
+              </p>
+              {phoneError && <p className="text-sm text-danger bg-danger-bg rounded-lg px-3.5 py-2.5 mb-4">{phoneError}</p>}
+
+              <label htmlFor="reset-phone" className="block text-sm font-medium text-ink mb-1.5">Mobile number</label>
+              <div className="relative mb-1">
+                <div className="absolute left-3.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5 text-sm text-ink pointer-events-none select-none">
+                  <span>+91</span>
+                  <span className="w-px h-4 bg-border" />
+                </div>
+                <input
+                  id="reset-phone"
+                  type="tel"
+                  inputMode="numeric"
+                  autoComplete="tel-national"
+                  value={phoneLocal}
+                  onChange={(e) => { setPhoneLocal(sanitizeLocalPhoneNumber(e.target.value)); setPhoneError(null); }}
+                  onBlur={() => markTouched('phone')}
+                  placeholder="XXXXXXXXXX"
+                  maxLength={10}
+                  className="w-full bg-bg border border-border rounded-lg pl-16 pr-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                />
+              </div>
+              <p className="text-[11px] mb-4 h-3.5">
+                {touched.phone && !phoneValid && <span className="text-danger">Enter a valid 10-digit mobile number.</span>}
+              </p>
+
+              <button
+                type="submit"
+                disabled={verifyingPhone || !phoneValid}
+                className="w-full bg-primary hover:bg-primary-dark text-on-primary font-semibold rounded-lg py-2.5 text-sm disabled:opacity-50"
+              >
+                {verifyingPhone ? 'Confirming…' : 'Continue'}
+              </button>
+
+              <p className="text-sm mt-4 text-center">
+                <Link to="/login" className="text-primary font-medium">Back to sign in</Link>
+              </p>
+            </form>
           ) : (
             <form onSubmit={handleSubmit} noValidate>
               <h1 className="text-lg font-bold text-ink mb-2">Set a new password</h1>
-              {!token && (
-                <p className="text-xs text-danger mb-4">
-                  No reset token found in the link — this page normally opens from the email link.
-                </p>
-              )}
               {error && <p className="text-sm text-danger bg-danger-bg rounded-lg px-3.5 py-2.5 mb-4">{error}</p>}
 
-              {token && (
-                <div className="mb-4">
-                  <label htmlFor="reset-otp" className="block text-sm font-medium text-ink mb-1">Verification code</label>
-                  <p className="text-xs text-muted mb-2">
-                    {confirmation
-                      ? `Enter the 6-digit code sent to ${phoneNumber ? maskPhone(phoneNumber) : 'the phone number on file'}.`
-                      : 'Sending a verification code…'}
+              <div className="mb-4">
+                <label htmlFor="reset-otp" className="block text-sm font-medium text-ink mb-1">Verification code</label>
+                <p className="text-xs text-muted mb-2">
+                  {confirmation
+                    ? `Enter the 6-digit code sent to +91${phoneLocal}.`
+                    : 'Sending a verification code…'}
+                </p>
+                {otpError && <p className="text-danger text-xs mb-2">{otpError}</p>}
+                <input
+                  id="reset-otp"
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  onBlur={() => markTouched('otp')}
+                  inputMode="numeric"
+                  placeholder="123456"
+                  disabled={!confirmation}
+                  className="w-full bg-bg border border-border rounded-lg px-3.5 py-2.5 text-center text-lg tracking-[0.4em] font-mono focus:outline-none focus:ring-2 focus:ring-primary/30 mb-1 disabled:opacity-50"
+                />
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] h-3.5">
+                    {touched.otp && !otpValid && <span className="text-danger">Enter the 6-digit code.</span>}
                   </p>
-                  {otpError && <p className="text-danger text-xs mb-2">{otpError}</p>}
-                  <input
-                    id="reset-otp"
-                    value={otp}
-                    onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                    onBlur={() => markTouched('otp')}
-                    inputMode="numeric"
-                    placeholder="123456"
-                    disabled={!confirmation}
-                    className="w-full bg-bg border border-border rounded-lg px-3.5 py-2.5 text-center text-lg tracking-[0.4em] font-mono focus:outline-none focus:ring-2 focus:ring-primary/30 mb-1 disabled:opacity-50"
-                  />
-                  <div className="flex items-center justify-between">
-                    <p className="text-[11px] h-3.5">
-                      {touched.otp && !otpValid && <span className="text-danger">Enter the 6-digit code.</span>}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={requestOtp}
-                      disabled={sendingOtp}
-                      className="text-[11px] text-primary font-medium"
-                    >
-                      {sendingOtp ? 'Sending…' : 'Resend code'}
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void sendOtp(`+91${phoneLocal}`)}
+                    disabled={sendingOtp || loading}
+                    className="text-[11px] text-primary font-medium disabled:opacity-50"
+                  >
+                    {sendingOtp ? 'Sending…' : 'Resend code'}
+                  </button>
                 </div>
-              )}
+              </div>
 
               <label htmlFor="reset-new-password" className="block text-sm font-medium text-ink mb-1.5">New password</label>
               <PasswordInput
@@ -231,10 +317,6 @@ export default function ResetPassword() {
               <p className="text-sm mt-4 text-center">
                 <Link to="/login" className="text-primary font-medium">Back to sign in</Link>
               </p>
-
-              {/* Anchor for Firebase's invisible reCAPTCHA -- never visibly rendered, but must
-                  exist in the DOM before sendPhoneVerificationCode() runs. */}
-              <div id={RECAPTCHA_CONTAINER_ID} />
             </form>
           )}
         </div>

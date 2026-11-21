@@ -89,11 +89,22 @@ class AuditLogFilterIndexIT extends AbstractIntegrationTest {
     @Test
     @Transactional
     void aCachedGenericPlan_madeWithSeqScansAllowed_isNotWhatIsMeasured() {
-        // What other tests on a pooled connection can do before this class gets it: run the query
-        // often enough, with seq scans allowed and audit_logs analyzed small, that Postgres caches a
-        // generic plan for it. On a table as small as the suite's (one page) that plan is a Seq Scan.
+        // What other tests on a pooled connection can leave behind before this class gets it: a
+        // cached generic plan for the query that is a Seq Scan, made while seq scans were allowed.
+        //
+        // The set-up forces that state instead of waiting for Postgres to choose it. Left to
+        // itself (plan_cache_mode = auto) Postgres caches a generic plan only when it costs no
+        // more than the custom plans it has made, and that depends on what the rest of the suite
+        // has put in audit_logs: once entity_id values repeat, the generic plan expects several
+        // rows, a custom plan for a random UUID expects one, the custom plan is cheaper, and no
+        // generic plan is ever cached. Likewise a table past one page gets an index plan, not a
+        // Seq Scan. So: ANALYZE throws away any plan already cached for the table, index plans
+        // are switched off so the only plan is a Seq Scan, and force_generic_plan caches it.
         auditLogs.flush();
         jdbc.execute("ANALYZE audit_logs");
+        jdbc.execute("SET LOCAL enable_indexscan = off");
+        jdbc.execute("SET LOCAL enable_bitmapscan = off");
+        jdbc.execute("SET LOCAL plan_cache_mode = force_generic_plan");
         for (int i = 0; i < 12; i++) {
             auditLogs.findByEntityIdOrderByCreatedAtAsc(UUID.randomUUID());
         }
@@ -103,6 +114,19 @@ class AuditLogFilterIndexIT extends AbstractIntegrationTest {
                 .as("a cached generic plan for the transactions-history query on this connection")
                 .isPositive();
 
+        // The hazard itself: index plans are allowed again and seq scans are now off, yet the
+        // cached plan still runs, because changing a planner setting does not invalidate it.
+        jdbc.execute("SET LOCAL enable_indexscan = on");
+        jdbc.execute("SET LOCAL enable_bitmapscan = on");
+        jdbc.execute("SET LOCAL enable_seqscan = off");
+        long before = seqScans();
+        auditLogs.findByEntityIdOrderByCreatedAtAsc(customer);
+        assertThat(seqScans() - before)
+                .as("sequential scans made by the cached plan, with seq scans turned off")
+                .isEqualTo(1);
+
+        // plan_cache_mode is still force_generic_plan here; the helper's own setting is what
+        // replaces the cached plan with one made under enable_seqscan = off.
         long scans = withoutSeqScans(() -> auditLogs.findByEntityIdOrderByCreatedAtAsc(customer));
         assertThat(scans).as("sequential scans of audit_logs").isZero();
     }
